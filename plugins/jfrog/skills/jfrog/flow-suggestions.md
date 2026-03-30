@@ -8,7 +8,7 @@ Always render a mermaid progress diagram and use `AskQuestion` to let the user p
 
 ## Pre-flight Gate
 
-Before showing suggestions, run the pre-flight check ([../jfrog-cli/preflight.md](../jfrog-cli/preflight.md)) if it has not been run this session. Use the results to filter out paths for unavailable services:
+Before showing suggestions, run the pre-flight check ([preflight.md](preflight.md)) if it has not been run this session. Use the results to filter out paths for unavailable services:
 
 - Only offer **Security / Xray** options if Xray is available.
 - Only offer **Curation** options if Curation is available.
@@ -58,7 +58,7 @@ Show the entry-point diagram, then ask via `AskQuestion`. Only include options f
 | curation | Set up package curation to block risky open-source packages | Curation |
 | something-else | Something else | -- |
 
-If the user provides context about their goal (e.g., "I want to secure my supply chain"), narrow the options to the most relevant journey. See the [journeys.md](journeys.md) file and the **Cross-Cutting Journey Progress** section below for journey-specific flows.
+If the user provides context about their goal (e.g., "I want to secure my supply chain"), narrow the options to the most relevant journey. See the [patterns-journeys.md](patterns-journeys.md) file and the **Cross-Cutting Journey Progress** section below for journey-specific flows.
 
 ---
 

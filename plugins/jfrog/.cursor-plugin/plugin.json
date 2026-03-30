@@ -18,5 +18,6 @@
     "devops",
     "artifacts"
   ],
-  "logo": "assets/logo.svg"
+  "logo": "assets/logo.svg",
+  "skills": ["skills/jfrog/SKILL.md"]
 }

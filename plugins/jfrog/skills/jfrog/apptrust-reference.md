@@ -1,23 +1,6 @@
----
-name: JFrog AppTrust
-description: Use when working with JFrog AppTrust -- managing applications, creating and promoting application versions, releasing to production, rolling back, or binding packages. Triggers on mentions of apptrust, application entity, application version, trusted release, application risk, promote version, release version, rollback, or package binding.
----
+# AppTrust Reference
 
-# JFrog AppTrust Skill
-
-## Authentication
-
-All requests require an access token via the `Authorization` header:
-
-```
-Authorization: Bearer $JFROG_ACCESS_TOKEN
-```
-
-Base URL: `https://$JFROG_URL/apptrust/api/v1/...`
-
-When authentication is needed, follow the [login-flow.md](../jfrog-cli/login-flow.md) procedure to resolve the active JFrog environment. The `jf` CLI is required and will be installed automatically if missing. The agent checks saved credentials via `jf config show` and asks which environment to use if multiple are saved. If none exist, the agent drives the web login flow and saves credentials via `jf config add`.
-
-> **Pre-flight:** Before operations, verify AppTrust is available: `jf apptrust ping --server-id="$JFROG_SERVER_ID"` (expect `OK`). `JFROG_SERVER_ID` is extracted in Step 2 of [login-flow.md](../jfrog-cli/login-flow.md). If unavailable, inform the user that AppTrust is not enabled on this instance and stop.
+> **Pre-flight:** Before operations, verify AppTrust is available: `jf apptrust ping --server-id="$JFROG_SERVER_ID"` (expect `OK`). `JFROG_SERVER_ID` is extracted in Step 2 of [login-flow.md](login-flow.md). If unavailable, inform the user that AppTrust is not enabled on this instance and stop.
 
 > **Prerequisites:** Artifactory 7.125.0+, Xray 3.130.5+, Enterprise Plus license with AppTrust entitlement.
 
@@ -322,7 +305,164 @@ curl -s -X GET "$JFROG_URL/apptrust/api/v1/applications/payments-svc/versions/1.
 
 For detailed field schemas, see [api-reference.md](api-reference.md).
 
-## Official Documentation
+# AppTrust API Reference
 
-- [AppTrust REST APIs](https://jfrog.com/help/r/jfrog-rest-apis/apptrust-rest-apis)
-- [AppTrust Overview](https://jfrog.com/help/r/jfrog-security-documentation/jfrog-apptrust)
+Base path: `/apptrust/api/v1/`
+
+## Applications
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/applications` | List applications (supports filtering & pagination) |
+| POST | `/applications` | Create application |
+| GET | `/applications/{key}` | Get application |
+| PATCH | `/applications/{key}` | Update application (partial) |
+| DELETE | `/applications/{key}` | Delete application |
+
+### Application Request Body
+
+```json
+{
+  "application_key": "string (required, unique)",
+  "application_name": "string (required)",
+  "project_key": "string (required)",
+  "description": "string",
+  "maturity_level": "unspecified | experimental | production | end_of_life",
+  "criticality": "unspecified | low | medium | high | critical",
+  "labels": {"key": "value"},
+  "user_owners": ["username"],
+  "group_owners": ["group-name"]
+}
+```
+
+### List Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `project_key` | string | Filter by project |
+| `name` | string | Filter by name |
+| `maturity` | string | Filter by maturity level |
+| `criticality` | string | Filter by criticality |
+| `owner` | string | Filter by owner (repeatable) |
+| `label` | string | Filter by label as `key:value` (repeatable) |
+| `order_by` | string | `name` or `created` (default: `created`) |
+| `order_asc` | boolean | Sort ascending (default: false) |
+| `limit` | integer | Max results (default: 100) |
+| `offset` | integer | Pagination offset (default: 0) |
+
+## Application Versions
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/applications/{key}/versions` | List versions |
+| POST | `/applications/{key}/versions` | Create version |
+| PATCH | `/applications/{key}/versions/{version}` | Update version |
+| DELETE | `/applications/{key}/versions/{version}` | Delete version |
+
+### Version Request Body
+
+```json
+{
+  "version": "string (required, semver)",
+  "tag": "string",
+  "sources": {
+    "artifacts": [
+      {"path": "repo/path/to/file", "sha256": "checksum"}
+    ],
+    "builds": [
+      {
+        "name": "build-name",
+        "number": "build-number",
+        "build_started": "ISO 8601 (optional)",
+        "build_repository": "artifactory-build-info (default)",
+        "include_dependencies": false
+      }
+    ],
+    "versions": [
+      {"application_key": "other-app", "version": "1.0.0"}
+    ]
+  }
+}
+```
+
+At least one source type (artifacts, builds, or versions) is required.
+
+### Version Response
+
+```json
+{
+  "version": "1.0.0",
+  "tag": "stable",
+  "release_status": "pre_release | released | trusted_release",
+  "current_stage": "QA",
+  "created_by": "admin",
+  "created": "2025-01-15T10:00:00Z"
+}
+```
+
+## Lifecycle Operations
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/applications/{key}/versions/{version}/promote` | Promote version to stage |
+| POST | `/applications/{key}/versions/{version}/release` | Release version to PROD |
+| POST | `/applications/{key}/versions/{version}/rollback` | Rollback from stage |
+| GET | `/applications/{key}/versions/{version}/status` | Get version status |
+| GET | `/applications/{key}/versions/{version}/promotions` | List promotions |
+
+### Promote Request Body
+
+```json
+{
+  "target_stage": "string (required, e.g. QA, STAGING)",
+  "promotion_type": "copy | move | keep | dry_run (default: copy)",
+  "included_repository_keys": ["repo-key"],
+  "excluded_repository_keys": ["repo-key"]
+}
+```
+
+### Release Request Body
+
+```json
+{
+  "promotion_type": "copy | move | keep | dry_run (default: copy)"
+}
+```
+
+### Rollback Request Body
+
+```json
+{
+  "from_stage": "string (required, stage to roll back from)"
+}
+```
+
+### Status Response
+
+```json
+{
+  "release_status": "pre_release | released | trusted_release",
+  "current_stage": "PROD"
+}
+```
+
+## Package Bindings
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/applications/{key}/packages` | Bind package to application |
+| GET | `/applications/{key}/packages` | List bound packages |
+| GET | `/applications/{key}/packages/{type}/{name}` | List bound package versions |
+| DELETE | `/applications/{key}/packages/{type}/{name}/{version}` | Unbind package version |
+
+### Bind Package Request Body
+
+```json
+{
+  "package_type": "maven | npm | docker | pypi | go | ...",
+  "package_name": "com.example:my-library",
+  "package_version": "1.0.0"
+}
+```
+
+A package version can only be bound to one application at a time.

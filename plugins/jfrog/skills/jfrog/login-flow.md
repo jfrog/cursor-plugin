@@ -84,6 +84,8 @@ print(data.get('accessToken', ''))
 
 These variables are transient -- they exist only in the current shell session and are never persisted or exported to child processes.
 
+> **Agent tooling note:** Shell variables set in one tool call do **not** persist to the next tool call. Always combine credential extraction **and** the API call that uses those credentials in a single shell command. For example, prepend the extraction block above to every `curl` command rather than running them separately.
+
 ## Step 2b -- Generate an Admin-Scoped Token (Optional)
 
 Some operations (creating projects, users, lifecycle stages) require admin privileges. If the user's session token lacks scope for these operations, generate an admin-scoped token:

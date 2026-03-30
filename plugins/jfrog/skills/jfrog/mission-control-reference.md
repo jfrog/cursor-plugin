@@ -1,21 +1,4 @@
----
-name: JFrog Mission Control
-description: Use when working with JFrog Mission Control -- managing JFrog Platform Deployments (JPDs), checking deployment health, auditing licenses, or listing proxies. Triggers on mentions of mission control, JPD, platform deployment, license, proxy, or deployment health.
----
-
-# JFrog Mission Control Skill
-
-## Authentication
-
-All requests require an access token via the `Authorization` header:
-
-```
-Authorization: Bearer $JFROG_ACCESS_TOKEN
-```
-
-Base URL: `https://$JFROG_URL/mc/api/v1/...`
-
-When authentication is needed, follow the [login-flow.md](../jfrog-cli/login-flow.md) procedure to resolve the active JFrog environment. The `jf` CLI is required and will be installed automatically if missing. The agent checks saved credentials via `jf config show` and asks which environment to use if multiple are saved. If none exist, the agent drives the web login flow and saves credentials via `jf config add`.
+# Mission Control Reference
 
 ## Core Concepts
 
@@ -77,7 +60,76 @@ curl -s -X GET "$JFROG_URL/mc/api/v1/proxies" \
 2. Review the `licenses` array on each JPD for expiration dates (`valid_through`) and `expired` status
 3. Attach new licenses to JPDs as needed
 
-## Official Documentation
+# Mission Control API Reference
 
-- [Mission Control REST APIs](https://jfrog.com/help/r/jfrog-rest-apis/mission-control)
-- [Mission Control Overview](https://jfrog.com/help/r/jfrog-platform-administration-documentation/mission-control)
+Base path: `/mc/api/v1/`
+
+## JPD Instances
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/jpds` | List all JPD instances |
+| GET | `/jpds/{id}` | Get specific JPD |
+| POST | `/jpds/{id}/attach_license` | Attach license to JPD |
+
+### JPD Response Object
+
+```json
+{
+  "id": "string",
+  "name": "string",
+  "url": "https://site-a.jfrog.io",
+  "status": {
+    "code": "HEALTHY | DEGRADED | UNHEALTHY",
+    "message": "string"
+  },
+  "location": {
+    "city_name": "string",
+    "country_code": "string",
+    "latitude": 0.0,
+    "longitude": 0.0
+  },
+  "licenses": [
+    {
+      "type": "Enterprise Plus",
+      "valid_through": "2026-12-31T00:00:00Z",
+      "expired": false
+    }
+  ],
+  "services": [
+    {
+      "name": "artifactory",
+      "status": "HEALTHY",
+      "version": "7.125.0"
+    }
+  ],
+  "tags": ["production", "us-east"]
+}
+```
+
+### Attach License Request Body
+
+```json
+{
+  "license_key": "string (required)"
+}
+```
+
+## Proxies
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/proxies` | List all configured proxies |
+
+### Proxy Response Object
+
+```json
+{
+  "key": "string",
+  "host": "proxy.example.com",
+  "port": 8080,
+  "username": "string",
+  "platform_default": true,
+  "services": ["artifactory", "xray"]
+}
+```

@@ -58,6 +58,6 @@ curl -s "$JFROG_URL/access/api/v1/projects" \
 ## What to Do with Results
 
 1. **Report to the user** with a short summary table (service name + OK / NOT AVAILABLE).
-2. **Filter downstream suggestions.** When using [flow-suggestions.md](../jfrog-patterns/flow-suggestions.md), only offer paths for available services.
+2. **Filter downstream suggestions.** When using [flow-suggestions.md](flow-suggestions.md), only offer paths for available services.
 3. **Stop early** if a required service is missing. Example: if the user asks for AppTrust setup but `JFROG_HAS_APPTRUST` is false, inform them immediately instead of attempting API calls.
 4. **Note admin status.** Operations that create projects, users, or lifecycle stages require admin privileges. If `JFROG_IS_ADMIN` is false, warn the user before attempting privileged operations.

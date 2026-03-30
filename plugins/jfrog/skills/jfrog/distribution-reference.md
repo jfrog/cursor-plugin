@@ -1,26 +1,4 @@
----
-name: JFrog Distribution
-description: Use when working with JFrog Distribution and Release Lifecycle Management -- creating release bundles, promoting through environments, distributing to edge nodes, or managing evidence. Triggers on mentions of distribution, release bundle, promote, environment, edge node, release lifecycle, or evidence.
----
-
-# JFrog Distribution Skill
-
-## Authentication
-
-All requests require an access token via the `Authorization` header:
-
-```
-Authorization: Bearer $JFROG_ACCESS_TOKEN
-```
-
-Base URLs:
-- Release Lifecycle: `https://$JFROG_URL/lifecycle/api/...`
-- Distribution: `https://$JFROG_URL/distribution/api/...`
-- Evidence: `https://$JFROG_URL/evidence/api/...`
-
-When authentication is needed, follow the [login-flow.md](../jfrog-cli/login-flow.md) procedure to resolve the active JFrog environment. The `jf` CLI is required and will be installed automatically if missing. The agent checks saved credentials via `jf config show` and asks which environment to use if multiple are saved. If none exist, the agent drives the web login flow and saves credentials via `jf config add`.
-
-> **Pre-flight:** Before operations, verify the Lifecycle service is available: `GET $JFROG_URL/lifecycle/api/v2/promotion/records?limit=1` (expect HTTP 200). If unavailable, inform the user that Release Lifecycle Management is not deployed on this instance and stop.
+# Distribution Reference
 
 ## Core Concepts
 
@@ -157,19 +135,153 @@ Since 7.129.1. Requires Enterprise+ license. Docs: https://jfrog.com/help/r/jfro
 
 - [api-reference.md](api-reference.md) -- Complete REST API endpoint catalog
 
-## Related Patterns
+# Distribution & Release Lifecycle REST API Reference
 
-- `release-lifecycle-management-without-security-gates` [SIMPLE]
-- `release-lifecycle-with-security-gates` [INTERMEDIATE]
-- `release-lifecycle-management-with-build-integration-security-gates-and-distribution` [ADVANCED]
-- `release-lifecycle-with-evidence` [ADVANCED]
+## Release Bundles (Lifecycle API)
 
-> After completing an action, check the **Release Lifecycle Actions** and **Distribution Actions** sections of `skills/jfrog-patterns/flow-suggestions.md` for flow context and offer the next step.
+Base URL: `https://$JFROG_URL/lifecycle/api`
 
-## Documentation
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v2/release_bundle` | Create release bundle |
+| GET | `/v2/release_bundle/records/{name}/{version}` | Get release bundle details |
+| GET | `/v2/release_bundle/records` | List release bundles |
+| DELETE | `/v2/release_bundle/records/{name}/{version}` | Delete release bundle version |
+| POST | `/v2/release_bundle/records/{name}/{version}/promote` | Promote to environment |
+| GET | `/v2/release_bundle/records/{name}/{version}/promotion` | Get promotion status |
 
-- [Release Lifecycle Management](https://jfrog.com/help/r/jfrog-artifactory-documentation/release-lifecycle-management)
-- [Distribution REST APIs](https://jfrog.com/help/r/jfrog-rest-apis/distribution-rest-apis)
-- [Evidence Management](https://jfrog.com/help/r/jfrog-artifactory-documentation/evidence-management)
-- [Evidence REST API](https://jfrog.com/help/r/jfrog-rest-apis/prepare-evidence)
-- [Evidence Examples](https://github.com/jfrog/Evidence-Examples)
+### Create Release Bundle (from Build)
+
+```json
+{
+  "release_bundle_name": "my-release",
+  "release_bundle_version": "1.0.0",
+  "skip_docker_manifest_resolution": false,
+  "source_type": "builds",
+  "source": {
+    "builds": [
+      {"build_name": "my-app", "build_number": "42", "build_repository": "artifactory-build-info"}
+    ]
+  }
+}
+```
+
+### Create Release Bundle (from File Specs)
+
+```json
+{
+  "release_bundle_name": "my-release",
+  "release_bundle_version": "2.0.0",
+  "source_type": "file_specs",
+  "source": {
+    "file_specs": [
+      {"pattern": "libs-release-local/com/example/app/2.0/*"},
+      {"pattern": "docker-prod-local/my-app/2.0/*"}
+    ]
+  }
+}
+```
+
+### Create Release Bundle (from existing Release Bundle)
+
+```json
+{
+  "release_bundle_name": "promoted-release",
+  "release_bundle_version": "2.0.0",
+  "source_type": "release_bundles",
+  "source": {
+    "release_bundles": [
+      {"release_bundle_name": "my-release", "release_bundle_version": "2.0.0"}
+    ]
+  }
+}
+```
+
+### Promote Release Bundle
+
+```json
+{
+  "environment": "PROD",
+  "included_repository_keys": ["libs-release-local", "docker-prod-local"],
+  "overwrite_existing_artifacts": false
+}
+```
+
+## Distribution API
+
+Base URL: `https://$JFROG_URL/distribution/api`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/distribution/{name}/{version}` | Distribute release bundle |
+| GET | `/v1/distribution/{name}/{version}/status` | Get distribution status |
+| DELETE | `/v1/distribution/{name}/{version}` | Delete distribution |
+
+### Distribute Release Bundle
+
+```json
+{
+  "dry_run": false,
+  "auto_create_missing_repositories": true,
+  "distribution_rules": [
+    {
+      "site_name": "edge-us-east",
+      "city_name": "*",
+      "country_codes": ["US"]
+    },
+    {
+      "site_name": "edge-eu-west"
+    }
+  ]
+}
+```
+
+## Signing Keys
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/keys/gpg` | List GPG signing keys (Lifecycle API) |
+| POST | `/v1/keys/gpg` | Create GPG signing key (Lifecycle API) |
+| DELETE | `/v1/keys/gpg/{key_alias}` | Delete signing key (Lifecycle API) |
+
+## Evidence API
+
+Base URL: `https://$JFROG_URL/evidence/api`
+
+Since: 7.129.1. License: Enterprise+.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/evidence/prepare` | Prepare evidence (DSSE format) |
+| PUT | `/{deploy_path}` | Deploy evidence (path from prepare response) |
+
+### Prepare Evidence
+
+Query params: `include_pae` (boolean) -- include Pre-Authentication Encoding statement
+
+```json
+{
+  "subject_repo_path": "docker-local/my-app/1.0/manifest.json",
+  "predicate": "{\"actor\":\"ci-bot\",\"result\":\"pass\"}",
+  "predicate_type": "https://jfrog.com/evidence/test-result/v1"
+}
+```
+
+### Evidence CLI Commands
+
+```bash
+# Generate key pair
+jf evd key-pair create --key-name my-signing-key
+
+# Create evidence (4 subject types)
+jf evd create --package-name NAME --package-version VER --package-repo-name REPO ...
+jf evd create --subject-repo-path REPO/PATH ...
+jf evd create --build-name NAME --build-number NUM ...
+jf evd create --release-bundle NAME --release-bundle-version VER ...
+```
+
+## Environments
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/access/api/v1/projects/{project_key}/environments` | List project environments |

@@ -1,21 +1,4 @@
----
-name: JFrog Runtime
-description: Use when working with JFrog Runtime -- monitoring runtime clusters, checking node health, or listing running container images with vulnerability info. Triggers on mentions of runtime, runtime cluster, running images, runtime sensor, runtime controller, container monitoring, or node health.
----
-
-# JFrog Runtime Skill
-
-## Authentication
-
-All requests require an access token via the `Authorization` header:
-
-```
-Authorization: Bearer $JFROG_ACCESS_TOKEN
-```
-
-Base URL: `https://$JFROG_URL/runtime/api/v1/...`
-
-When authentication is needed, follow the [login-flow.md](../jfrog-cli/login-flow.md) procedure to resolve the active JFrog environment. The `jf` CLI is required and will be installed automatically if missing. The agent checks saved credentials via `jf config show` and asks which environment to use if multiple are saved. If none exist, the agent drives the web login flow and saves credentials via `jf config add`.
+# Runtime Reference
 
 ## Core Concepts
 
@@ -98,7 +81,104 @@ Response contains:
 2. Check each image's `riskiestTagVulns` for critical/high vulnerability counts
 3. Use the jfrog-security skill to get detailed vulnerability information for specific packages
 
-## Official Documentation
+# Runtime API Reference
 
-- [Runtime Security](https://jfrog.com/help/r/jfrog-security-user-guide/products/runtime)
-- [Runtime APIs](https://jfrog.com/help/r/jfrog-security-user-guide/products/runtime/apis)
+Base path: `/runtime/api/v1/`
+
+## Clusters
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/clusters` | List clusters (paginated) |
+| GET | `/clusters/{id}/` | Get cluster details (note trailing slash) |
+
+### List Clusters Request Body
+
+```json
+{
+  "limit": 50
+}
+```
+
+### Cluster Response Object
+
+```json
+{
+  "id": "string",
+  "name": "string",
+  "provider": "aws | gcp | azure | ...",
+  "regions": ["us-east-1"],
+  "controller_status": "running | stopped",
+  "controller_version": "string",
+  "nodes_count": 10,
+  "running_nodes_count": 8,
+  "failed_nodes_count": 1,
+  "disabled_nodes_count": 1
+}
+```
+
+### Node Object (in cluster detail response)
+
+```json
+{
+  "id": "string",
+  "name": "string",
+  "hostname": "string",
+  "architecture": "amd64 | arm64",
+  "internal_ip": "10.0.0.1",
+  "internal_dns": "string",
+  "region": "us-east-1",
+  "status": "running | failed | disabled",
+  "sensor_installed": true,
+  "sensor_version": "string"
+}
+```
+
+## Running Images
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/live/images` | List running container images |
+
+### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `num_of_rows` | integer | 100 | Max images to return |
+| `statistics` | boolean | true | Include aggregate stats |
+| `timePeriod` | string | `now` | Time window |
+| `filters` | string | `""` | Filter expression |
+| `page_num` | integer | 1 | Page number |
+
+### Image Response Object
+
+```json
+{
+  "name": "my-app",
+  "registry": "docker.io",
+  "repositoryPath": "myorg/my-app",
+  "status": "string",
+  "clustersCount": 3,
+  "workloadsCount": 5,
+  "cloudProviders": ["aws"],
+  "riskiestTagVulns": {
+    "Critical": 0,
+    "High": 2,
+    "Medium": 5,
+    "Low": 12,
+    "Unknown": 0
+  }
+}
+```
+
+### Statistics Response
+
+```json
+{
+  "statistics": [
+    {"key": "total_images", "value": 150},
+    {"key": "critical_images", "value": 3}
+  ],
+  "totalCount": 150
+}
+```
