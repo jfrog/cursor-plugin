@@ -18,16 +18,17 @@ Authentication is handled automatically — **OAuth** for MCP-based workflows, *
 | Component | Path | Description |
 |---|---|---|
 | **MCP** | `mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
+| **Skill** | `skills/jfrog/` | Unified AI skill — see [Skills](#skills) below |
 | **Rule** | `rules/jfrog-security.mdc` | Supply-chain security practices for dependency files |
 | **Agent** | `agents/supply-chain-security.md` | Dependency audit for CVEs, licenses, and curation |
 
 ### Skills
 
-| Skill | Triggers when you mention... |
-|-------|------------------------------|
-| **jfrog** | any JFrog product, artifactory, xray, security, access token, curation, distribution, release bundle, apptrust, runtime, mission control, worker, jf command, pattern, best practice |
+Single unified skill (`skills/jfrog/SKILL.md`) with 22 supporting reference and pattern files covering Artifactory, Security/Xray, Access, Distribution, Curation, AppTrust, Runtime, Mission Control, Workers, CLI, and architectural patterns.
 
-Single unified skill (`skills/jfrog/`) with a router (`SKILL.md`) and 22 supporting reference and pattern files covering Artifactory, Security/Xray, Access, Distribution, Curation, AppTrust, Runtime, Mission Control, Workers, CLI, and architectural patterns.
+| Triggers when you mention... |
+|------------------------------|
+| any JFrog product, artifactory, xray, security, access token, curation, distribution, release bundle, apptrust, runtime, mission control, worker, jf command, pattern, best practice |
 
 ## MCP Capabilities
 

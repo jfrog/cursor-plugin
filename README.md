@@ -7,25 +7,58 @@ JFrog Platform integration for [Cursor](https://cursor.com) — artifact managem
 | Component | Path | Description |
 |---|---|---|
 | **MCP** | `plugins/jfrog/mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
-| **Skills** | `plugins/jfrog/skills/` | 11 AI skills covering Artifactory, Security, Access, CLI, Curation, Distribution, AppTrust, Runtime, Mission Control, Workers, and Patterns |
+| **Skill** | `plugins/jfrog/skills/` | Unified AI skill covering Artifactory, Security, Access, CLI, Curation, Distribution, AppTrust, Runtime, Mission Control, Workers, and architectural patterns |
 | **Rule** | `plugins/jfrog/rules/jfrog-security.mdc` | Supply-chain security practices for dependency files |
 | **Agent** | `plugins/jfrog/agents/supply-chain-security.md` | Dependency audit for CVEs, licenses, and curation |
 
 ## Prerequisites
 
-1. **JFrog Platform** access (Cloud or self-hosted).
-2. An admin enables the **JFrog MCP Server** on the platform (Cloud/SaaS only):
-   - **Administration > General > Settings > MCP Server** → toggle ON.
-3. Each developer configures Cursor with their JFrog Platform URL (see [Setup](#setup)).
-4. **JFrog CLI** (`jf`) is used by several skills for authentication and REST API operations. It will be installed automatically if missing. Install manually via `brew install jfrog-cli` or the [official install script](https://jfrog.com/help/r/jfrog-cli/install-the-jfrog-cli).
+1. **JFrog Platform** access (Cloud or self-hosted, version 7.64.0+).
+2. An admin must **enable the JFrog MCP Server** on the platform (Cloud/SaaS only):
+   - Navigate to **Administration > General > Settings** in the JFrog UI.
+   - Toggle the **MCP Server** option ON and save.
+3. **JFrog CLI** (`jf`) — install via `brew install jfrog-cli` or the [official install script](https://jfrog.com/help/r/jfrog-cli/install-the-jfrog-cli). Used by several skills for authentication and REST operations.
 
-## Setup
+## Installation
 
-1. Install the plugin in Cursor.
-2. Set the `JFROG_PLATFORM_URL` environment variable to your JFrog instance (e.g. `mycompany.jfrog.io`).
-3. Restart Cursor. An OAuth window opens in your browser — authorize access.
+### 1. Add the plugin registry to Cursor
 
-No manual tokens or API keys are required. MCP workflows use OAuth; CLI/REST-based skills authenticate automatically via `jf config` browser login.
+Open Cursor and go to **Settings → Features → Plugins**. Add this repository as a plugin source:
+
+```
+https://github.com/jfrog/cursor-plugin
+```
+
+Install the **jfrog** plugin from the list.
+
+### 2. Set your JFrog Platform URL
+
+Add the following to your shell profile (`~/.zshrc`, `~/.bashrc`, or equivalent):
+
+```bash
+export JFROG_PLATFORM_URL=mycompany.jfrog.io
+```
+
+Reload your shell or open a new terminal.
+
+### 3. Restart Cursor and authenticate
+
+Restart Cursor. An OAuth browser window will open — authorize access to your JFrog instance. No API keys or tokens are needed.
+
+For CLI-based skills, authenticate once:
+
+```bash
+jf config add
+```
+
+Follow the browser login prompt. Credentials are stored in `~/.jfrog/jfrog-cli.conf.v6` and reused automatically.
+
+## Uninstallation
+
+1. Go to **Settings → Features → Plugins** in Cursor and uninstall the **jfrog** plugin.
+2. Remove the plugin registry source from the same settings page.
+3. Remove `JFROG_PLATFORM_URL` from your shell profile.
+4. Optionally clean up JFrog CLI credentials: `jf config remove <server-id>`
 
 ## Validation
 

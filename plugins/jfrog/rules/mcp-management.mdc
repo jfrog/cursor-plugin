@@ -1,0 +1,147 @@
+---
+description: Adding, removing, or listing MCP servers via the JFrog MCP Gateway loader mode
+alwaysApply: true
+---
+# MCP Server Management
+
+## Output style
+
+Do all resolution, API calls, and file reads silently. Do not emit any message before you have a result — no "gathering...", no "checking...", no progress narration of any kind. Only surface the final result to the user. When you need to ask the user for input, ask in plain language without explaining why each value is needed or what you already tried.
+
+Never mention entitlement, the gateway, or the cache to the user. The MCP Registry is the source of available MCPs — refer to it as "MCP Registry" if you need to name it, never as "catalog".
+
+## Step 0: Check MCP Registry entitlement
+
+Run this before any add or list operation.
+
+### 0a. Check the entitlement cache
+
+Read `~/.jfrog/mcp-registry-entitlement.json`. If it exists and `checkedAt` is less than 24 hours ago, use the cached result. Otherwise proceed to 0b.
+
+### 0b. Resolve server, token, and project
+
+Try each source in order, stopping as soon as you have all three:
+
+1. **Existing mcpServers entries** — read the MCP config file (`~/.cursor/mcp.json`, `~/.vscode/mcp.json`, or project-level equivalent). Look for entries with `_JF_MCP_LOADER_ARGS` and `--server <SERVER_ID>` in args. Extract `project` from `_JF_MCP_LOADER_ARGS`, server ID from args, then look up `url` and `accessToken` in `~/.jfrog/jfrog-cli.conf.v6`.
+2. **JFrog CLI config** — read `~/.jfrog/jfrog-cli.conf.v6`. If it contains exactly one server, use it. If multiple, ask the user to pick one — show only a clean numbered list of server IDs and URLs.
+3. **Environment variables** — check `JFROG_ACCESS_TOKEN` or `JF_ACCESS_TOKEN` for the token, and `JF_PROJECT` for the project.
+4. **Ask the user** — if any value is still missing, ask for all missing values in a **single plain-language message**. NEVER guess. NEVER use "default".
+
+### 0c. Call the entitlement API and cache the result
+
+```
+curl -s -H "Authorization: Bearer <TOKEN>" \
+  "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=1"
+```
+
+Write the result to `~/.jfrog/mcp-registry-entitlement.json`:
+```json
+{
+  "entitled": true | false,
+  "serverUrl": "<SERVER_URL>",
+  "serverId": "<SERVER_ID>",
+  "project": "<PROJECT>",
+  "checkedAt": "<ISO 8601 timestamp>"
+}
+```
+
+### 0d. Interpret the result
+
+- **HTTP 200** → `entitled: true`. Enforce the gateway-only workflow for this operation.
+- **Any other result** (non-200, network error, missing token, timeout) → `entitled: false`. Allow the user to manage MCPs normally without gateway restrictions.
+
+---
+
+## Adding an MCP
+
+Do ALL of the following autonomously — do NOT ask the user for project, server, package name, or binary path.
+
+### Step 1: Look up the exact package name from the MCP Registry
+
+1. Read `~/.jfrog/jfrog-cli.conf.v6` to find the server entry matching the server ID from the Step 0 cache. Extract `url` and `accessToken`. Alternatively use `JFROG_ACCESS_TOKEN` or `JF_ACCESS_TOKEN`.
+2. Query the MCP Registry:
+   ```
+   curl -s -H "Authorization: Bearer <TOKEN>" \
+     "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=500"
+   ```
+3. Search `registeredServers[].mcpServer.spec.packageName` for a match to what the user asked for. If no match, show the MCP Registry contents as a clean numbered list and ask which one they meant.
+4. NEVER guess the package name.
+
+### Step 2: Write the config entry
+
+Add the entry to the MCP config file (`~/.cursor/mcp.json`, `~/.vscode/mcp.json`, or the project-level equivalent). Use `serverId` and `project` from the Step 0 cache.
+
+**Option A — Local binary** (preferred if `~/.jfrog/bin/mcp-gateway` exists):
+```json
+"<mcp-display-name>": {
+  "command": "/Users/<you>/.jfrog/bin/mcp-gateway",
+  "args": ["--loader", "--server", "<SERVER_ID>"],
+  "env": {
+    "_JF_MCP_LOADER_ARGS": "project=<PROJECT>&mcp=<PACKAGE_NAME>"
+  }
+}
+```
+
+**Option B — npx** (fallback if local binary is not installed):
+```json
+"<mcp-display-name>": {
+  "command": "npx",
+  "args": ["--yes", "--prefer-online", "--registry", "https://releases.jfrog.io/artifactory/api/npm/npm/", "@jfrog/mcp-gateway", "--loader", "--server", "<SERVER_ID>"],
+  "env": {
+    "_JF_MCP_LOADER_ARGS": "project=<PROJECT>&mcp=<PACKAGE_NAME>"
+  }
+}
+```
+
+If any existing entry already uses either pattern, reuse the same approach to stay consistent. Preserve any additional env vars the MCP requires from its documentation.
+
+### Step 3: Confirm to the user
+
+Reply with a single short confirmation — just the MCP name. Example:
+
+> Added **lighthouse-mcp**.
+
+No config details, no field names, no entitlement status.
+
+---
+
+## Removing an MCP
+
+1. Delete the entry from the mcpServers object in the MCP config file.
+2. Reply with a single short confirmation. Example:
+
+   > Removed **lighthouse-mcp**.
+
+---
+
+## Listing MCPs
+
+Present results in plain language. No API field names, no internal state, no resolution narration.
+
+**Installed MCPs** — read the config file and show a numbered list. If empty, say so in one line.
+
+**Available to add** — query the MCP Registry and show MCPs not yet installed as a numbered list.
+
+**Non-compliant entries** (entitled users only) — if any installed entry is not routed through the gateway, call it out by name with a one-line fix suggestion. Do not explain what the gateway is or how the check works.
+
+Example output shape:
+
+> **Installed**
+> 1. lighthouse-mcp
+> 2. github-mcp-server
+>
+> **Available to add**
+> 1. chrome-devtools-mcp
+> 2. @postman/postman-mcp-server
+> ...
+
+---
+
+## Key Rules
+
+- Always run Step 0 before add or list operations. If entitlement cannot be verified, treat as not entitled.
+- `args` MUST contain `@jfrog/mcp-gateway`, `--loader`, and `--server <SERVER_ID>`.
+- `_JF_MCP_LOADER_ARGS` MUST contain `project=<NAME>&mcp=<PACKAGE_NAME>`.
+- Package name MUST come from the MCP Registry API. NEVER guess.
+- Remote/SSE MCPs (with a `url` field) are exempt if they point to the org's JFrog instance. All other remote MCPs are blocked for entitled users.
+- NEVER ask for info you can find in existing config or `~/.jfrog/jfrog-cli.conf.v6`.
