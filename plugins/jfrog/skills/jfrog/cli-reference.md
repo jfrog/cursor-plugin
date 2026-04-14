@@ -9,6 +9,9 @@ brew install jfrog-cli
 # Linux (curl) — runs remote script; for production prefer package manager or verify script integrity
 curl -fL https://install-cli.jfrog.io | sh
 
+# Windows
+choco install jfrog-cli  # or: winget install JFrog.JFrogCLI
+
 # Docker
 docker run releases-docker.jfrog.io/jfrog/jfrog-cli jf --version
 ```

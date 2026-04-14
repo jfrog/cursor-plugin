@@ -424,6 +424,7 @@ The JFrog CLI (`jf`) provides command-line access to all platform services. For 
 # Install
 brew install jfrog-cli   # macOS
 curl -fL https://install-cli.jfrog.io | sh   # Linux
+choco install jfrog-cli  # Windows (or: winget install JFrog.JFrogCLI)
 
 # Artifact operations
 jf rt upload "build/*.jar" libs-release-local/com/example/app/1.0/

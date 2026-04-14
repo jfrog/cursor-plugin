@@ -29,6 +29,13 @@ brew install jfrog-cli
 curl -fL https://install-cli.jfrog.io | sh
 ```
 
+**Windows:**
+
+```powershell
+choco install jfrog-cli
+# or: winget install JFrog.JFrogCLI
+```
+
 Confirm the installation succeeded:
 
 ```bash
@@ -69,7 +76,7 @@ Once the active environment is resolved (from `jf config` or after web login), e
 JFROG_SERVER_ID=$(jf config show 2>/dev/null | grep -i 'Server ID' | head -1 | awk '{print $NF}')
 JFROG_URL=$(jf config show 2>/dev/null | grep -i 'JFrog Platform URL' | head -1 | awk '{print $NF}' | sed 's|https://||;s|/$||')
 JFROG_ACCESS_TOKEN=$(jf config export "$JFROG_SERVER_ID" 2>/dev/null | \
-  python3 -c "
+  python -c "
 import sys, json, base64
 raw = sys.stdin.read().strip()
 try:
@@ -100,6 +107,8 @@ jf atc --server-id=<server-id> --groups="*" --expiry=3600
 
 Run this flow when no valid credentials exist for the target environment. The user only needs to click a link and log in via their browser.
 
+> **Windows note:** The shell commands in Steps 3a–3d use Unix utilities (`curl`, `bash` parameter expansion). On Windows, run them in Git Bash (ships with Git for Windows) or WSL. PowerShell users can adapt the commands using `Invoke-WebRequest` and `$env:TEMP`.
+
 > **SANDBOX NOTE -- permissions required:** Steps 3a+3b and 3d make `curl` calls to the JFrog Platform URL (an external host) and are blocked by the Cursor sandbox by default. Use these permission levels:
 >
 > - **Steps 3a+3b:** `required_permissions: ["full_network"]` -- only makes `curl` calls, no filesystem writes outside the workspace.
@@ -119,7 +128,7 @@ if [ "$PING_CODE" != "200" ]; then
   exit 1
 fi
 
-SESSION_UUID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+SESSION_UUID=$(python -c "import uuid; print(uuid.uuid4())")
 VERIFY_CODE=${SESSION_UUID: -4}
 
 curl -s -X POST "${JFROG_PLATFORM_URL}/access/api/v2/authentication/jfrog_client_login/request" \
@@ -168,19 +177,22 @@ Once the user confirms they have logged in, run this entire block as **one shell
 JFROG_PLATFORM_URL="https://mycompany.jfrog.io"   # substitute actual URL
 SESSION_UUID="a1b2c3d4-e5f6-7890-abcd-ef1234567890" # substitute actual UUID from Step 3b
 
-JFROG_HOST=$(echo "$JFROG_PLATFORM_URL" | sed 's|https://||' | sed 's|\.jfrog\.io.*||' | sed 's|[./]|-|g')
+JFROG_HOST=${JFROG_PLATFORM_URL#https://}
+JFROG_HOST=${JFROG_HOST%.jfrog.io*}
+JFROG_HOST=${JFROG_HOST//[.\/]/-}
+JF_TMP="${TMPDIR:-${TMP:-/tmp}}/jf_login_resp.json"
 
-HTTP_CODE=$(curl -s -o /tmp/jf_login_resp.json -w "%{http_code}" \
+HTTP_CODE=$(curl -s -o "$JF_TMP" -w "%{http_code}" \
   "$JFROG_PLATFORM_URL/access/api/v2/authentication/jfrog_client_login/token/$SESSION_UUID")
 
 if [ "$HTTP_CODE" != "200" ]; then
   echo "ERROR: Token retrieval failed (HTTP $HTTP_CODE). User may not have completed login."
-  rm -f /tmp/jf_login_resp.json
+  rm -f "$JF_TMP"
   exit 1
 fi
 
-ACCESS_TOKEN=$(python3 -c "import json; print(json.load(open('/tmp/jf_login_resp.json')).get('access_token',''))")
-rm -f /tmp/jf_login_resp.json
+ACCESS_TOKEN=$(python -c "import json,sys; print(json.load(open(sys.argv[1])).get('access_token',''))" "$JF_TMP")
+rm -f "$JF_TMP"
 
 if [ -z "$ACCESS_TOKEN" ]; then
   echo "ERROR: Empty token in response. Re-run from Step 3b."
@@ -194,7 +206,7 @@ jf config add "$JFROG_HOST" \
   --interactive=false
 jf config use "$JFROG_HOST"
 
-export JFROG_URL=$(echo "$JFROG_PLATFORM_URL" | sed 's|https://||;s|/$||')
+JFROG_URL=${JFROG_PLATFORM_URL#https://}; JFROG_URL=${JFROG_URL%/}; export JFROG_URL
 export JFROG_ACCESS_TOKEN="$ACCESS_TOKEN"
 
 echo "--- Verifying authentication ---"

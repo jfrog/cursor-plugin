@@ -53,7 +53,7 @@ GATEWAY_MCP='{
   "mcpServers": {
     "chrome-devtools": {
       "command": "npx",
-      "args": ["--yes", "--prefer-online", "--registry", "https://releases.jfrog.io/artifactory/api/npm/npm/", "@jfrog/mcp-gateway", "--loader", "--server", "test-server"],
+      "args": ["--yes", "--prefer-online", "--registry", "https://releases.jfrog.io/artifactory/api/npm/npm/", "@jfrog/mcp-gateway", "--server", "test-server"],
       "env": { "_JF_MCP_LOADER_ARGS": "project=test-project&mcp=chrome-devtools-mcp" }
     }
   }
@@ -63,7 +63,7 @@ MIXED_MCP='{
   "mcpServers": {
     "chrome-devtools": {
       "command": "npx",
-      "args": ["--yes", "--prefer-online", "--registry", "https://releases.jfrog.io/artifactory/api/npm/npm/", "@jfrog/mcp-gateway", "--loader", "--server", "test-server"],
+      "args": ["--yes", "--prefer-online", "--registry", "https://releases.jfrog.io/artifactory/api/npm/npm/", "@jfrog/mcp-gateway", "--server", "test-server"],
       "env": { "_JF_MCP_LOADER_ARGS": "project=test-project&mcp=chrome-devtools-mcp" }
     },
     "rogue-mcp": {
@@ -86,7 +86,7 @@ LOCAL_BINARY_MCP='{
   "mcpServers": {
     "chrome-devtools": {
       "command": "/Users/guyes/.jfrog/bin/mcp-gateway",
-      "args": ["--loader", "--server", "test-server"],
+      "args": ["--server", "test-server"],
       "env": { "_JF_MCP_LOADER_ARGS": "project=test-project&mcp=chrome-devtools-mcp" }
     }
   }

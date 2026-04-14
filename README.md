@@ -17,7 +17,7 @@ JFrog Platform integration for [Cursor](https://cursor.com) — artifact managem
 2. An admin must **enable the JFrog MCP Server** on the platform (Cloud/SaaS only):
    - Navigate to **Administration > General > Settings** in the JFrog UI.
    - Toggle the **MCP Server** option ON and save.
-3. **JFrog CLI** (`jf`) — install via `brew install jfrog-cli` or the [official install script](https://jfrog.com/help/r/jfrog-cli/install-the-jfrog-cli). Used by several skills for authentication and REST operations.
+3. **JFrog CLI** (`jf`) — see [install options](https://jfrog.com/help/r/jfrog-cli/install-the-jfrog-cli): `brew install jfrog-cli` (macOS), `curl -fL https://install-cli.jfrog.io | sh` (Linux), `choco install jfrog-cli` (Windows). Used by several skills for authentication and REST operations.
 
 ## Installation
 
@@ -33,10 +33,16 @@ Install the **jfrog** plugin from the list.
 
 ### 2. Set your JFrog Platform URL
 
-Add the following to your shell profile (`~/.zshrc`, `~/.bashrc`, or equivalent):
+**macOS / Linux** — add to your shell profile (`~/.zshrc`, `~/.bashrc`, or equivalent):
 
 ```bash
 export JFROG_PLATFORM_URL=mycompany.jfrog.io
+```
+
+**Windows (PowerShell):**
+
+```powershell
+[System.Environment]::SetEnvironmentVariable('JFROG_PLATFORM_URL', 'mycompany.jfrog.io', 'User')
 ```
 
 Reload your shell or open a new terminal.

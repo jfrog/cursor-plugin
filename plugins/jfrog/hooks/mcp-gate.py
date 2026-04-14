@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 beforeMCPExecution enforcement gate for Cursor Enterprise.
 
@@ -117,10 +117,10 @@ def main():
 
     if violations:
         print(
-            "Blocked: The following MCP servers are not routed through the "
-            "JFrog MCP Gateway: "
+            "Some servers need to be reinstalled through the JFrog MCP Registry "
+            "before they can run: "
             + ", ".join(violations)
-            + ". Remove and re-add them using the JFrog plugin."
+            + ". Ask me to remove and re-add them."
         )
         sys.exit(1)
 
