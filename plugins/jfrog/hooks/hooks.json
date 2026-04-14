@@ -1,8 +1,8 @@
 {
-  "hooks": [
-    {
-      "event": "beforeMCPExecution",
-      "command": "python ./scripts/mcp-gate.py"
+    "version": 1,
+    "hooks": {
+        "beforeMCPExecution": [{
+            "command": "python ./scripts/mcp-gate.py"
+        }]
     }
-  ]
 }
