@@ -2,7 +2,7 @@
   "hooks": [
     {
       "event": "beforeMCPExecution",
-      "command": "python plugins/jfrog/hooks/mcp-gate.py"
+      "command": "python ./scripts/mcp-gate.py"
     }
   ]
 }

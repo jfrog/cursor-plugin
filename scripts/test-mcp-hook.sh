@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test suite for the beforeMCPExecution hook in plugins/jfrog/hooks/mcp-gate.py
+# Test suite for the beforeMCPExecution hook in plugins/jfrog/scripts/mcp-gate.py
 # Verifies that non-entitled users are never affected, and that entitled users
 # are blocked only when a non-gateway MCP is present in their config.
 #
@@ -14,7 +14,7 @@ RED='\033[0;31m'
 RESET='\033[0m'
 
 SCRIPT_REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOOK_RELATIVE="plugins/jfrog/hooks/mcp-gate.py"
+HOOK_RELATIVE="plugins/jfrog/scripts/mcp-gate.py"
 
 # Prefer the script's repo root (post-merge). Fall back to CWD (worktree dev).
 if [ -f "$SCRIPT_REPO_ROOT/$HOOK_RELATIVE" ]; then
