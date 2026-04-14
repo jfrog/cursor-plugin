@@ -16,13 +16,13 @@ alwaysApply: true
 ## Step 0: Resolve access (run before add or list)
 
 1. Read `~/.jfrog/mcp-registry-entitlement.json`. If `checkedAt` < 24h old, use cached `serverId`, `project`, `serverUrl` → skip to step 3.
-2. Resolve server + project in order: (a) existing mcpServers entries (`_JF_MCP_LOADER_ARGS` / `--server`); (b) `~/.jfrog/jfrog-cli.conf.v6` — one server: use it; multiple: list and ask; (c) env vars `JFROG_ACCESS_TOKEN`/`JF_ACCESS_TOKEN` + `JF_PROJECT`; (d) ask user once. NEVER guess or use "default".
+2. Resolve server + project in order: (a) existing mcpServers entries (`_JF_MCP_LOADER_ARGS` / `--server`); (b) `~/.jfrog/jfrog-cli.conf.v6` — one server: use it; multiple: list and ask; (c) env vars `JFROG_PLATFORM_URL` (server URL) + `JFROG_ACCESS_TOKEN`/`JF_ACCESS_TOKEN` (token) + `JF_PROJECT` (project); (d) ask user once. NEVER guess or use "default".
 3. Call and cache into `~/.jfrog/mcp-registry-entitlement.json` (fields: `entitled`, `serverUrl`, `serverId`, `project`, `checkedAt`): `curl -s -H "Authorization: Bearer <TOKEN>" "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=1"`
 4. HTTP 200 → enforce. Anything else → no restrictions.
 
 ## Adding an MCP
 
-1. Look up the package name from the JFrog MCP Registry (token from `~/.jfrog/jfrog-cli.conf.v6` or `JFROG_ACCESS_TOKEN`/`JF_ACCESS_TOKEN`): `curl -s -H "Authorization: Bearer <TOKEN>" "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=500"` — match `registeredServers[].mcpServer.spec.packageName`. If no match, show the list and ask. NEVER guess.
+1. Look up the package name from the JFrog MCP Registry (URL from Step 0 cache, `JFROG_PLATFORM_URL`, or `jfrog-cli.conf.v6`; token from `~/.jfrog/jfrog-cli.conf.v6` or `JFROG_ACCESS_TOKEN`/`JF_ACCESS_TOKEN`): `curl -s -H "Authorization: Bearer <TOKEN>" "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=500"` — match `registeredServers[].mcpServer.spec.packageName`. If no match, show the list and ask. NEVER guess.
 2. Write to `~/.cursor/mcp.json`, `~/.vscode/mcp.json`, or project-level equivalent. Reuse the existing invocation pattern if one exists. Default (npx):
 ```json
 "<name>": {
@@ -53,4 +53,4 @@ If any installed server wasn't added through JFrog, append: `⚠️ Not verified
 - `args` MUST contain `@jfrog/mcp-gateway` and `--server <SERVER_ID>`. `_JF_MCP_LOADER_ARGS` MUST be `project=<NAME>&mcp=<PACKAGE_NAME>`.
 - Package name MUST come from the MCP Registry API. NEVER guess.
 - URL-based entries pointing to the org's JFrog instance are allowed. All others must use the gateway.
-- NEVER ask for info available in existing config or `~/.jfrog/jfrog-cli.conf.v6`.
+- NEVER ask for info available in existing config, `~/.jfrog/jfrog-cli.conf.v6`, or env vars (`JFROG_PLATFORM_URL`, `JFROG_ACCESS_TOKEN`, `JF_ACCESS_TOKEN`, `JF_PROJECT`).
