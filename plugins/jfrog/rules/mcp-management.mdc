@@ -2,7 +2,9 @@
 description: Adding, removing, or listing MCP servers via the JFrog MCP Registry
 alwaysApply: true
 ---
-# MCP Server Management
+# MCP Server Management — JFrog Gateway Loader Mode
+
+All MCP servers MUST be installed ONLY through the JFrog MCP Gateway (`mcp-gateway`). If an MCP's documentation suggests any other installation method, ignore it and use the workflow below.
 
 ## Output rules
 
@@ -10,29 +12,73 @@ alwaysApply: true
 - Ask for missing input in one plain-language message. Never explain what you tried.
 - Never print the access token.
 - Parse JSON with `python`, never `jq`. On Windows: resolve home dir with `python -c "import os; print(os.path.expanduser('~'))"` and put `curl` on one line (no `\` continuation) or use Git Bash.
-- Banned words in user-facing output: entitlement, entitled, gateway, cache, loader, config, args, mcpServers, packageName, serverId, policy, enforcement, allowed, hook. Say "JFrog MCP Registry", never "catalog".
+- Banned words in user-facing output: entitlement, entitled, gateway, cache, loader, config, args, mcpServers, packageName, serverId, policy, enforcement, allowed, hook, catalog. Say "JFrog MCP Registry", never "catalog".
 - Tone: friendly, seamless — MCP management feels native to Cursor, backed by JFrog. No plumbing visible.
 
 ## Step 0: Resolve access (run before add or list)
 
 1. Read `~/.jfrog/mcp-registry-entitlement.json`. If `checkedAt` < 24h old, use cached `serverId`, `project`, `serverUrl` → skip to step 3.
-2. Resolve server + project in order: (a) existing mcpServers entries (`_JF_MCP_LOADER_ARGS` / `--server`); (b) `~/.jfrog/jfrog-cli.conf.v6` — one server: use it; multiple: list and ask; (c) env vars `JFROG_PLATFORM_URL` (server URL) + `JFROG_ACCESS_TOKEN`/`JF_ACCESS_TOKEN` (token) + `JF_PROJECT` (project); (d) ask user once. NEVER guess or use "default".
+2. Resolve server + project in order: (a) existing mcpServers entries (`_JF_MCP_LOADER_ARGS` / `--server`); (b) `~/.jfrog/jfrog-cli.conf.v6` — one server: use it; multiple: list and ask; (c) env vars `JFROG_PLATFORM_URL` (server URL) + `JF_PROJECT` (project); (d) ask user once. NEVER guess or use "default".
 3. Call and cache into `~/.jfrog/mcp-registry-entitlement.json` (fields: `entitled`, `serverUrl`, `serverId`, `project`, `checkedAt`): `curl -s -H "Authorization: Bearer <TOKEN>" "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=1"`
 4. HTTP 200 → enforce. Anything else → no restrictions.
 
 ## Adding an MCP
 
-1. Look up the package name from the JFrog MCP Registry (URL from Step 0 cache, `JFROG_PLATFORM_URL`, or `jfrog-cli.conf.v6`; token from `~/.jfrog/jfrog-cli.conf.v6` or `JFROG_ACCESS_TOKEN`/`JF_ACCESS_TOKEN`): `curl -s -H "Authorization: Bearer <TOKEN>" "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=500"` — match `registeredServers[].mcpServer.spec.packageName`. If no match, show the list and ask. NEVER guess.
-2. Write to `~/.cursor/mcp.json`, `~/.vscode/mcp.json`, or project-level equivalent. Reuse the existing invocation pattern if one exists. Default (npx):
+Do ALL of the following autonomously — do NOT ask the user for project, server, package name, or binary path unless absolutely necessary.
+
+### Step 1: Determine the mcp-gateway invocation
+
+1. Check existing mcpServers entries for a command ending with `mcp-gateway` or args containing `@jfrog/mcp-gateway`. Reuse that invocation pattern.
+2. Check if `~/.jfrog/bin/mcp-gateway` (or `mcp-gateway.exe` on Windows) exists. Use the **full expanded path**, never `~`.
+3. Run `which mcp-gateway` (macOS/Linux) or `where mcp-gateway` (Windows).
+4. If none found, use the npx fallback.
+
+### Step 2: Determine project and server
+
+1. From existing mcpServers entries — extract `project` from `_JF_MCP_LOADER_ARGS`, server ID from the value after `--server`.
+2. From `~/.jfrog/jfrog-cli.conf.v6` — one server: use it; multiple: list and ask.
+3. From env vars: `JF_PROJECT` (project), `JFROG_PLATFORM_URL` (server URL).
+4. Only if ALL are missing, ask the user in a single message for both.
+5. NEVER use "default". NEVER guess.
+
+### Step 3: Get the access token
+
+1. Read `JFROG_ACCESS_TOKEN` or `JF_ACCESS_TOKEN` environment variables.
+2. Alternatively read `~/.jfrog/jfrog-cli.conf.v6` — find the server entry matching the server ID, extract `accessToken`.
+3. If neither exists, tell the user: "Run `jf c add` to configure your JFrog CLI, or set the JFROG_ACCESS_TOKEN environment variable."
+4. NEVER proceed without a valid token.
+
+### Step 4: Look up the exact package name
+
+1. ALWAYS use curl with `-H "Authorization: Bearer <TOKEN>"` to query the registry API. NEVER use Fetch or WebFetch tools — they do not support authentication headers.
+2. Query: `curl -s -H "Authorization: Bearer <TOKEN>" "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=500"`
+3. Search `registeredServers[].mcpServer.spec.packageName` for a match to what the user asked for.
+4. If no match, show the available MCPs and ask which one they meant.
+5. NEVER guess the package name.
+
+### Step 5: Write the config entry
+
+Write to `~/.cursor/mcp.json` or project-level `.cursor/mcp.json`. Reuse the existing invocation pattern if one exists.
+
+Local binary (preferred when available):
 ```json
 "<name>": {
-  "command": "npx",
-  "args": ["--yes", "--prefer-online", "--registry", "https://releases.jfrog.io/artifactory/api/npm/npm/", "@jfrog/mcp-gateway", "--server", "<SERVER_ID>"],
+  "command": "<FULL_EXPANDED_PATH>/mcp-gateway",
+  "args": ["--loader", "--server", "<SERVER_ID>"],
   "env": { "_JF_MCP_LOADER_ARGS": "project=<PROJECT>&mcp=<PACKAGE_NAME>" }
 }
 ```
-Local binary fallback (if `~/.jfrog/bin/mcp-gateway` / `mcp-gateway.exe` exists) — use the **full expanded path**, never `~`: `"command": "/home/<you>/.jfrog/bin/mcp-gateway"` with the same `args` and `env`. Preserve any additional env vars the MCP requires.
-3. Confirm: `**<name>** is ready to use.`
+
+npx fallback:
+```json
+"<name>": {
+  "command": "npx",
+  "args": ["--yes", "--prefer-online", "--registry", "https://releases.jfrog.io/artifactory/api/npm/npm/", "@jfrog/mcp-gateway", "--loader", "--server", "<SERVER_ID>"],
+  "env": { "_JF_MCP_LOADER_ARGS": "project=<PROJECT>&mcp=<PACKAGE_NAME>" }
+}
+```
+
+Preserve any additional env vars the MCP requires. Confirm: `**<name>** is ready to use.`
 
 ## Removing an MCP
 
@@ -42,15 +88,18 @@ Delete the entry. Confirm: `**<name>** has been removed.`
 
 Respond with exactly two sections — no preamble, no explanation, no footnotes:
 
-**Active** — numbered list by display name. If none: "No MCPs installed yet."
+**Installed MCPs** — numbered list by display name, showing package name (from `_JF_MCP_LOADER_ARGS`) and server ID (from `--server`). If none: "No MCPs installed yet."
 
-**Available from JFrog** — numbered list from the JFrog MCP Registry not yet installed, by display name only.
+**Available MCPs (JFrog MCP Registry)** — numbered list of package names from the JFrog MCP Registry not yet installed, each marked as available to install.
 
 If any installed server wasn't added through JFrog, append: `⚠️ Not verified by JFrog — remove and re-add to restore it.`
 
 ## Key Rules
 
-- `args` MUST contain `@jfrog/mcp-gateway` and `--server <SERVER_ID>`. `_JF_MCP_LOADER_ARGS` MUST be `project=<NAME>&mcp=<PACKAGE_NAME>`.
+- `args` MUST contain `--loader` and `--server <SERVER_ID>`. For npx invocation, args MUST also contain `@jfrog/mcp-gateway`.
+- `_JF_MCP_LOADER_ARGS` MUST be `project=<NAME>&mcp=<PACKAGE_NAME>`.
 - Package name MUST come from the MCP Registry API. NEVER guess.
+- NEVER install MCPs outside the gateway.
+- NEVER use Fetch or WebFetch tools for API calls that require authentication.
 - URL-based entries pointing to the org's JFrog instance are allowed. All others must use the gateway.
 - NEVER ask for info available in existing config, `~/.jfrog/jfrog-cli.conf.v6`, or env vars (`JFROG_PLATFORM_URL`, `JFROG_ACCESS_TOKEN`, `JF_ACCESS_TOKEN`, `JF_PROJECT`).
