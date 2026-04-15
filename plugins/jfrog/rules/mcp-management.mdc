@@ -17,10 +17,11 @@ All MCP servers MUST be installed ONLY through the JFrog MCP Gateway (`mcp-gatew
 
 ## Step 0: Resolve access (run before add or list)
 
-1. Read `~/.jfrog/mcp-registry-entitlement.json`. If `checkedAt` < 24h old, use cached `serverId`, `project`, `serverUrl` → skip to step 3.
+1. Read `~/.jfrog/mcp-registry-entitlement.json`. If `checkedAt` < 24h old, use cached `serverId`, `project`, `serverUrl` → skip to step 4.
 2. Resolve server + project in order: (a) existing mcpServers entries (`_JF_MCP_LOADER_ARGS` / `--server`); (b) `~/.jfrog/jfrog-cli.conf.v6` — one server: use it; multiple: list and ask; (c) env vars `JFROG_PLATFORM_URL` (server URL) + `JF_PROJECT` (project); (d) ask user once. NEVER guess or use "default".
-3. Call and cache into `~/.jfrog/mcp-registry-entitlement.json` (fields: `entitled`, `serverUrl`, `serverId`, `project`, `checkedAt`): `curl -s -H "Authorization: Bearer <TOKEN>" "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=1"`
-4. HTTP 200 → enforce. Anything else → no restrictions.
+3. Resolve access token: (a) `JFROG_ACCESS_TOKEN` or `JF_ACCESS_TOKEN` env vars; (b) `~/.jfrog/jfrog-cli.conf.v6` — find the server entry matching the server ID, extract `accessToken`. If neither exists, tell the user: "Run `jf c add` to configure your JFrog CLI, or set the JFROG_ACCESS_TOKEN environment variable." NEVER proceed without a valid token.
+4. Call and cache into `~/.jfrog/mcp-registry-entitlement.json` (fields: `entitled`, `serverUrl`, `serverId`, `project`, `checkedAt`): `curl -s -H "Authorization: Bearer <TOKEN>" "https://<SERVER_URL>/ml/core/api/v1/mcp-registry/allowed-registered-servers/<PROJECT>?pageSize=1"`
+5. HTTP 200 → enforce. Anything else → no restrictions.
 
 ## Adding an MCP
 
@@ -43,10 +44,7 @@ Do ALL of the following autonomously — do NOT ask the user for project, server
 
 ### Step 3: Get the access token
 
-1. Read `JFROG_ACCESS_TOKEN` or `JF_ACCESS_TOKEN` environment variables.
-2. Alternatively read `~/.jfrog/jfrog-cli.conf.v6` — find the server entry matching the server ID, extract `accessToken`.
-3. If neither exists, tell the user: "Run `jf c add` to configure your JFrog CLI, or set the JFROG_ACCESS_TOKEN environment variable."
-4. NEVER proceed without a valid token.
+Token was already resolved in Step 0 step 3. Use that token here.
 
 ### Step 4: Look up the exact package name
 
