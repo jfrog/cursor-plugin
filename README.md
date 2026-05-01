@@ -9,7 +9,9 @@ JFrog Platform integration for [Cursor](https://cursor.com) — artifact managem
 | **MCP** | `plugins/jfrog/mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
 | **Skills** | `plugins/jfrog/skills/` | 11 AI skills covering Artifactory, Security, Access, CLI, Curation, Distribution, AppTrust, Runtime, Mission Control, Workers, and Patterns |
 | **Rule** | `plugins/jfrog/rules/jfrog-security.mdc` | Supply-chain security practices for dependency files |
+| **Rule** | `plugins/jfrog/rules/jfrog-mcp-management.mdc` | JFrog MCP Gateway governance — teaches the agent how to add, remove, and list MCP servers exclusively through `npx @jfrog/mcp-gateway` |
 | **Agent** | `plugins/jfrog/agents/supply-chain-security.md` | Dependency audit for CVEs, licenses, and curation |
+| **Hook** | `plugins/jfrog/hooks/hooks.json` | `sessionStart` hook that injects the gateway-management instructions as additional context (mirrors the JFrog Claude Code and VS Code plugins) |
 
 ## Prerequisites
 

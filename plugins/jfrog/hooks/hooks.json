@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node ./scripts/inject-instructions.mjs",
+        "timeout": 30
+      }
+    ]
+  }
+}
