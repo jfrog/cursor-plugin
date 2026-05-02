@@ -21,6 +21,6 @@
   ],
   "logo": "assets/logo.svg",
   "skills": ["skills/jfrog/SKILL.md"],
-  "rules": ["rules/jfrog-security.mdc", "rules/jfrog-mcp-management.mdc"],
+  "rules": ["rules/jfrog-security.mdc"],
   "hooks": "hooks/hooks.json"
 }

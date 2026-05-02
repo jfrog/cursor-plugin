@@ -1,7 +1,3 @@
----
-description: Adding, removing, or listing MCP servers via the JFrog MCP Gateway in Cursor
-alwaysApply: true
----
 # MCP Server Management — JFrog Gateway
 
 All MCP servers MUST be installed ONLY through the JFrog MCP Gateway
@@ -64,15 +60,15 @@ package name unless absolutely necessary:
 2. Else read `~/.jfrog/jfrog-cli.conf.v6`
    (`%USERPROFILE%\.jfrog\jfrog-cli.conf.v6` on Windows) via a
    terminal command (file-search tools skip hidden directories).
-   List the available server IDs and ask the user.
-3. NEVER use "default". NEVER guess. NEVER try multiple servers.
+   List the available server IDs and ask the user. NEVER try
+   multiple servers — pick one.
 
 **Project**
 
 1. From existing `mcpServers` entries, extract the `project=` value
    from `_JF_MCP_LOADER_ARGS`.
 2. Else check the `JF_PROJECT` environment variable.
-3. Else ask the user.
+3. Else ask the user. NEVER guess. NEVER use "default".
 
 **Target config file**
 
@@ -235,33 +231,41 @@ as a routine step after every install.
 ### Step 6: Verify the MCP is enabled (read-only, mandatory)
 
 After Step 5 — or after the user enables the server manually —
-**verify** without starting the MCP or calling its tools:
+**verify** without starting the MCP or calling its tools.
+
+**`ready` in `cursor agent mcp list` is NOT proof of success.** It
+indicates the gateway proxy started — not that the upstream MCP
+loaded its tools. NEVER report success on the strength of `ready`
+alone. The only proof is **tool descriptors actually present in
+`mcps/<key>/tools/*.json`**.
 
 1. **Approvals:** Read
    `~/.cursor/projects/<this-workspace>/mcp-approvals.json` if it
    exists. After a successful enable/approval flow, entries whose
    prefix matches the `mcpServers` key (e.g. `lighthouse-mcp-…`)
    indicate Cursor has recorded approval for that server.
-2. **Runtime mirror (strong signal):** Under the same project
-   folder, check `mcps/` for a directory named like the JSON key
-   or `user-<key>/` containing `SERVER_METADATA.json` and/or
-   `tools/*.json`. If the server is enabled and connected, tool
-   descriptors usually appear here after the MCP has run at least
-   once; if **nothing** appears after a **Developer: Reload
-   Window**, the server may still be off, failing to start, or
-   missing env (e.g. JFrog token for the gateway).
-3. **Report:** Tell the user whether verification passed, or what
-   is missing, and point them to **Settings → Tools & MCP** to
-   confirm the toggle is **on**, and to the MCP / Output logs if
-   the process errors on startup.
+2. **Runtime mirror (the proof):** Under the same project folder,
+   check `mcps/` for a directory named like the JSON key or
+   `user-<key>/`. The directory MUST contain at least one
+   `tools/*.json` descriptor. If `tools/` is empty (or the whole
+   directory is missing) after a **Developer: Reload Window**,
+   the upstream MCP did NOT come up — treat as Failed and follow
+   Troubleshooting "`ready` but 0 tools".
+3. **Report:** Tell the user whether tool descriptors were found
+   (verification passed) or what is missing (verification failed).
+   Point them to **Settings → Tools & MCP** to confirm the toggle
+   is **on**, and to the MCP / Output logs if the gateway errors
+   on startup.
 
 **Do not** "verify" by running the MCP package from the terminal or
 by invoking its tools unless the user explicitly asked.
 
 ### Step 7: Authenticate OAuth MCPs (auto, after Step 6)
 
-Run ONLY when `--inspect` had a `remote` section with `type: "http"`
-AND the Step 4 entry has no static auth headers. Skip otherwise.
+Run ONLY for OAuth-style remote MCPs — i.e. `--inspect` showed a
+`remote` section with `type: "http"` AND Step 4 wrote no static
+auth header into `env`. Skip for local MCPs and for remote MCPs
+whose auth comes from a static token in `env`.
 
 `--login` opens the browser, runs OAuth, and caches tokens in
 `~/.jfrog/jfrogmcp.conf.json`. Tell the user "I'm going to open
@@ -279,9 +283,9 @@ npx --yes \
 
 Outcomes:
 
-- **Exits 0** — OAuth completed; tokens cached. Server is ready.
-- **`expected 401, got 200`** — MCP is anonymous, no auth needed;
-  ignore the error.
+- **Exit 0** — OAuth completed; tokens cached; server ready.
+- **`expected 401, got 200`** — MCP is anonymous (no auth needed);
+  ignore.
 - **Any other error** — paste it to the user verbatim and stop.
 
 ## Removing an MCP
@@ -290,7 +294,9 @@ Outcomes:
    in (`.cursor/mcp.json` or `~/.cursor/mcp.json`).
 2. If OAuth was used (Step 7), also remove its entry from
    `~/.jfrog/jfrogmcp.conf.json`.
-3. Tell the user the server stops on the next reload / restart.
+3. Tell the user to reload Cursor (`Developer: Reload Window`) so
+   the removed entry stops loading (`mcp.json` is read at session
+   start only).
 
 ## Listing MCPs
 
@@ -392,17 +398,29 @@ unrecognized JPD ID returns 401 even with a valid token.
 
 ## Troubleshooting
 
-- **Server enabled but 0 tools / not connected after Reload Window**
-  — the gateway started but the upstream MCP did not. For OAuth
-  MCPs re-run Step 7. For static-token MCPs verify the secret env
-  var is set in the launching shell. Inspect MCP / Output logs in
-  Cursor for the gateway's stderr.
-- **Server missing from Tools & MCP after edit** — Cursor has not
-  picked up the new `mcp.json` yet. Run **Developer: Reload
-  Window** or restart the IDE.
-- **Loader: missing credentials at startup** — `jf c add
-  <SERVER_ID>` OR export `JFROG_ACCESS_TOKEN` and `JFROG_URL`,
-  then relaunch.
+- **`ready` in `cursor agent mcp list` (or "enabled" in Tools & MCP)
+  but no tool descriptors in `mcps/<key>/tools/*.json` after a
+  `Developer: Reload Window`** — gateway proxy started, upstream
+  MCP did not. The top-level `ready` label is misleading here.
+  NEVER report success. Open Cursor's MCP / Output panel for the
+  gateway stderr; diagnose by MCP type:
+  - **OAuth (remote)** — re-run Step 7 (`--login`); refresh token
+    likely expired.
+  - **Static-token (remote)** — confirm every `${env:VAR}` in
+    `env` is exported in the shell that launched Cursor and the
+    token is still valid.
+  - **Local (stdio)** — check that the bundled binary actually
+    launched (gateway stderr will show the spawn error).
+- **Server missing from `cursor agent mcp list` / Tools & MCP after
+  editing `mcp.json`** — Cursor has not picked up the new entry.
+  Run `Developer: Reload Window`. If the entry still does not
+  appear, it was never enabled — re-run Step 5
+  (`cursor agent mcp enable <name>`).
+- **Gateway: missing JFrog credentials at startup** (the loader
+  cannot authenticate to the JFrog server) — run
+  `jf c add <SERVER_ID>` OR export `JFROG_ACCESS_TOKEN` and
+  `JFROG_URL` (`JF_ACCESS_TOKEN` / `JF_URL` also work) in the
+  launching shell, then relaunch Cursor.
 - **OAuth MCP failing with refresh / `invalid_grant` errors** —
   cached refresh token expired; re-run Step 7. The new tokens
   overwrite the old ones in `~/.jfrog/jfrogmcp.conf.json`.

@@ -73,12 +73,16 @@ if (!shouldInject()) {
 }
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const rulePath = path.resolve(scriptDir, "..", "rules", "jfrog-mcp-management.mdc");
+const templatePath = path.resolve(
+  scriptDir,
+  "..",
+  "templates",
+  "jfrog-mcp-management.md"
+);
 
 let template = "";
 try {
-  const raw = readFileSync(rulePath, "utf8");
-  template = raw.replace(/^---\n[\s\S]*?\n---\n/, "");
+  template = readFileSync(templatePath, "utf8");
 } catch (err) {
   debug(`failed to read template: ${err.message} -> skipping`);
   emitEmpty();
