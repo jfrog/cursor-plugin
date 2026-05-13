@@ -1,10 +1,7 @@
 # JFrog MCP Integration for Cursor
 
-![JFrog](plugins/jfrog/assets/logo.svg)
 
 JFrog Platform integration for [Cursor](https://cursor.com): artifact management, security scanning, supply-chain practices, the **JFrog MCP Server** (remote MCP), and optional **JFrog MCP Gateway** governance so approved MCP servers can be added, removed, and listed through the gateway (`npx @jfrog/mcp-gateway`).
-
-This repository publishes the Cursor plugin bundle: marketplace manifest at [`.cursor-plugin/marketplace.json`](.cursor-plugin/marketplace.json), plugin root at [`plugins/jfrog/`](plugins/jfrog/).
 
 ## What's included
 
@@ -17,22 +14,6 @@ This repository publishes the Cursor plugin bundle: marketplace manifest at [`.c
 | **Agent** | [`plugins/jfrog/agents/supply-chain-security.md`](plugins/jfrog/agents/supply-chain-security.md) | Dependency audit workflow (CVEs, licenses, curation). |
 | **Hook** | [`plugins/jfrog/hooks/hooks.json`](plugins/jfrog/hooks/hooks.json), [`plugins/jfrog/scripts/inject-instructions.mjs`](plugins/jfrog/scripts/inject-instructions.mjs) | `sessionStart` hook: when the gateway is enabled (platform setting or force flag), injects [`plugins/jfrog/templates/jfrog-mcp-management.md`](plugins/jfrog/templates/jfrog-mcp-management.md) as `additional_context`; otherwise emits `{}`. |
 | **Template** | [`plugins/jfrog/templates/jfrog-mcp-management.md`](plugins/jfrog/templates/jfrog-mcp-management.md) | Gateway governance instructions for MCP management via `@jfrog/mcp-gateway`. |
-
-Skills originate from [jfrog/jfrog-skills](https://github.com/jfrog/jfrog-skills) and are shipped under `plugins/jfrog/skills/`.
-
----
-
-## Documentation
-
-Official JFrog guides (AI Catalog, MCP Registry, and Cursor):
-
-| Topic | Link |
-| --- | --- |
-| MCP Registry overview | [MCP Registry overview](https://docs.jfrog.com/ai-ml/docs/mcp-registry-overview) |
-| Configure coding agents | [Configure coding agents](https://docs.jfrog.com/ai-ml/docs/configure-coding-agents) |
-| Install and configure Cursor | [Configure Cursor](https://docs.jfrog.com/ai-ml/docs/configure-cursor) |
-| Get started with MCP | [Get started with MCP](https://docs.jfrog.com/ai-ml/docs/get-started-mcp) |
-| Manage MCPs from chat | [Manage MCPs via Agents](https://docs.jfrog.com/ai-ml/docs/manage-mcps-via-agents) |
 
 ---
 
@@ -52,7 +33,7 @@ Before installing, ensure you have:
 
 ## Installation
 
-### Step 1 — Install the Cursor plugin
+### Install the Cursor plugin
 
 Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.com/ai-ml/docs/configure-cursor) documentation or Cursor’s UI:
 
@@ -60,14 +41,6 @@ Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.c
 2. Open **Cursor Settings** and select **Plugins**.
 3. Search for **JFrog** and open the **JFrog** plugin.
 4. Choose **Add to Cursor**, then **Add Plugin**.
-
-Optional: use **View in Editor** from the marketplace entry to inspect the plugin metadata.
-
-### Step 2 — Authenticate
-
-The **JFrog Agent Guard** logic in this plugin resolves credentials in a predictable order. Pick **one** primary method below (environment variables **or** JFrog CLI). The hook that talks to JFrog Platform settings uses a **platform URL** and **bearer token** (see [Authentication](#authentication)).
-
-After you authenticate, open a **folder or workspace** in Cursor. When the gateway path is active, approved MCP servers are available to your agent; for background, see [Manage MCPs via Agents](https://docs.jfrog.com/ai-ml/docs/manage-mcps-via-agents).
 
 ---
 
@@ -124,45 +97,17 @@ If you have **exactly one** server in `jf` config and `JFROG_URL` is not set, th
 
 ---
 
-## Remote JFrog MCP (OAuth)
-
-The bundled [`plugins/jfrog/mcp.json`](plugins/jfrog/mcp.json) points the **JFrog** MCP client entry at:
-
-`https://${JFROG_PLATFORM_URL}/mcp`
-
-Set **`JFROG_PLATFORM_URL`** to your instance host (for example `mycompany.jfrog.io` — no `https://` prefix). Restart Cursor; complete the **OAuth** flow in the browser when prompted.
-
-No API key is required for that remote MCP path when OAuth is used. **JFrog CLI** is still used by several **skills** for REST and CLI operations (install via `brew install jfrog-cli` or the [JFrog CLI install guide](https://jfrog.com/help/r/jfrog-cli/install-the-jfrog-cli)).
-
----
-
-## MCP Gateway hook (optional)
-
-The `sessionStart` hook injects MCP gateway governance text only when:
-
-- **`JF_MCP_GATEWAY_FORCE_ENABLE=true`** (or `JF_AGENT_GUARD_FORCE_ENABLE=true`) is set, **or**
-- Your JFrog account has **`mcp_gateway_plugin_enabled`** turned on (the hook calls the platform settings API using `JFROG_URL` + `JFROG_ACCESS_TOKEN`), **and**
-- The hook is not force-disabled via `_JF_AGENT_GUARD_FORCE_DISABLE` / `_JF_MCP_GATEWAY_FORCE_DISABLE`.
-
-To **force-enable** the hook locally for testing (bypasses the platform settings check):
-
-```bash
-export JF_MCP_GATEWAY_FORCE_ENABLE=true
-```
-
-Then start Cursor from an environment where that variable is visible (macOS GUI apps may need a full restart or launch from a shell that exports it — see [Configure Cursor](https://docs.jfrog.com/ai-ml/docs/configure-cursor) for recommended patterns).
-
----
-
 ## Usage
 
-| Ask the agent… | Typical outcome |
+| Ask the agent… | What happens |
 | --- | --- |
-| Which MCP servers can I use? | Lists servers approved for your project context. |
-| Show details for a specific MCP server. | Returns metadata, required environment variables, and tool policies. |
-| Add or remove an MCP server. | Uses gateway workflows and `npx @jfrog/mcp-gateway` per injected instructions. |
+| "Which MCP servers can I install?" | Lists servers approved for your current project. |
+| "Show me the details for the filesystem MCP server." | Returns metadata, required env vars, and active tool policies. |
+| "Add the GitHub MCP server." | Installs it and syncs tool policies. Secrets are requested via a CLI command — never in chat. |
+| "Remove the Slack MCP server." | Uninstalls the server and its stored credentials. |
+| "Switch my project to `backend-team`." | Re-syncs approved servers and policies for the new project. |
+| "Which JFrog project am I working in?" | Shows the active project and the others you can access. |
 
-Secrets marked as sensitive in server metadata are not pasted into chat; the agent should surface a **CLI command** for you to run locally instead.
 
 ---
 
@@ -190,15 +135,6 @@ Permissions are **project-scoped**. Confirm the MCP is allowed for the project i
 2. Note any HTTP status from the platform settings request.
 3. Open a [GitHub issue](https://github.com/jfrog/cursor-plugin/issues) or email **devrel@jfrog.com** with those details.
 
----
-
-## Validation
-
-From the repository root:
-
-```bash
-node scripts/validate-template.mjs
-```
 
 ---
 
