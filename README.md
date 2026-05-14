@@ -12,7 +12,6 @@ JFrog Platform integration for [Cursor](https://cursor.com): artifact management
 | **Skills** | [`plugins/jfrog/skills/`](plugins/jfrog/skills/) | JFrog AI skills (Artifactory, Security, Access, CLI, Curation, Distribution, AppTrust, Runtime, Mission Control, Workers, patterns, and more). |
 | **Rule** | [`plugins/jfrog/rules/jfrog-security.mdc`](plugins/jfrog/rules/jfrog-security.mdc) | Supply-chain security guidance for dependency manifests. |
 | **Agent** | [`plugins/jfrog/agents/supply-chain-security.md`](plugins/jfrog/agents/supply-chain-security.md) | Dependency audit workflow (CVEs, licenses, curation). |
-| **Hook** | [`plugins/jfrog/hooks/hooks.json`](plugins/jfrog/hooks/hooks.json), [`plugins/jfrog/scripts/inject-instructions.mjs`](plugins/jfrog/scripts/inject-instructions.mjs) | `sessionStart` hook: when the gateway is enabled (platform setting or force flag), injects [`plugins/jfrog/templates/jfrog-mcp-management.md`](plugins/jfrog/templates/jfrog-mcp-management.md) as `additional_context`; otherwise emits `{}`. |
 | **Template** | [`plugins/jfrog/templates/jfrog-mcp-management.md`](plugins/jfrog/templates/jfrog-mcp-management.md) | Gateway governance instructions for MCP management via `@jfrog/mcp-gateway`. |
 
 ---
