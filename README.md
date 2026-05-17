@@ -39,10 +39,6 @@ Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.c
 3. Search for **JFrog** and open the **JFrog** plugin.
 4. Choose **Add to Cursor**, then **Add Plugin**.
 
-### Verify
-
-Open **Cursor Settings → Plugins** and confirm the JFrog plugin is listed as **Installed** at **v0.3.2 or higher**.
-
 ---
 
 ## Authentication
