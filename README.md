@@ -1,15 +1,15 @@
 # JFrog Plugin for Cursor
 
-JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, and supply-chain best practices — with all MCP servers installed exclusively through the **JFrog Agent Guard**.
+JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, and supply-chain best practices with all MCP servers installed.
 
 ## Features
 
 The JFrog plugin provides the following capabilities, grouped by component:
 
-| Component | Feature | Description                                                                                                                                                                                                                                                                   |
-| --- | --- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Skill** | JFrog Platform | Interact with Artifactory repositories, builds, permissions, users, access tokens, projects, release bundles, and platform administration via the JFrog CLI and REST/GraphQL APIs. Also covers security audits, CVE lookups, and Advanced Security exposure queries.          |
-| **Skill** | Package safety & download | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers.                                                                                                |
+| Component | Feature | Description |
+| --- | --- | --- |
+| **Skill** | JFrog Platform | Interact with Artifactory repositories, builds, permissions, users, access tokens, projects, release bundles, and platform administration via the JFrog CLI and REST/GraphQL APIs. Also covers security audits, CVE lookups, and Advanced Security exposure queries. |
+| **Skill** | Package safety & download | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers. |
 | **Hook** | Agent Guard | Cursor manage MCPs through the JFrog Agent Guard. Through the Agent Guard you can discover, install, configure, update, and remove MCP servers from the JFrog AI Catalog approved for your project, and authenticate to remote HTTP MCPs via OAuth, API key, or bearer token. |
 
 ---
@@ -18,14 +18,12 @@ The JFrog plugin provides the following capabilities, grouped by component:
 
 Before installing, make sure you have:
 
-- **JFrog Platform access** — Your JFrog subscription must include the AI Catalog entitlement (required for the Agent Guard feature only). Contact your JFrog account team if you're unsure whether it's enabled.
-- **JFrog project** — At least one MCP server allowed for your project (required for the Agent Guard feature only).
 - **JFrog host URL and access token** — Your JFrog platform URL and a valid access token.
 - **Cursor** — Installed with AI features enabled.
 - **Node.js** (≥ 14) — with `npx` on your `PATH`.
 - **JFrog CLI** (≥ 2.x, optional) — Recommended for `jf config add` authentication (see [Authentication](#authentication)).
-- **JFrog credentials** — Provided in one of two ways (see [Authentication](#authentication)):
-
+- **JFrog Platform access** (optional) — If you want to use the Agent Guard feature, your JFrog subscription needs to include the AI Catalog entitlement. Contact your JFrog account team if you're unsure whether it's enabled.
+- **JFrog project** (optional) — If you want to use the Agent Guard feature, at least one MCP server must be allowed for your project.
 ---
 
 ## Installation
