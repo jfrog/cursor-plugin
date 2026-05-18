@@ -1,6 +1,6 @@
 # JFrog Plugin for Cursor
 
-JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, and supply-chain best practices with all MCP servers installed.
+JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, supply-chain best practices, and Agent Guard.
 
 ## Features
 
@@ -23,7 +23,8 @@ Before installing, make sure you have:
 - **Node.js** (≥ 14) — with `npx` on your `PATH`.
 - **JFrog CLI** (≥ 2.x, optional) — Recommended for `jf config add` authentication (see [Authentication](#authentication)).
 - **JFrog Platform access** (optional) — If you want to use the Agent Guard feature, your JFrog subscription needs to include the AI Catalog entitlement. Contact your JFrog account team if you're unsure whether it's enabled.
-- **JFrog project** (optional) — If you want to use the Agent Guard feature, at least one MCP server must be allowed for your project.
+- **JFrog project** (optional) — If you want to use the Agent Guard feature.
+
 ---
 
 ## Installation
@@ -41,30 +42,23 @@ Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.c
 
 ## Authentication
 
-The plugin reads JFrog credentials from environment variables or the JFrog CLI configuration. Pick **one** of the following.
+### 1. Set persistent environment variables
 
-### Option A — JFrog CLI (`jf config add`)
+| Variable | Description |
+| --- | --- |
+| `JFROG_URL` | Your JFrog platform URL, e.g. `https://mycompany.jfrog.io` |
+| `JFROG_ACCESS_TOKEN` | Your JFrog access token |
 
-If you already have the JFrog CLI installed and configured, the plugin uses your existing authentication — no further setup is required.
+### 2. Configure the JFrog CLI
 
-**First-time setup only** (if you have never configured the JFrog CLI on this machine):
+If you have never configured the JFrog CLI on this machine:
 
-1. Open a terminal.
+1. Open your terminal.
 2. Run:
    ```bash
    jf config add
    ```
-3. Follow the prompts for platform URL and access token.
-4. Restart Cursor / your terminal so the environment and CLI config are picked up.
-
-### Option B — Environment variables
-
-Use this if you are **not** relying on the JFrog CLI for URL and token. For the settings check used by the Agent Guard, set **`JFROG_URL`** and **`JFROG_ACCESS_TOKEN`** together (legacy names `JF_URL` / `JF_ACCESS_TOKEN` are still read by the hook script if present).
-
-| Variable | Description |
-| --- | --- |
-| `JFROG_URL` | Your JFrog platform URL, for example `https://mycompany.jfrog.io` |
-| `JFROG_ACCESS_TOKEN` | Your JFrog access token |
+3. Follow the interactive prompts to enter the same JFrog platform URL and access token.
 
 ---
 
