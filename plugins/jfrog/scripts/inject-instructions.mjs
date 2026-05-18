@@ -24,7 +24,7 @@ const forceDisabled =
 const forceEnabled =
     env("JF_AGENT_GUARD_FORCE_ENABLE", "JF_MCP_GATEWAY_FORCE_ENABLE") === "true";
 
-async function isGatewayEnabledViaSettings() {
+async function isAgentGuardEnabledViaSettings() {
   const baseUrl = env("JFROG_URL", "JF_URL");
   const token = env("JFROG_ACCESS_TOKEN", "JF_ACCESS_TOKEN");
   if (!baseUrl) {
@@ -40,7 +40,7 @@ async function isGatewayEnabledViaSettings() {
       baseUrl.replace(/\/+$/, "") +
       "/ml/core/api/v1/administration/account-settings/mcp_gateway_plugin_enabled";
 
-  debug(`Fetching gateway setting from ${url}`);
+  debug(`Fetching agent guard setting from ${url}`);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
@@ -60,7 +60,7 @@ async function isGatewayEnabledViaSettings() {
     }
     const data = await response.json();
     const enabled = data?.settings?.mcpGatewayPluginEnabled?.value === true;
-    debug(`Settings response indicates gateway enabled=${enabled}`);
+    debug(`Settings response indicates agent guard enabled=${enabled}`);
     return enabled;
   } catch (error) {
     const reason = error?.name === "AbortError" ? "timeout" : error?.message ?? "unknown error";
@@ -77,8 +77,8 @@ if (forceDisabled) {
   process.exit(0);
 } else if (forceEnabled) {
   debug("Force-enable flag is set.");
-} else if (!(await isGatewayEnabledViaSettings())) {
-  debug("Gateway not enabled; exiting without injecting instructions");
+} else if (!(await isAgentGuardEnabledViaSettings())) {
+  debug("Agent Guard not enabled; exiting without injecting instructions");
   process.stdout.write("{}");
   process.exit(0);
 }
