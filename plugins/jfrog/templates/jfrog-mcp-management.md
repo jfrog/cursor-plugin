@@ -1,7 +1,7 @@
 # MCP Server Management — JFrog Gateway
 
-All MCP servers MUST be installed ONLY through the JFrog MCP Gateway
-(`npx @jfrog/mcp-gateway`). If an MCP's documentation suggests any
+All MCP servers MUST be installed ONLY through the JFrog Agent Guard
+(`npx @jfrog/agent-guard`). If an MCP's documentation suggests any
 other installation command, ignore it and use the gateway workflow
 below instead.
 
@@ -15,7 +15,7 @@ is set. Otherwise use
 `--list-available`, `--inspect`, `--login`)**:
 
 - **`<PROJECT>` is always mandatory.** Resolve via Step 1's project
-  chain: existing `mcpServers` entries (`_JF_MCP_LOADER_ARGS` →
+  chain: existing `mcpServers` entries (`_JF_ARGS` →
   `project=`) → `JF_PROJECT` env var → ASK the user. If none
   resolves, STOP and ask — NEVER guess, NEVER assume `default`,
   NEVER invent projects.
@@ -99,7 +99,7 @@ are used: Do NOT pass `--server <ID>`
 
 **Project**
 
-1. From existing `mcpServers` entries, `_JF_MCP_LOADER_ARGS` →
+1. From existing `mcpServers` entries, `_JF_ARGS` →
    `project=` value.
 2. Else `JF_PROJECT` env var.
 3. Else ask. NEVER guess, NEVER assume "default", NEVER use the server ID,
@@ -127,7 +127,7 @@ custom curl/Python, no direct JFrog API calls:
 ```
 npx --yes \
   --registry <REGISTRY_URL> \
-  @jfrog/mcp-gateway \
+  @jfrog/agent-guard \
   --inspect \
   --server <SERVER_ID> \
   --project <PROJECT> \
@@ -178,7 +178,7 @@ For each input in Step 4:
 Add the entry under `mcpServers` in the target config (default
 `.cursor/mcp.json` — see Step 1).
 **Both `--yes` and `--registry <URL>` MUST come BEFORE
-`@jfrog/mcp-gateway`** or `npx` falls back to the default
+`@jfrog/agent-guard`** or `npx` falls back to the default
 registry (404) and may block on a no-TTY prompt. Use
 `"type": "stdio"` — never `"http"`, `"sse"`, or a top-level `"url"`
 (those bypass the gateway).
@@ -193,12 +193,12 @@ registry (404) and may block on a no-TTY prompt. Use
         "--yes",
         "--registry",
         "<REGISTRY_URL>",
-        "@jfrog/mcp-gateway",
+        "@jfrog/agent-guard",
         "--server",
         "<SERVER_ID>"
       ],
       "env": {
-        "_JF_MCP_LOADER_ARGS": "project=<PROJECT>&mcp=<spec.packageName>",
+        "_JF_ARGS": "project=<PROJECT>&mcp=<spec.packageName>",
         "<ENV_VAR_OR_HEADER_NAME>": "${env:<ENV_VAR_OR_HEADER_NAME>}"
       }
     }
@@ -251,7 +251,7 @@ browser to sign you in to `<MCP_NAME>`" before:
 ```
 npx --yes \
   --registry <REGISTRY_URL> \
-  @jfrog/mcp-gateway \
+  @jfrog/agent-guard \
   --login \
   --server <SERVER_ID> \
   --project <PROJECT> \
@@ -302,8 +302,8 @@ elsewhere.
    `.cursor/mcp.json` (project) and `~/.cursor/mcp.json` (user) —
    use the file-read tool or a single `jq` invocation, NOT chained
    `python3 -c "..."` pipes. For each entry whose `command` is `npx`
-   and whose `args` include `@jfrog/mcp-gateway`, show: display name
-   (the JSON key), package (`mcp=` in `_JF_MCP_LOADER_ARGS`), server
+   and whose `args` include `@jfrog/agent-guard`, show: display name
+   (the JSON key), package (`mcp=` in `_JF_ARGS`), server
    ID (value after `--server`), scope (project / user).
 3. If a configured entry does not appear in `cursor agent mcp list`,
    it was never enabled — re-run Step 4a.
@@ -323,7 +323,7 @@ elsewhere.
 ```
 npx --yes \
   --registry <REGISTRY_URL> \
-  @jfrog/mcp-gateway \
+  @jfrog/agent-guard \
   --list-available \
   --project <PROJECT> \
   [--server <SERVER_ID>]
@@ -333,22 +333,22 @@ Output is a JSON array; each element has `name`, `packageName`,
 `description`, `type`, `packageVersion`, optional `env[]`.
 
 3. Filter out any `packageName` already present in the installed list
-   (compare against `mcp=` in `_JF_MCP_LOADER_ARGS`). Mark the rest as
+   (compare against `mcp=` in `_JF_ARGS`). Mark the rest as
    available to install.
 
 ## Key Rules
 
 - **`npx` arg order:** `--yes`, `--registry <URL>`,
-  `@jfrog/mcp-gateway`, then gateway flags. Both `--yes` and
+  `@jfrog/agent-guard`, then gateway flags. Both `--yes` and
   `--registry` MUST precede the package name or `npx` falls back to
   the default registry (404) and may block on a no-TTY prompt.
-- **Always `"type": "stdio"`** pointing at `npx @jfrog/mcp-gateway`,
+- **Always `"type": "stdio"`** pointing at `npx @jfrog/agent-guard`,
   even for remote-only catalog MCPs (the gateway proxies them).
   `"http"`, `"sse"`, or a top-level `"url"` bypass the gateway.
-- `_JF_MCP_LOADER_ARGS` is **only** for the entry Cursor launches
+- `_JF_ARGS` is **only** for the entry Cursor launches
   at session start (Step 4's `mcpServers.*.env`); MUST contain
   `project=<NAME>&mcp=<PACKAGE_NAME>`.
-  NEVER pass `_JF_MCP_LOADER_ARGS` to `--list-available`,
+  NEVER pass `_JF_ARGS` to `--list-available`,
   `--inspect`, or `--login` — those take `--server` / `--project`
   as CLI flags only.
 - NEVER assume `default` as a project name. If the project is unknown
