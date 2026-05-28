@@ -2,6 +2,12 @@
 
 JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, supply-chain best practices, and Agent Guard.
 
+## What's new in v0.5.0
+
+- **Official skills.** The plugin now uses the official [jfrog-skills](https://github.com/jfrog/jfrog-skills) v0.11.0, replacing the previously bundled skill content. This brings structured reference files, automation scripts, and a three-tier tool selection strategy (MCP, CLI, REST/GraphQL).
+- **Package safety skill.** New `jfrog-package-safety-and-download` skill for checking whether packages are safe, curated, or allowed before downloading them through Artifactory.
+---
+
 ## Features
 
 The JFrog plugin provides the following capabilities, grouped by component:
@@ -21,7 +27,7 @@ Before installing, make sure you have:
 - **JFrog host URL and access token** — Your JFrog platform URL and a valid access token.
 - **Cursor** — Installed with AI features enabled.
 - **Node.js** (≥ 14) — with `npx` on your `PATH`.
-- **JFrog CLI** (≥ 2.x, optional) — Recommended for `jf config add` authentication (see [Authentication](#authentication)).
+- **JFrog CLI** (≥ 2.x, optional) — If missing, the agent will attempt to install it. Recommended for CLI-based operations (see [Authentication](#authentication)).
 - **JFrog Platform access** (optional) — If you want to use the Agent Guard feature, your JFrog subscription needs to include the AI Catalog entitlement. Contact your JFrog account team if you're unsure whether it's enabled.
 - **JFrog project** (optional) — If you want to use the Agent Guard feature.
 
@@ -46,19 +52,12 @@ Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.c
 
 | Variable | Description |
 | --- | --- |
-| `JFROG_URL` | Your JFrog platform URL, e.g. `https://mycompany.jfrog.io` |
+| `JFROG_PLATFORM_URL` | Your JFrog platform URL, e.g. `mycompany.jfrog.io` |
 | `JFROG_ACCESS_TOKEN` | Your JFrog access token |
 
 ### 2. Configure the JFrog CLI
 
-If you have never configured the JFrog CLI on this machine:
-
-1. Open your terminal.
-2. Run:
-   ```bash
-   jf config add
-   ```
-3. Follow the interactive prompts to enter the same JFrog platform URL and access token.
+Run `jf login` for browser-based setup, or set the `JFROG_ACCESS_TOKEN` environment variable. MCP-based workflows authenticate via OAuth and require no additional configuration.
 
 ---
 

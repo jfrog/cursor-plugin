@@ -1,7 +1,7 @@
 {
   "name": "jfrog",
   "displayName": "JFrog Platform",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "JFrog Platform integration with MCP, security skills, supply-chain best practices, and JFrog Agent Guard governance for adding, removing, and listing MCP servers.",
   "author": {
     "name": "JFrog",
@@ -18,10 +18,12 @@
     "supply-chain",
     "devops",
     "artifacts",
-    "mcp",
     "ai-catalog"
   ],
   "logo": "assets/logo.svg",
-  "skills": ["skills/jfrog/SKILL.md"],
+  "skills": [
+    "skills/jfrog/SKILL.md",
+    "skills/jfrog-package-safety-and-download/SKILL.md"
+  ],
   "hooks": "hooks/hooks.json"
 }

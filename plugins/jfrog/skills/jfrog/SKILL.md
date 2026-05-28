@@ -1,543 +1,529 @@
 ---
-name: jfrog-platform
-description: Use when working with the JFrog Platform -- Artifactory (repositories, artifacts, builds, AQL, replication, federation), Security/Xray (vulnerabilities, CVEs, policies, watches, SBOM, SAST, secrets detection), Access (tokens, users, groups, permissions, projects, RBAC), Distribution (release bundles, promotion, environments, edge nodes, evidence), Curation (package firewall, blocked packages, waivers), AppTrust (application entities, versions, trusted releases), Runtime (clusters, running images, sensors), Mission Control (JPDs, deployment health, licenses), Workers (serverless TypeScript, event hooks), CLI (jf command, jf rt, jf audit, jf scan), and architectural patterns/best practices. Triggers on mentions of any JFrog product, artifactory, xray, security, access token, curation, distribution, release bundle, apptrust, runtime, mission control, worker, jf command, pattern, or best practice.
+name: jfrog
+description: >-
+  Interact with the JFrog Platform via the JFrog CLI, JFrog MCP server and REST/GraphQL APIs.
+  Use this skill when the user wants to manage Artifactory repositories,
+  upload or download artifacts, manage builds, configure permissions,
+  manage users and groups, work with access tokens, configure JFrog CLI
+  servers, search artifacts, manage properties, set up replication,
+  manage JFrog Projects, run security audits or scans, look up CVE details,
+  query exposures scan results from JFrog Advanced Security, manage
+  release bundles and lifecycle operations, aggregate or export platform
+  data, or perform any JFrog Platform administration task.
+  Also use when the user mentions jf, jfrog, artifactory, xray, distribution,
+  evidence, apptrust, onemodel, graphql, workers, mission control, curation,
+  advanced security, exposures, or any JFrog product name.
+compatibility: >-
+  Requires jq on PATH.
 metadata:
-  author: JFrog
-  version: 1.0.0
-  mcp-server: jfrog
-  category: security
-  tags: [artifactory, xray, curation, supply-chain-security, devops]
+  role: base
+  version: "0.11.0"
 ---
 
-# JFrog Platform Skill
+# JFrog Skill
 
-## MCP Server (Cursor)
+The foundational skill for all JFrog agent interactions. Covers JFrog Platform concepts, `jf` CLI setup and authentication, and intent routing to workflow skills.
 
-The JFrog MCP Server provides AI tools for Artifactory, Xray, Curation, and the JFrog Catalog directly inside Cursor. Auth is via **OAuth** — no API keys or tokens needed in Cursor. SaaS only. URL format: `https://<team>.jfrog.io`.
+Interact with the JFrog Platform through three tool tiers — see
+[Tool selection strategy](#tool-selection-strategy). In code examples below,
+`<skill_path>` refers to this skill's directory and is resolved automatically
+by the agent. If the agent does not resolve it, determine the path by locating
+this SKILL.md file and using its parent directory.
 
-To enable: **Administration > General > Settings > MCP Server → ON** (admin required).
+## Tool selection strategy
 
-If MCP tools are unavailable: ask the user to enable the MCP Server. If unauthorized: restart Cursor to re-trigger OAuth. Fall back to REST API / CLI for operations not covered by MCP tools.
+Try the tiers in order; move to the next only when the current does not
+cover the operation or fails:
 
-## JFrog Catalog
+1. **JFrog MCP tools** (preferred): `CallMcpTool` against the JFrog MCP
+   server. Discover available tools from the server's tool list; never
+   guess tool names.
+2. **`jf` CLI subcommands** (fallback): dedicated commands such as
+   `jf rt upload`, `jf rt dl`, `jf build-publish`.
+3. **`jf api`** (last resort): REST/GraphQL endpoints with no dedicated
+   subcommand. Validate the path first — see rule 6 in
+   [Cautious execution](#cautious-execution).
 
-Global OSS intelligence database (12M+ packages). Provides vulnerability data, license info, and malicious package flags — independent of what your org stores in Artifactory.
+MCP and the CLI may use different token scopes. If one tier returns 403,
+try the alternate tier before reporting the operation blocked.
 
-| | JFrog Catalog | Artifactory |
-|---|---|---|
-| **What** | Global OSS intelligence | Your org's private binary repos |
-| **Answers** | "What's known about this package?" | "What do *we* use?" |
+## Prerequisites
 
-**Query routing:**
-- "Is X safe?" / "Vulnerabilities in X?" → Catalog (public intel)
-- "Do we use X?" / "Versions in our repos?" → Artifactory (internal)
-- "Are we exposed to CVE-X?" → Both: Catalog for vuln data, Artifactory for internal exposure
-- Ambiguous ("check log4j") → full security assessment (see workflow below)
+The following tools must be available on `PATH`:
 
-Artifactory package tools are for **dependency analysis only**, not CI/CD build artifacts.
-
-## Supply Chain Flow
-
-```
-Public Registry (npm, PyPI, Maven Central...)
-    → JFrog Catalog    (global OSS intelligence: vulns, licenses, malicious flags)
-    → JFrog Curation   (gatekeeper: approved / blocked / inconclusive)
-    → Artifactory      (your org's repos, used by your teams)
-    → JFrog Xray       (continuous scanning of what's already inside)
-```
-
-Each layer serves a different purpose. When assessing risk, work top-down through this chain.
-
-## Security Assessment Workflows
-
-### Package Security Assessment
-
-**Trigger:** "is X safe?", "check package X", "should we use X?"
-
-Chain sequentially:
-1. **Catalog metadata** — malicious flag? license type? If malicious, **STOP and warn**.
-2. **Vulnerabilities** — severity breakdown for the target version (default: latest)
-3. **Curation status** — approved / blocked / inconclusive
-4. **Internal usage** — Artifactory query for versions and repos in use
-5. **Synthesize** — risk summary: malicious status, license, vuln counts, curation decision, internal exposure
-
-### Vulnerability Investigation
-
-**Trigger:** "what is CVE-X?", "are we affected by CVE-X?"
-
-1. **CVE lookup** in Catalog — affected packages, versions, severity
-2. **Internal exposure** — Artifactory query per affected package, cross-ref version ranges
-3. **Report** — vulnerable repos + safe upgrade targets
-
-### DevSecOps Report
-
-**Trigger:** "security report", "security posture", "how are we doing on security?"
-
-1. Generate report via DevSecOps tools
-2. Highlight critical/high CVEs, applicability status, trends
-3. Summarize by severity with actionable next steps
-
-## Authentication
-
-All JFrog REST API calls require authentication via the `Authorization` header:
-
-```
-Authorization: Bearer $JFROG_ACCESS_TOKEN
-```
-
-When authentication is needed, follow the [login-flow.md](login-flow.md) procedure to resolve the active JFrog environment. The `jf` CLI is required and will be installed automatically if missing. The agent checks saved credentials via `jf config show` and asks which environment to use if multiple are saved. If none exist, the agent drives the web login flow and saves credentials via `jf config add`.
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `JFROG_URL` | JFrog instance hostname (no `https://`). Used in all REST API calls |
-| `JFROG_ACCESS_TOKEN` | Access token for Bearer authentication |
-| `JF_URL` | CLI-native alternative to `JFROG_URL` |
-| `JF_ACCESS_TOKEN` | CLI-native alternative to `JFROG_ACCESS_TOKEN` |
-
-## Pre-flight Service Discovery
-
-Before calling a service other than Artifactory, verify it is available. See [preflight.md](preflight.md) for the full endpoint list.
-
-| Service | Ping Endpoint | Expected |
-|---------|--------------|----------|
-| Artifactory | `GET $JFROG_URL/artifactory/api/system/ping` | `OK` |
-| Xray | `GET $JFROG_URL/xray/api/v1/system/ping` | HTTP 200 |
-| Curation | `GET $JFROG_URL/curation/api/v1/system/ping` | HTTP 200 |
-| Lifecycle | `GET $JFROG_URL/lifecycle/api/v2/promotion/records?limit=1` | HTTP 200 |
-| AppTrust | `jf apptrust ping` | `OK` |
-
-If a service is unavailable, inform the user and stop -- do not attempt further calls to that service.
-
-## Platform Overview
-
-| Service | Base URL | Purpose |
-|---------|----------|---------|
-| **Artifactory** | `$JFROG_URL/artifactory/api/...` | Repository and artifact management |
-| **Xray** | `$JFROG_URL/xray/api/...` | Security scanning, policies, watches |
-| **Access** | `$JFROG_URL/access/api/...` | Tokens, users, groups, permissions, projects |
-| **Lifecycle** | `$JFROG_URL/lifecycle/api/...` | Release bundles, promotion |
-| **Distribution** | `$JFROG_URL/distribution/api/...` | Distribute releases to edge nodes |
-| **Evidence** | `$JFROG_URL/evidence/api/...` | Signed attestations (DSSE format) |
-| **Curation** | `$JFROG_URL/curation/api/...` | Package firewall |
-| **AppTrust** | `$JFROG_URL/apptrust/api/v1/...` | Application lifecycle management |
-| **Runtime** | `$JFROG_URL/runtime/api/v1/...` | Kubernetes container monitoring |
-| **Mission Control** | `$JFROG_URL/mc/api/v1/...` | Multi-JPD management |
-| **Workers** | `$JFROG_URL/worker/api/...` | Serverless TypeScript functions |
-
-## Artifactory
-
-Manages repositories, artifacts, builds, and search. For complete API coverage, see [artifactory-reference.md](artifactory-reference.md).
-
-### Repository Types
-
-| Type | Purpose |
+| Tool | Purpose |
 |------|---------|
-| **Local** | Store your own artifacts (1st-party binaries, builds) |
-| **Remote** | Cache/proxy external registries (npm, Maven Central, Docker Hub) |
-| **Virtual** | Single URL routing to multiple local & remote repos with priority order |
-| **Federated** | Bi-directional mirror across JPDs |
+| `jq` | JSON parsing of CLI and API output |
 
-> **Virtual repo constraint:** `defaultDeploymentRepo` MUST be present in the `repositories` list before it can be set as the default. This is not enforced by the API schema — always validate before creation.
+All JFrog HTTP traffic from Tiers 2 and 3 goes through the `jf` CLI itself
+(`jf api`, see [Invoking platform APIs with `jf api`](#invoking-platform-apis-with-jf-api) below) —
+no standalone `curl` is required for any JFrog interaction.
 
-### Quick Reference
+**Runtime permission for JFrog calls.** All `jf` calls that touch the network
+need an outbound-HTTPS escalation from the agent runtime. The `~/.jfrog/`
+credential save (`jf config add` during login) additionally needs a
+filesystem-write escalation.
 
-```bash
-# List repos
-curl -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" "$JFROG_URL/artifactory/api/repositories"
+| Runtime     | Network                                       | Network + `~/.jfrog/` write     |
+| ----------- | --------------------------------------------- | ------------------------------- |
+| Cursor      | `required_permissions: ["full_network"]`      | `required_permissions: ["all"]` |
+| Claude Code | `allowed-tools: Bash(jf:*)` + host allowlist  | same + filesystem allowlist     |
+| Other       | Configure at the runtime/sandbox layer        | same                            |
 
-# Create local repo
-curl -X PUT -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"key":"my-docker-local","rclass":"local","packageType":"docker"}' \
-  "$JFROG_URL/artifactory/api/repositories/my-docker-local"
+If `jf` exits 1 with empty output, the runtime's network gate is the first
+thing to check — re-run with the appropriate escalation above.
 
-# Deploy artifact
-curl -X PUT -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -T ./myapp-1.0.jar \
-  "$JFROG_URL/artifactory/libs-release-local/com/example/myapp/1.0/myapp-1.0.jar"
+## Environment check
 
-# Download artifact
-curl -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -O "$JFROG_URL/artifactory/libs-release-local/com/example/myapp/1.0/myapp-1.0.jar"
-
-# AQL search (see aql syntax in artifactory-reference.md)
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: text/plain" \
-  -d 'items.find({"repo":"libs-release-local","name":{"$match":"*.jar"}})' \
-  "$JFROG_URL/artifactory/api/search/aql"
-
-# Build info
-curl -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" "$JFROG_URL/artifactory/api/build/myapp/42"
-```
-
-For AQL syntax, package-type configs, replication, and federation, see [artifactory-reference.md](artifactory-reference.md) and [artifactory-packages-reference.md](artifactory-packages-reference.md).
-
-## Security (Xray)
-
-Scans artifacts for vulnerabilities, manages policies and watches. For complete API coverage, see [security-reference.md](security-reference.md).
-
-### Key Entities
-
-| Entity | Description |
-|--------|-------------|
-| **Policy** | Rules defining what constitutes a violation (security, license, or operational risk) |
-| **Watch** | Links policies to resources (repos, builds, release bundles) to trigger scanning |
-| **Violation** | A policy breach found during scanning |
-
-### Quick Reference
+MCP (Tier 1) operations do not require this check and can proceed immediately.
+Before your first Tier 2 or Tier 3 (`jf`) operation in a session, run the
+environment check and **remember its stdout** as `<UA>` for the rest of the
+session:
 
 ```bash
-# Scan artifact for vulnerabilities
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"component_details": [{"component_id": "npm://lodash:4.17.20"}]}' \
-  "$JFROG_URL/xray/api/v1/summary/component"
-
-# Create security policy
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "high-severity-block",
-    "type": "security",
-    "rules": [{"name": "block-critical", "criteria": {"min_severity": "Critical"}, "actions": {"block_download": {"active": true}, "fail_build": true}}]
-  }' \
-  "$JFROG_URL/xray/api/v2/policies"
-
-# Create watch
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "general_data": {"name": "prod-watch", "active": true},
-    "project_resources": {"resources": [{"type": "repository", "name": "libs-release-local"}]},
-    "assigned_policies": [{"name": "high-severity-block", "type": "security"}]
-  }' \
-  "$JFROG_URL/xray/api/v2/watches"
+bash <skill_path>/scripts/check-environment.sh <model-slug>
+# stdout (one line): jfrog-skills/<version> [(tool=<harness>; model=<model-slug>)] jfrog-cli-go/<cli-version>
+# stderr: JSON state (cached 24h at ${JFROG_CLI_HOME_DIR:-$HOME/.jfrog}/skills-cache/jfrog-skill-state.json)
 ```
 
-Advanced Security (JAS): Contextual Analysis, Secrets Detection, SAST, IaC Scanning. See [security-reference.md](security-reference.md).
+Pass the precise underlying-model slug with version: `opus-4.7`,
+`sonnet-4.5`, `gpt-5-codex`, `gemini-2.5-pro`, `composer-2-fast`. Cursor's
+Composer product slug **is** the canonical id — use it as-is. Do **not**
+pass harness/role names (`subagent`, `agent`, `assistant`) or bare family
+names (`claude`, `gpt`); subagents inherit the parent's slug. If genuinely
+unknown, pass `unknown`.
 
-## Access
+### Export `JFROG_CLI_USER_AGENT` once per bash invocation
 
-Manages tokens, users, groups, permissions, and projects. For complete API coverage, see [access-reference.md](access-reference.md).
-
-### Quick Reference
+At the top of every bash invocation that runs `jf`, export `<UA>` once;
+all `jf` calls in that invocation pick it up:
 
 ```bash
-# Create scoped token
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"subject":"ci-bot","scope":"applied-permissions/groups:readers,deployers","expires_in":3600}' \
-  "$JFROG_URL/access/api/v1/tokens"
-
-# Create user
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"username\":\"john\",\"email\":\"john@example.com\",\"password\":\"$USER_PASSWORD\",\"admin\":false}" \
-  "$JFROG_URL/access/api/v2/users"
-
-# Create permission target
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "dev-repos-permission",
-    "resources": {"repository": {"include_patterns": ["**"], "actions": ["read","write","annotate"], "targets": [{"name": "libs-snapshot-local"}]}},
-    "principals": {"groups": [{"name": "dev-team", "permissions": ["read","write","annotate"]}]}
-  }' \
-  "$JFROG_URL/access/api/v2/permissions"
-
-# Create project
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"display_name":"My Application","project_key":"myapp"}' \
-  "$JFROG_URL/access/api/v1/projects"
+export JFROG_CLI_USER_AGENT='<UA>'
+jf config show
+jf api /artifactory/api/system/version
 ```
 
-## Distribution & Release Lifecycle
+Do **not** repeat the assignment per `jf` call (`JFROG_CLI_USER_AGENT='<UA>' jf …`
+on every line). Examples elsewhere in this skill and in `references/*.md`
+omit the export for readability — the rule is global. When launching a
+subagent, pass `<UA>` in its prompt; subagents do not re-run the script.
 
-Manages release bundles, promotion through environments, distribution to edge nodes, and evidence. For complete API coverage, see [distribution-reference.md](distribution-reference.md).
+| Exit | Meaning |
+|------|---------|
+| 0 | Cache fresh — CLI ready (Tiers 2 and 3 available), proceed |
+| 1 | Cache refreshed — CLI ready (Tiers 2 and 3 available), proceed |
+| 2 | `jf` not installed — Tiers 2 and 3 unavailable; only MCP (Tier 1) remains |
+| 3 | `jf` below minimum version — Tiers 2 and 3 unavailable; only MCP (Tier 1) remains |
 
-### Workflow
+Exit 2 or 3 is not a fatal error. Attempt to install or upgrade the CLI
+(see `references/jfrog-cli-install-upgrade.md`). If installation succeeds,
+re-run the environment check. If installation is not possible (no permissions,
+restricted environment), proceed with MCP (Tier 1) only. Both `jf` CLI commands
+(Tier 2) and `jf api` (Tier 3) require a working `jf` installation.
 
-```
-Build artifacts -> Create Release Bundle -> Promote DEV -> STAGING -> PROD -> Distribute to Edge
-```
+### JSON parsing (`jq`)
 
-### Quick Reference
+Use **`jq`** for all JSON parsing of CLI and API output (pipes, `-r`, filters).
+
+## `~/.jfrog/skills-cache/` — allowed files only
+
+`${JFROG_CLI_HOME_DIR:-$HOME/.jfrog}/skills-cache/` is **not** a general scratch
+or temp directory. Use it **only** for these two artifacts:
+
+1. **`jfrog-skill-state.json`** — written by `scripts/check-environment.sh`
+   (24-hour CLI check cache).
+2. **`onemodel-schema-${JFROG_SERVER_ID}.graphql`** — cached OneModel supergraph
+   schema (see `references/onemodel-graphql.md`).
+
+**Do not** save HTTP response bodies, GraphQL query results, ad-hoc JSON, reports,
+or any other temporary files under `skills-cache/`. Write those to a host temp
+path instead (for example `/tmp/<name>-$$.json` or `mktemp -d`), echo the path
+when a follow-up Shell step must read the file — same pattern as *Preserving
+command output* below.
+
+## Cautious execution
+
+Do not run commands speculatively. Before executing any JFrog CLI command,
+MCP tool call, or API call:
+
+1. Confirm the operation is needed to fulfill the user's request.
+   If the request is ambiguous or could refer to multiple systems (e.g.
+   "builds" could mean Artifactory build-info or CI/CD pipeline runs),
+   **ask the user for clarification** instead of guessing. Never fetch data
+   from the wrong system — a wrong answer is worse than asking a question.
+2. Resolve the target server using the **Server selection rules** below —
+   there must be no ambiguity about which server is used
+3. For mutating operations (create, update, delete, upload), confirm with the
+   user unless the intent is clearly implied. This applies to all tiers
+   (MCP tools, CLI commands, and `jf api` with POST/PUT/DELETE).
+4. Prefer read operations first to understand current state before making changes
+5. **Never invent preparatory mutations.** If the requested operation fails
+   because a precondition is not met (artifact missing from the specified repo,
+   repository does not exist, package not at the expected location, build not
+   found), **stop and report the gap to the user**. Do not perform copy, move,
+   upload, create-repo, or any other mutating operation to satisfy the
+   precondition unless the user explicitly asks for it. These "helper" mutations
+   can have cascading effects the user has not considered — virtual repository
+   resolution changes, storage quota consumption, replication triggers, Xray
+   re-indexing, or permission propagation.
+6. **Never guess tool names or API paths.** For MCP tools, confirm the tool
+   exists in the server's tool list. For `jf api` paths, validate against
+   `<skill_path>/references/` (or
+   [JFrog OpenAPI specifications](https://docs.jfrog.com/integrations/docs/openapi-specifications)
+   if you have web access). On a 404, stop and report — never retry with a guessed
+   alternative path.
+
+## Server selection rules (mandatory)
+
+**Single-server invariant.** Every `jf` call MUST pass `--server-id <SID>`
+(default resolved below); for one user request, all `jf` calls use **exactly
+one** server-id. A wrong answer from the wrong server is worse than a stop-and-ask.
+
+**JFrog MCP and CLI use independent auth.** MCP tools authenticate through
+the MCP server session (not `jf config`); CLI commands authenticate through
+`jf config`. If you switch the CLI target server via `jf config use`, the
+MCP connection still points to its original server. Do not mix MCP and CLI
+calls targeting different servers in the same session. If the user asks to
+switch servers, warn that MCP tools will continue to target the original
+server until the MCP connection is re-established.
+
+**MUST NOT** retry on a second configured server after 401/403/404, empty, or
+partial results; **MUST NOT** infer multi-server intent from "my"/"our" or
+from seeing extra entries in `jf config show`. **Override:** only when the user
+**explicitly** names another id ("on `<id>`, …", "use `<id>`", "compare `<a>`
+and `<b>`") — inferred intent is not an override.
+
+### Resolve the default once per session
+
+Before your first `jf` call, resolve the default server-id and **remember it**
+as `<SID>` for the rest of the session, same pattern as `<UA>`:
 
 ```bash
-# Create release bundle from build
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "release_bundle_name": "my-app-release", "release_bundle_version": "1.0.0",
-    "source_type": "builds", "source": {"builds": [{"build_name": "my-app", "build_number": "42"}]}
-  }' \
-  "$JFROG_URL/lifecycle/api/v2/release_bundle"
-
-# Promote to staging
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"environment": "STAGING", "included_repository_keys": ["libs-release-local"]}' \
-  "$JFROG_URL/lifecycle/api/v2/release_bundle/records/my-app-release/1.0.0/promote"
-
-# Distribute to edge nodes
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"distribution_rules": [{"site_name": "edge-us-east"}, {"site_name": "edge-eu-west"}]}' \
-  "$JFROG_URL/distribution/api/v1/distribution/my-app-release/1.0.0"
-
-# Attach evidence (CLI recommended)
-jf evd create --build-name=my-app --build-number=42 \
-  --key "$PRIVATE_KEY" --predicate ./predicate.json \
-  --predicate-type https://jfrog.com/evidence/signature/v1
+jf config show 2>/dev/null \
+  | awk '/^Server ID:/{id=$NF} /^Default:[[:space:]]*true/{print id; exit}'
+# stdout: the default server-id; if empty, stop and ask which to use
 ```
 
-## Curation
+Pass `--server-id <SID>` to every subsequent `jf` call. The flag goes
+**after** the subcommand name, not after `jf` itself:
 
-Package firewall that blocks risky OSS before it enters Artifactory. For complete API coverage, see [curation-reference.md](curation-reference.md).
+- ✅ `jf api --server-id <SID> /artifactory/api/system/version`
+- ✅ `jf rt ping --server-id <SID>`
+- ❌ `jf --server-id <SID> api /…` — fails with `flag provided but not defined`
 
-**Curation status values:**
-- **approved** — safe to use
-- **blocked** — rejected by policy; advise against use
-- **inconclusive** — not yet evaluated; **do NOT treat as approved**
+When launching a subagent, pass `<SID>` in its prompt — subagents do not
+re-resolve. Examples elsewhere in this skill and in `references/*.md` omit
+`--server-id` for readability; the rule is global, same as
+`JFROG_CLI_USER_AGENT`. To add a new server, read
+`references/jfrog-login-flow.md`.
 
-**License guidance:** Always surface the license type in package reports. Flag copyleft (GPL/AGPL) and unknown/missing licenses as risks.
+### On any error, stop — never switch
 
-### Quick Reference
+If a `jf` call returns 401/403, 404, network error, timeout, or any other
+failure, **stop with no further `jf` calls** and respond:
+
+> `<server-id>` returned `<code>` for `<endpoint>`: `<short reason>`. Other
+> configured server(s): `<list>` — I won't query them without your explicit
+> instruction. How would you like to proceed?
+
+## When to read reference files
+
+Load the most specific file for the task at hand. Avoid loading more than 2-3
+reference files for a single operation — start with the most relevant one and
+only load additional files if the first doesn't cover the need. File sizes
+vary (~25–640 lines); larger files are noted with approximate line counts
+below.
+
+### Cross-domain
+
+- **Disambiguating a JFrog entity, understanding entity types, or planning operations that span multiple products**: read `references/jfrog-entity-index.md`, then follow pointers to the relevant domain file
+- **Looking up documentation URLs**: read `references/jfrog-url-references.md`
+
+### Artifactory
+
+- **Repository types, artifacts, builds, properties, or permission targets (concepts)**: read `references/artifactory-entities.md` (~220 lines)
+- **Stored packages, package versions, version locations, or the metadata layer over Artifactory (concepts)**: read `references/stored-packages-entities.md` (~165 lines)
+- **Repo, file, build, permission, user/group, or replication operations**: if the JFrog MCP server exposes a tool for the operation, prefer it. For CLI/API fallback, read `references/artifactory-operations.md` (for **listing builds** use AQL with `limit`/`offset` — see § *Listing build names*; for **full build detail** use `GET /api/build/<name>/<number>?project=` — see § *Retrieving full build info*)
+- **AQL queries**: read `references/artifactory-aql-syntax.md` (~585 lines)
+- **Artifactory REST beyond the CLI, structured JSON templates (replacing interactive wizards), or any Artifactory API gap**: read `references/artifactory-api-gaps.md` (~220 lines)
+
+### Xray & security
+
+- **Watches, policies, violations, components, or vulnerability scanning (concepts)**: read `references/xray-entities.md` (~290 lines)
+- **Exposures scanning results (secrets, IaC, service misconfigurations, application security risks)**: read `references/xray-entities.md` § Exposures (Advanced Security)
+- **Curation audit events (approved/blocked packages, dry-run policy evaluations, curation export)**: read `references/xray-entities.md` § Curation audit events
+
+### Release lifecycle & distribution
+
+- **Release bundles, lifecycle stages, distribution, or evidence (concepts)**: read `references/release-lifecycle-entities.md` (~180 lines)
+- **Applications, application versions, releasables, promotions, or AppTrust (concepts)**: read `references/apptrust-entities.md` (~155 lines)
+
+### Catalog
+
+- **Public or custom catalog, package metadata, vulnerability advisories, licenses, OpenSSF, or MCP services (concepts)**: if the JFrog MCP server exposes a catalog tool, prefer it for single-package lookups. For deeper queries, read `references/catalog-entities.md` (~190 lines)
+- **CVE details, vulnerability lookup by CVE ID, or severity/affected-packages/fix-versions for a specific CVE**: prefer an MCP vulnerability-lookup tool if the JFrog MCP server exposes one. Otherwise read `references/onemodel-query-examples.md` § *Public security domain* for the `searchVulnerabilities` query shape — this is self-contained; do not load the `jfrog-package-safety-and-download` skill for pure CVE lookups
+
+### OneModel (GraphQL)
+
+- **GraphQL queries** (applications, packages, evidence, release bundles, catalog, cross-domain, or "list/search my" platform entities): read `references/onemodel-graphql.md` (~325 lines)
+- **Query templates and domain-specific examples**: read `references/onemodel-query-examples.md` (~555 lines)
+- **Pagination, filtering, GraphQL variables, or date formatting**: read `references/onemodel-common-patterns.md` (~280 lines)
+
+### Platform administration
+
+- **Platform structure, project/repo membership, or project roles vs environments (concepts)**: read `references/platform-access-entities.md`
+- **Access tokens, stats, projects, or system health**: read `references/platform-admin-operations.md`
+- **Managing JFrog Projects, members, or environments**: read `references/projects-api.md` (~260 lines)
+- **Platform REST beyond the CLI, or any platform-level API gap**: read `references/platform-admin-api-gaps.md` (~180 lines)
+
+### CLI setup & authentication
+
+- **Adding a server or logging in**: read `references/jfrog-login-flow.md` (~130 lines)
+- **CLI not installed, upgrade needed, or `jq` unavailable**: read `references/jfrog-cli-install-upgrade.md`
+
+### General patterns
+
+- **Batching, parallel Shell calls, or launching subagents**: read `references/general-parallel-execution.md` (~135 lines)
+- **Large or parallel data gathering, list-vs-detail APIs, cache hygiene**: read `references/general-bulk-operations-and-agent-patterns.md`
+- **Standalone HTML report with JFrog-aligned styling**: read `references/jfrog-brand-html-report.md`
+- **Reusable gotchas from past tasks**: read or extend `references/general-use-case-hints.md`
+
+## Command discovery
+
+Use the commands listed below as your primary reference. Run `--help` to
+verify options you are unsure about or to discover commands not listed here —
+do not rely on memorized commands outside this skill, as they may be outdated.
+
+1. `jf --help` — list all namespaces and top-level commands
+2. `jf <namespace> --help` — list subcommands in a namespace
+3. `jf <command> --help` — show usage, arguments, and options
+
+### CLI namespaces
+
+| Namespace | Alias | Product |
+|-----------|-------|---------|
+| `rt` | | Artifactory |
+| `xr` | | Xray |
+| `ds` | | Distribution V1 |
+| `at` | `apptrust` | AppTrust |
+| `evd` | | Evidence |
+| `mc` | | Mission Control |
+| `worker` | | Workers |
+| `config` | `c` | CLI server configuration |
+| `plugin` | | CLI plugin management |
+| `ide` | | IDE integration |
+
+> **Sunset notice:** JFrog Pipelines has been sunset and is no longer supported.
+> Do not use the `pl` CLI namespace or the Pipelines REST API
+> (`/pipelines/api/...`). If a user asks about Pipelines, inform them the
+> product has been sunset.
+
+Top-level lifecycle commands (no namespace): `rbc`, `rbp`, `rbd`, `rba`,
+`rbf`, `rbe`, `rbi`, `rbs`, `rbu`, `rbdell`, `rbdelr`.
+
+Top-level security commands: `audit`, `scan`, `build-scan`, `curation-audit`,
+`sbom-enrich`.
+
+Top-level other: `access-token-create` (`atc`), `login`, `how`, `stats`,
+`generate-summary-markdown`, `exchange-oidc-token`, `completion`.
+
+## Invoking platform APIs with `jf api`
+
+`jf api` is the Tier 3 entry point for JFrog Platform REST and GraphQL
+endpoints, auto-authenticated against the resolved server. **Do not use
+`jf rt curl` or `jf xr curl`**; they are superseded by `jf api`.
+
+### Product-prefix table
+
+`jf api` requires the **full** path including the product prefix; omitting it
+returns 404.
+
+| Product | Path prefix |
+|---------|-------------|
+| Artifactory | `/artifactory/api/...` |
+| Xray | `/xray/api/...` |
+| Access (users, groups, tokens, permissions, projects) | `/access/api/...` |
+| Evidence | `/evidence/api/...` |
+| Release Lifecycle | `/lifecycle/api/...` |
+| AppTrust | `/apptrust/api/...` |
+| Distribution | `/distribution/api/...` |
+| OneModel (GraphQL) | `/onemodel/api/v1/graphql`, `/onemodel/api/v1/supergraph/schema` |
+| Mission Control | `/mc/api/...` |
+| Curation | `/xray/api/v1/curation/...` (lives under Xray) |
+
+### Examples
 
 ```bash
-# Create curation policy
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "block-malicious-and-critical", "enabled": true,
-    "conditions": [{"type": "malicious_package"}, {"type": "cvss_score", "min_severity": 9.0}],
-    "repositories": ["npm-remote", "pypi-remote"], "action": "block"
-  }' \
-  "$JFROG_URL/curation/api/v1/policies"
+jf api /artifactory/api/repositories
+jf api --server-id <SID> /artifactory/api/system/version
 
-# Audit blocked packages
-curl -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  "$JFROG_URL/curation/api/v1/audit?repo=npm-remote&action=blocked&limit=50"
-
-# CLI: audit current project
-jf curation-audit
+# AQL (POST with text/plain body)
+jf api /artifactory/api/search/aql \
+  -X POST -H "Content-Type: text/plain" -d '<aql-query>'
 ```
 
-## AppTrust
+Common flags: `-X/--method`, `-H/--header`, `-d/--data`, `--input <file>`,
+`--server-id`, `--timeout`. Body on stdout, status on stderr — see
+[Gotchas](#gotchas).
 
-Manages application entities, versions, lifecycle promotion, and package binding. For complete API coverage, see [apptrust-reference.md](apptrust-reference.md).
+### GraphQL (OneModel)
 
-### Quick Reference
+OneModel is the unified GraphQL API. **Do not** embed the query inside a JSON
+literal (`-d '{"query":"..."}'`) — escaping breaks requests. Build the payload
+with `jq -n --arg`, pass it via `--input`, and save the response to a file
+before running `jq` on it.
 
 ```bash
-# Create application
-curl -s -X POST "$JFROG_URL/apptrust/api/v1/applications" \
-  -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"application_key":"my-app","application_name":"My Application","project_key":"myproj","criticality":"high"}' | jq .
-
-# Create version from build
-curl -s -X POST "$JFROG_URL/apptrust/api/v1/applications/${APP_KEY}/versions" \
-  -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"version":"1.0.0","sources":{"builds":[{"name":"my-app","number":"42"}]}}' | jq .
-
-# Promote version
-curl -s -X POST "$JFROG_URL/apptrust/api/v1/applications/${APP_KEY}/versions/${VERSION}/promote" \
-  -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"target_stage":"QA","promotion_type":"copy"}' | jq .
-
-# Release to production
-curl -s -X POST "$JFROG_URL/apptrust/api/v1/applications/${APP_KEY}/versions/${VERSION}/release" \
-  -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"promotion_type":"copy"}' | jq .
+QUERY='{ evidence { searchEvidence(first: 5, where: { hasSubjectWith: { repositoryKey: "my-repo-local" } }) { totalCount } } }'
+PAYLOAD=/tmp/onemodel-payload-$$.json RESPONSE=/tmp/onemodel-$$.json
+jq -n --arg q "$QUERY" '{query:$q}' > "$PAYLOAD"
+jf api /onemodel/api/v1/graphql -X POST \
+  -H "Content-Type: application/json" --input "$PAYLOAD" > "$RESPONSE"
+jq . "$RESPONSE"
 ```
 
-## Workers
+Schema discovery: `jf api /onemodel/api/v1/supergraph/schema > "$SCHEMA_FILE"`
+(store only under `~/.jfrog/skills-cache/`, never query responses). Read
+`references/onemodel-graphql.md` for the full workflow (schema fetch,
+validation, pagination, errors), plus `references/onemodel-query-examples.md`
+and `references/onemodel-common-patterns.md` for query shapes, pagination,
+variables, and dates.
 
-Serverless TypeScript functions triggered by platform events or HTTP requests. For complete API coverage, see [workers-reference.md](workers-reference.md).
+## Structured inputs
 
-### Quick Reference
+Several CLI commands require JSON template files. The templates are normally
+created by interactive wizard commands (`jf rt rpt`, `jf rt ptt`, `jf rt rplt`)
+which agents cannot use. Instead, retrieve an existing config via REST API as a
+starting point and modify it:
 
 ```bash
-# Initialize worker scaffold
-jf worker init my-worker --event BEFORE_DOWNLOAD
-
-# Deploy worker
-jf worker deploy my-worker
-
-# List workers
-jf worker list
-
-# REST API: create worker
-curl -X POST -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d @manifest.json "$JFROG_URL/worker/api/v1/workers"
+jf api /artifactory/api/repositories/<repo-key>
 ```
 
-For event types and TypeScript templates, see [workers-reference.md](workers-reference.md).
+For other Artifactory or platform REST patterns, or when you need more than
+this repo GET, see **Any API gap** under [When to read reference files](#when-to-read-reference-files).
 
-## Runtime
+## Gotchas
 
-Monitors running containers in Kubernetes clusters. For complete API coverage, see [runtime-reference.md](runtime-reference.md).
+### MCP tools
 
-### Quick Reference
+- MCP tools return structured data in the tool result. Read response fields
+  directly; do not pipe MCP output through shell commands or `jq`.
+
+### CLI and `jf api`
+
+- `jf api` requires the **product prefix** in the path. Omitting it returns
+  404. See the [product-prefix table](#product-prefix-table) for the full list.
+- `jf api` writes the body (success or error JSON) to **stdout** and
+  `[Info] Http Status: NNN` to **stderr** on every call; non-2xx also exits
+  1 and adds `[Warn] jf api: <method> <url> returned NNN`. Pipe stdout to
+  `jq` directly; **never `2>&1 | jq`** — stderr corrupts the JSON. To keep
+  diagnostics: `jf api <path> 2>/tmp/err-$$.log | jq .`.
+- `jf api` has **no `-L`** (follow redirects) and **no `-o`** (output file).
+  Save bodies with shell redirection
+  (`jf api ... > /tmp/out-$$.json`); for
+  binary downloads through the Artifactory remote proxy prefer `jf rt dl`,
+  which handles the cache and redirect semantics natively.
+- Remote repository content is stored in a `-cache` suffixed repo. Properties
+  and AQL queries for remote repo artifacts must target the cache repo.
+  Conversely, `/api/repositories/<key>` only accepts the parent remote key
+  (without `-cache`) — strip the suffix for configuration lookups.
+- **Do not use `jf rt search`** — always use a direct AQL query via
+  `jf api /artifactory/api/search/aql -X POST -H "Content-Type: text/plain" -d '<aql>'`.
+  See `references/artifactory-aql-syntax.md`.
+- Use `--quiet` flag for non-interactive execution (suppresses confirmation
+  prompts). **Caution:** `--quiet` is not a global flag — commands that do not
+  support it (e.g. `jf rt s`, `jf rt ping`) will fail with misleading errors
+  like "Wrong number of arguments" or "flag provided but not defined". Check
+  `--help` for a command before adding `--quiet`.
+- Use `--server-id` when targeting a non-default server. If a command fails
+  with `--server-id`, do not retry without it — that silently targets the
+  default server instead. See [Server selection rules](#server-selection-rules-mandatory).
+- Never use interactive commands. All JFrog CLI operations must be performed
+  non-interactively. Known interactive commands to avoid: `jf config add`,
+  `jf login`, `jf rt repo-template`, `jf rt permission-target-template`, and
+  `jf rt replication-template`. For server setup, follow `references/jfrog-login-flow.md`.
+  For templates, use JSON schemas or REST API. If a command prompts for input
+  unexpectedly, find the non-interactive alternative via `--help` or REST API.
+- `jf config export` output is base64-encoded JSON. Decode with
+  `base64 -d | jq` to extract fields.
+- Build info lookups require a scope (`?buildRepo=` or `?project=`) —
+  resolve it before calling the API. See `references/artifactory-operations.md`
+  §Retrieving build info for the full workflow.
+- If a `jf api` call returns 401, the configured token may have expired or
+  been rotated — ask the user to re-run the login flow (see
+  `references/jfrog-login-flow.md`) for the **same** server. If 403, the
+  token lacks required permissions. If 404, verify the endpoint path
+  (especially the product prefix) and target server version. On any of
+  these errors, do not try a different configured server as a workaround —
+  that targets a different environment. Report the error and ask the user.
+- **Xray contextual analysis:** the summary artifact response has two
+  applicability fields — `applicability` (top-level, often null) and
+  `applicability_details` (always present with a `result` string). **Use
+  `applicability_details[].result` for counts and summaries.** Using the
+  top-level `applicability` field for aggregation produces wrong counts because
+  it is null when no scanner exists. See `references/xray-entities.md`
+  §Contextual analysis for the eight possible result values and jq snippets.
+- **OneModel GraphQL:** always fetch the supergraph schema from the **same**
+  server you query before building operations (schemas differ by deployment);
+  cache, validate, and execute per `references/onemodel-graphql.md`.
+- Never duplicate a network-fetching command to retry `jq` parsing — save the
+  response to a temp file first (see [Preserving command output](#preserving-command-output)).
+- When collecting detail responses in a loop (e.g. per-repo GETs), validate
+  each body with `jq -e .` before appending to a results file. One non-JSON
+  or empty response corrupts a downstream `jq -s` slurp. Write validated
+  lines to an NDJSON file, then `jq -s '.' file.ndjson` to produce the final
+  array. See `references/general-bulk-operations-and-agent-patterns.md`.
+- Accumulated edge cases from real tasks live in `references/general-use-case-hints.md`
+  — read when debugging odd failures; **append** a short entry when you confirm
+  a new, reusable gotcha.
+
+## Batch and parallel execution
+
+When a task requires multiple independent operations, use the lightest
+parallelism mechanism that fits. Three tiers: (1) batch commands in a single
+Shell call using loops or `&`, (2) issue parallel Shell tool calls, (3) launch
+parallel subagents for large fan-out. Read `references/general-parallel-execution.md`
+(~135 lines) for tier selection, examples, and subagent prompt structuring.
+
+## Preserving command output
+
+When a CLI command or API call returns data, redirect the output to a temporary
+file so you can re-read it without re-executing the call:
 
 ```bash
-# List clusters
-curl -s -X POST "$JFROG_URL/runtime/api/v1/clusters" \
-  -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"limit": 50}' | jq .
-
-# List running images with vulnerability stats
-curl -s -X GET "$JFROG_URL/runtime/api/v1/live/images?num_of_rows=100&statistics=true&timePeriod=now" \
-  -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" | jq .
+OUT=/tmp/jf-repos-$$.json
+jf api /artifactory/api/repositories > "$OUT"
+echo "$OUT"
 ```
 
-## Mission Control
+Use `$$` (the shell PID) in the filename to prevent collisions across
+concurrent sessions or processes.
 
-Manages JFrog Platform Deployments (JPDs), licenses, and proxies. For complete API coverage, see [mission-control-reference.md](mission-control-reference.md).
+**Cross-call gotcha:** each Shell tool invocation runs in a new process with a
+different PID, so `$$` expands to a different value in each call. Always
+**echo the expanded filename** so the agent can read it from the output and
+reuse the literal path in subsequent calls. Three patterns, in priority order:
 
-### Quick Reference
+1. **`$$` + echo** (preferred): use `$$` for collision safety, echo the path
+   as shown above. The agent reads `/tmp/jf-repos-12345.json` from the output
+   and passes that literal value to the next Shell call.
+2. **Session ID**: when many files share a prefix across calls, generate an ID
+   once (`SID=$(date +%s)-$$`), echo it, and reuse in later calls.
+3. **Hardcoded names**: last resort — risks collisions when parallel calls or
+   subagents write to the same path.
 
-```bash
-# List all JPDs
-curl -s -X GET "$JFROG_URL/mc/api/v1/jpds" \
-  -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" | jq .
+This protects against wasted round-trips when you need to retry parsing — for
+example, if a `jq` filter fails or you extract the wrong field on the first
+attempt. Re-read the file instead of hitting the server again.
 
-# Get JPD health
-curl -s -X GET "$JFROG_URL/mc/api/v1/jpds/${JPD_ID}" \
-  -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" | jq .
-```
+Do **not** duplicate the same **network** request in a shell pipeline (e.g. with
+`||`) only to re-run `jq` or to reveal jq diagnostics—the duplicate call
+adds load on JFrog without fetching new data. Run
+`jq '<filter>' /tmp/jf-*-$$.json` (or redirect stdin from the file) instead
+of re-running the same `jf api` or other identical network-backed command.
 
-## CLI Quick Reference
-
-The JFrog CLI (`jf`) provides command-line access to all platform services. For complete command coverage, see [cli-reference.md](cli-reference.md).
-
-```bash
-# Install
-brew install jfrog-cli   # macOS
-curl -fL https://install-cli.jfrog.io | sh   # Linux
-
-# Artifact operations
-jf rt upload "build/*.jar" libs-release-local/com/example/app/1.0/
-jf rt download "libs-release-local/com/example/app/1.0/*.jar" ./local/
-jf rt search "libs-release-local/com/example/**/*.jar"
-
-# Build integration
-jf rt build-publish my-build 1
-
-# Security scanning
-jf audit                          # Scan project dependencies
-jf scan ./myapp.jar               # Scan a binary
-jf docker scan myapp:1.0          # Scan Docker image
-
-# Release bundles
-jf release-bundle-create my-bundle 1.0 --builds="my-build/1" --signing-key=mykey
-jf release-bundle-promote my-bundle 1.0 --environment=PROD
-```
-
-## Patterns & Best Practices
-
-22 recommended architectural patterns across 6 categories. See [patterns-reference.md](patterns-reference.md) for the full catalog.
-
-| Category | Patterns | Reference |
-|----------|----------|-----------|
-| CI Integration | 4 patterns (SIMPLE to ADVANCED) | [patterns-ci-integration.md](patterns-ci-integration.md) |
-| Repositories | 3 patterns (SIMPLE to ADVANCED) | [patterns-repositories.md](patterns-repositories.md) |
-| Supply Chain Security | 4 patterns (INTERMEDIATE to ADVANCED) | [patterns-supply-chain-security.md](patterns-supply-chain-security.md) |
-| Release Lifecycle | 4 patterns (SIMPLE to ADVANCED) | [patterns-release-lifecycle.md](patterns-release-lifecycle.md) |
-| Multi-Site | 5 patterns (All ADVANCED) | [patterns-multi-site.md](patterns-multi-site.md) |
-| AppTrust | 2 patterns (Both SIMPLE) | [patterns-apptrust.md](patterns-apptrust.md) |
-
-Use the 5 user journeys to pick the right patterns: [patterns-journeys.md](patterns-journeys.md).
-
-| If your goal is... | Start with... |
-|---------------------|---------------|
-| Centralize artifacts and automate CI/CD | CI Integration + Basic Repo Setup |
-| Secure the software supply chain | Xray Security + Curation Security |
-| Accelerate developer productivity | CI Integration + Curation + Contextual Analysis |
-| Handle enterprise-scale multi-site | Multi-Site Active/Active or Active/Standby |
-| Govern releases with compliance | Release Lifecycle + Evidence + AppTrust |
-
-## Flow Encouragement (Agent Behavior)
-
-Use [flow-suggestions.md](flow-suggestions.md) in **two situations**:
-
-### A. After completing an action
-
-Check whether the action is part of a larger pattern. If it is, **show progress and offer options** to continue:
-
-1. **Acknowledge first** -- confirm the action succeeded before suggesting anything.
-2. **Always show the diagram** -- render the mermaid progress diagram so the user can see where they are in the pattern. Mark completed steps with `:::done` and the suggested next step with `:::next`. Prefer `flowchart LR` for simple sequential flows; use `flowchart TD` for branching architectures.
-3. **Offer a selection** -- after the diagram, use the `AskQuestion` tool to present 2-3 options. The first option should be the natural next step. Include at least one alternative and always end with a "Something else" option.
-4. **Never block** -- the suggestion goes at the end of your response, after the completed work.
-5. **Context-aware** -- if the user already has the next piece in place, skip it and suggest the one after.
-
-### B. When the user is exploring
-
-If the user asks "what can I do?", "how do I get started?", or seems unsure -- use the **Getting Started** section of flow-suggestions.md.
-
-**Rules:** Respect the answer -- if the user declines, do not push the pattern again. Always show a mermaid diagram before offering options.
-
-## Parallelization
-
-Many JFrog operations are independent and can run concurrently:
-- **Repository creation**: multiple repos can be created in parallel
-- **User/group creation**: independent operations
-- **Docker builds**: each `docker build` + `jf docker push` pair can run in parallel
-- **Package binding** (AppTrust): bind calls are independent
-- **Batch artifact uploads**: independent upload operations
-
-## Security Rules
-
-- **Never print, echo, or display tokens** in terminal output. Extract tokens silently into shell variables.
-- **Never surface tokens in chat.** Use "authenticated successfully" -- never the token itself.
-- **Quote all shell variables** (`"${VAR}"`, not `$VAR`).
-- **Avoid shell interpolation for secrets.** Use quoted heredocs (`<< 'EOF'`).
-- **`jf config` is the sole credential store.** Never store tokens in plaintext files.
-- **Validate URLs** (ping endpoint) before authenticated API calls.
-- **`JFROG_ACCESS_TOKEN` is sensitive** -- never use in echo/logging.
-
-## Response Guidelines
-
-- Include severity, affected versions, and upgrade targets for all vulnerability reports
-- Always include license type in package reports; flag copyleft and unknown licenses as risks
-- Chain tools sequentially without asking the user to wait between steps
-- State clearly when results are empty or inconclusive — do not speculate
-- Use tables for multi-item listings
-
-## Troubleshooting (MCP)
-
-- **Tools unavailable:** Admin must enable the MCP Server — Administration > General > Settings > MCP Server > ON. SaaS only.
-- **Unauthorized:** Restart Cursor to re-trigger OAuth. Verify the JFrog URL and user permissions.
-- **Empty results:** Verify package name and ecosystem. Check project/repo access.
-- **Inconclusive curation:** Package not yet evaluated — advise checking later or escalating to a security admin.
-
-## Documentation
-
-- [JFrog Help Center](https://jfrog.com/help/home)
-- [JFrog REST APIs](https://jfrog.com/help/r/jfrog-rest-apis)
-- [Artifactory REST APIs](https://jfrog.com/help/r/jfrog-rest-apis/artifactory-rest-apis)
-- [Xray REST APIs](https://jfrog.com/help/r/xray-rest-apis)
-- [Distribution REST APIs](https://jfrog.com/help/r/jfrog-rest-apis/distribution-rest-apis)
-- [AppTrust REST APIs](https://jfrog.com/help/r/jfrog-rest-apis/apptrust-rest-apis)
-- [JFrog CLI](https://jfrog.com/help/r/jfrog-cli)
-- [Repository Management](https://jfrog.com/help/r/jfrog-artifactory-documentation/repository-management)
-- [Release Lifecycle Management](https://jfrog.com/help/r/jfrog-artifactory-documentation/release-lifecycle-management)
-- [Xray User Guide](https://jfrog.com/help/r/jfrog-security-user-guide/products/xray)
-- [Advanced Security](https://jfrog.com/help/r/jfrog-security-user-guide/products/advanced-security)
-- [Curation](https://jfrog.com/help/r/jfrog-security-user-guide/products/curation)
-- [Runtime Security](https://jfrog.com/help/r/jfrog-security-user-guide/products/runtime)
-- [Workers](https://jfrog.com/help/r/jfrog-platform-administration-documentation/workers)
-- [Mission Control](https://jfrog.com/help/r/jfrog-platform-administration-documentation/mission-control)
-- [Projects](https://jfrog.com/help/r/jfrog-platform-administration-documentation/projects)
-- [Access Federation](https://jfrog.com/help/r/jfrog-platform-administration-documentation/access-federation)
-- [Evidence Management](https://jfrog.com/help/r/jfrog-artifactory-documentation/evidence-management)
-- [Build Integration](https://jfrog.com/help/r/jfrog-integrations-documentation/build-integration)
+Do **not** reuse saved output across unrelated steps or changed contexts (different
+server, user, or intent). The file is only valid for the immediate sequence of
+operations that motivated the original call.
