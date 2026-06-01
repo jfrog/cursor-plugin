@@ -165,11 +165,21 @@ Split Step 2 inputs by `isRequired`:
 For each input in Step 4:
 
 - **Secrets** (`isSecret=true`): use `${env:VAR_NAME}` in the config;
-  tell the user to export it via
-  `read -rs VAR_NAME && export VAR_NAME && echo exported`
-  (and add to `~/.zshrc` for persistence). They are picked up on next
-  launch (4a). NEVER take secrets in chat, echo them back, or
-  write raw values into config.
+  tell the user to export it for the current session via
+  `read -rs VAR_NAME && export VAR_NAME && echo exported`.
+  For persistence, the right startup file depends on the user's
+  **shell**, not their OS — macOS and Linux both commonly run zsh or
+  bash. Detect the shell (e.g. `echo "$SHELL"`) and add the export to
+  the file that shell loads on startup:
+  - **zsh** (the macOS default) → `~/.zshrc`
+  - **bash** → `~/.bashrc`; note macOS login shells read
+    `~/.bash_profile`, which usually sources `~/.bashrc`
+  - **fish** → `~/.config/fish/config.fish` (use `set -gx`)
+  - **Windows** → use `setx VAR_NAME "<value>"` (PowerShell/CMD)
+    instead of the `read`/`export` snippet
+  If unsure which file the shell sources, ask the user. Values are
+  picked up on next launch (4a). NEVER take secrets in chat, echo them
+  back, or write raw values into config.
 - **Non-secrets**: literal in `env` or `${env:VAR_NAME}` — ask if
   unclear.
 

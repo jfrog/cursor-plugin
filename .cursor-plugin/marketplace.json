@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "JFrog Platform plugins for Cursor",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "pluginRoot": "plugins"
   },
   "plugins": [
