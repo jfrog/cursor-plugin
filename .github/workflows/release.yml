@@ -1,0 +1,111 @@
+# Copyright (c) JFrog Ltd. 2026
+# Licensed under the Apache License, Version 2.0
+# https://www.apache.org/licenses/LICENSE-2.0
+
+# Tags a release for the Cursor marketplace.
+#
+# What this workflow does, in order:
+#   1. Clones the current `main` (which is skill-free — see .gitignore).
+#   2. Pulls skill content from jfrog/jfrog-skills@<pin> into
+#      plugins/<plugin>/skills/.
+#   3. Reads the version from .cursor-plugin/marketplace.json (already
+#      bumped in a PR).
+#   4. Creates a detached commit, tags it v<version>, and pushes only the
+#      tag. `main` itself is never modified by CI.
+#   5. Publishes a GitHub Release pointing at the tag.
+#
+# To trigger: Actions → "Release plugin" → Run workflow.
+# Access is gated by the `release` Environment — configure required
+# reviewers in Settings → Environments → release.
+
+name: Release plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      skills_version:
+        description: "Optional override for the upstream skill ref (tag/branch/SHA). Leave empty to use the pin in plugins/<plugin>/.vendor.json."
+        required: false
+        default: ""
+
+permissions:
+  # Needed so the workflow can push the new tag and create the release.
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Access control lives in the `release` environment (Settings →
+    # Environments → release → Required reviewers). The job pauses
+    # until a listed reviewer approves the run; non-reviewers cannot
+    # move it forward.
+    environment: release
+    steps:
+      # Check out main
+      # Shallow clone is enough: we never look at past commits, we only
+      # add a new one on a detached HEAD further down.
+      - name: Check out main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      # Install Node
+      # Needed for the sync script and for reading marketplace.json in
+      # the "Resolve release tag" step.
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      # Vendor the skills from upstream
+      # Downloads the upstream tarball at the pin declared in each
+      # plugin's .vendor.json (e.g. jfrog/jfrog-skills@v0.11.0) and
+      # copies its skill folders into the plugin. If the operator
+      # supplied a `skills_version` input, it overrides the pin for this
+      # run.
+      - name: Sync skills from upstream
+        env:
+          SKILLS_REF: ${{ inputs.skills_version }}
+        run: node .github/scripts/sync-skills.mjs
+
+      # Read the release version from .cursor-plugin/marketplace.json
+      # The version is bumped in a normal PR before triggering this
+      # workflow; the workflow itself never edits files. Fails if the
+      # marketplace metadata is missing a non-empty version.
+      - name: Resolve release tag
+        run: |
+          VERSION=$(node -e '
+            const meta = require("./.cursor-plugin/marketplace.json").metadata ?? {};
+            if (!meta.version) process.exit(1);
+            console.log(meta.version);
+          ')
+          if [ -z "$VERSION" ]; then
+            echo "::error::.cursor-plugin/marketplace.json must define a non-empty metadata.version"
+            exit 1
+          fi
+          echo "TAG=v${VERSION}" >> "$GITHUB_ENV"
+
+      # Create a detached commit, tag, and push the tag
+      # `git checkout --detach` lets us commit without moving `main`.
+      # We push only the tag (`origin <TAG>`), so the synced skills
+      # live exclusively on the release tag.
+      #
+      # If the version on main was never bumped, `git push` rejects the
+      # tag as "already exists" — clean failure, no force push.
+      - name: Tag the release
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --detach
+          git add -A
+          git commit -m "Release ${TAG}"
+          git tag "${TAG}"
+          git push origin "${TAG}"
+
+      # Publish a GitHub Release
+      # `--generate-notes` asks GitHub to auto-write release notes from
+      # the PRs merged since the previous tag.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${TAG}" --title "${TAG}" --generate-notes
