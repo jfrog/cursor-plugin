@@ -25,11 +25,5 @@ jobs:
         with:
           node-version: "20"
 
-      # Skills are vendored from jfrog/jfrog-skills only at release time
-      # (see .gitignore + plugins/<plugin>/.vendor.json). Sync them
-      # before validation so plugin.json's skill paths resolve.
-      - name: Sync skills from upstream
-        run: node .github/scripts/sync-skills.mjs
-
       - name: Run template validation
         run: node scripts/validate-template.mjs

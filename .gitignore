@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# IDE settings
+.idea/
+
 # OS and editor
 .DS_Store
 *.swp
@@ -13,8 +16,3 @@
 tmp/
 temp/
 .fly/
-
-# Skills are vendored from jfrog/jfrog-skills only at release time (see
-# plugins/<plugin>/.vendor.json and .github/scripts/sync-skills.mjs).
-# main is skill-free.
-plugins/*/skills/

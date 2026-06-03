@@ -19,6 +19,16 @@ node scripts/validate-template.mjs
 4. **Commit** with a clear, descriptive message.
 5. Open a **pull request** against `main` with a summary of what changed and why.
 
+### Updating the vendored skills
+
+The `skills/` tree under `plugins/jfrog/` is vendored from [jfrog/jfrog-skills](https://github.com/jfrog/jfrog-skills) and committed to `main` — see [`plugins/jfrog/VENDOR.md`](plugins/jfrog/VENDOR.md) for the full flow. To regenerate the tree locally against the pin in [`plugins/jfrog/.vendor.json`](plugins/jfrog/.vendor.json):
+
+```bash
+node plugins/jfrog/scripts/sync-skills.mjs
+```
+
+This downloads the pinned upstream tarball and replaces the contents of `plugins/jfrog/skills/`. Commit the result alongside any pin/version bumps.
+
 ## Reporting Issues
 
 Open a [GitHub issue](https://github.com/jfrog/cursor-plugin/issues) with:
