@@ -7,9 +7,6 @@ name: Validate Template
 on:
   pull_request:
     branches: [main]
-  pull_request_target:
-    branches: [main]
-    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -18,9 +15,6 @@ permissions:
 jobs:
   validate:
     name: Validate marketplace template
-    # Only run on pull_request (untrusted PR code) and workflow_dispatch.
-    # pull_request_target is used solely for the comment job below.
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -33,78 +27,3 @@ jobs:
 
       - name: Run template validation
         run: node scripts/validate-template.mjs
-
-  check-single-commit:
-    name: Check PR has a single commit
-    # Use pull_request_target so the job has permission to comment on PRs
-    # from forks. SAFE because we never check out or execute PR code; we only
-    # read commit metadata from the trusted event payload.
-    if: github.event_name == 'pull_request_target'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Enforce single-commit PRs
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const prNumber = context.payload.pull_request.number;
-            const commitCount = context.payload.pull_request.commits;
-            const author = context.payload.pull_request.user.login;
-            const marker = '<!-- squash-commits-check -->';
-
-            core.info(`PR #${prNumber} has ${commitCount} commit(s).`);
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner,
-              repo,
-              issue_number: prNumber,
-              per_page: 100,
-            });
-            const existing = comments.find((c) => c.body && c.body.includes(marker));
-
-            if (commitCount <= 1) {
-              if (existing) {
-                await github.rest.issues.deleteComment({
-                  owner,
-                  repo,
-                  comment_id: existing.id,
-                });
-              }
-              core.info('Single-commit requirement satisfied.');
-              return;
-            }
-
-            const body = [
-              marker,
-              `Hi @${author}, this PR contains **${commitCount} commits**.`,
-              '',
-              'Please squash them into a single commit before this PR can be merged. For example:',
-              '',
-              '```bash',
-              `git rebase -i HEAD~${commitCount}`,
-              'git push --force-with-lease',
-              '```',
-              '',
-              'This check will re-run automatically on your next push.',
-            ].join('\n');
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner,
-                repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number: prNumber,
-                body,
-              });
-            }
-
-            core.setFailed(`PR has ${commitCount} commits; expected exactly 1. Please squash.`);

@@ -3,8 +3,8 @@
   "hooks": {
     "sessionStart": [
       {
-        "command": "node ./scripts/inject-instructions.mjs",
-        "timeout": 30
+        "command": "node \"./scripts/inject-instructions.mjs\"",
+        "timeout": 7
       }
     ]
   }

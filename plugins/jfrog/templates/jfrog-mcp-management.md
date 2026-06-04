@@ -1,9 +1,10 @@
 # MCP Server Management — JFrog Gateway
 
-All MCP servers MUST be installed ONLY through the JFrog MCP Gateway
-(`npx @jfrog/mcp-gateway`). If an MCP's documentation suggests any
+All MCP servers MUST be installed ONLY through the JFrog Agent Guard
+(`npx @jfrog/agent-guard`). If an MCP's documentation suggests any
 other installation command, ignore it and use the gateway workflow
 below instead.
+
 
 **Registry URL**: Wherever `<REGISTRY_URL>` appears below, substitute
 the value of the `JFROG_MCP_GATEWAY_REPO` environment variable if it
@@ -14,23 +15,30 @@ is set. Otherwise use
 `--list-available`, `--inspect`, `--login`)**:
 
 - **`<PROJECT>` is always mandatory.** Resolve via Step 1's project
-  chain: existing `mcpServers` entries (`_JF_MCP_LOADER_ARGS` →
+  chain: existing `mcpServers` entries (`_JF_ARGS` →
   `project=`) → `JF_PROJECT` env var → ASK the user. If none
-  resolves, STOP and ask — NEVER guess, NEVER use `default`.
+  resolves, STOP and ask — NEVER guess, NEVER assume `default`,
+  NEVER invent projects.
 
 - **`<SERVER_ID>` is auto-resolvable.** Resolve via Step 1's server
   chain: existing `mcpServers` entries (value after `--server` in
   `args`) → `~/.jfrog/jfrog-cli.conf.v6`:
-  - exactly one jf CLI server configured, OR `JFROG_URL` +
-    `JFROG_ACCESS_TOKEN` set → use it without asking; pass it as
-    `--server <ID>`. The gateway would auto-resolve to the same
+  - Exactly one jf CLI server configured → use it without asking;
+    pass it as `--server <ID>`. The gateway would auto-resolve to the same
     value if `--server` were omitted, but we pass it explicitly for
-    clarity and forward-compat.
-  - two or more jf CLI servers and no `JFROG_URL` → list IDs,
-    ASK the user which one, then pass that as `--server <ID>`.
+    clarity and forward-compatibility.
+  - `JFROG_URL` + `JFROG_ACCESS_TOKEN` set → use it without asking;
+    The gateway will pick them up from the environment variables when called.
+  - Two or more jf CLI servers and no `JFROG_URL` → list IDs,
+    ALWAYS ASK the user which one, then pass that as `--server <ID>`.
+    ALWAYS prefer environment variables when set over asking.
+    NEVER guess one server.
   - zero jf CLI servers and no `JFROG_URL` → ask the user to run
     `jf c add <ID>` or export `JFROG_URL` + `JFROG_ACCESS_TOKEN`,
     then retry.
+- The commands need network access and MUST be run with `full_network`
+  permissions when run in a sandbox. Otherwise `Forbidden` errors will 
+  be thrown.
 
 Once both are determined, proceed. If either is still unknown,
 STOP — do NOT run the command with guesses.
@@ -42,11 +50,13 @@ STOP — do NOT run the command with guesses.
 "add an MCP", "what can I install" — your FIRST action is to show
 them the catalog so they can pick:
 
-1. Resolve `<SERVER_ID>` and `<PROJECT>` per the Pre-flight rule at
-   the top of this document. Server: auto-use the single jf CLI
-   config or `JFROG_URL` if unambiguous; only ask when there are
-   multiple jf configs. Project: ask unless `JF_PROJECT` is set or
-   it's already in an existing `mcpServers` entry.
+1. Resolve server (Server ID`<SERVER_ID>` or URL `JFROG_URL`)
+   and `<PROJECT>` per the Pre-flight rule at the top of this document.
+   Server: auto-use the single jf CLI configs serverId as the server ID
+   or the `JFROG_URL` env var as the URL if unambiguous; only ask when
+   there are multiple or no jf configs and not env vars.
+   Project: Ask unless `JF_PROJECT` is set, or it's already in an
+   existing `mcpServers` entry.
 2. Run "Listing MCPs > Available to install" with that server +
    project and present the result as a numbered table.
 3. Wait for the user to pick. Only after they pick do you proceed
@@ -67,26 +77,34 @@ unless absolutely necessary:
    or `~/.cursor/mcp.json` (user) — take the value after `--server`
    in `args`.
 2. Else `JFROG_URL` env var set (with `JFROG_ACCESS_TOKEN`) — the
-   gateway resolves credentials from these directly; no `--server`
-   ID is technically required but pass `--server` only if known.
+   gateway can resolve credentials from these directly;
+   DO NOT pass `--server` as that would make the gateway try to
+   parse the server details from the jf cli configuration.
 3. Else read `~/.jfrog/jfrog-cli.conf.v6`
    (`%USERPROFILE%\.jfrog\jfrog-cli.conf.v6` on Windows) via a
-   terminal command (file-search skips hidden dirs):
+   terminal command (file-search skips hidden dirs)
+   NEVER print the full file contents as it can contain secrets.
+   Use the serverId subkeys::
    - exactly one server → use it without asking.
-   - two or more → list the IDs and ASK the user which one.
+   - two or more → list the `serverId`s and ASK the user which one.
 4. Else (file missing, empty, or unreadable, and no `JFROG_URL`)
    ask the user to either run `jf c add <ID>` or export
    `JFROG_URL` + `JFROG_ACCESS_TOKEN`, then retry.
 
 NEVER try multiple servers — pick one. Once chosen, pass it
-explicitly as `--server <ID>` in every gateway invocation.
+If a server from the jf cli configuration is supposed to be used:
+Always explicitly as `--server <ID>` in every gateway invocation.
+Otherwise, if environment variables for `JFROG_URL` and `JFROG_ACCESS_TOKEN`
+are used: Do NOT pass `--server <ID>`
 
 **Project**
 
-1. From existing `mcpServers` entries, `_JF_MCP_LOADER_ARGS` →
+1. From existing `mcpServers` entries, `_JF_ARGS` →
    `project=` value.
 2. Else `JF_PROJECT` env var.
-3. Else ask. NEVER guess, NEVER use "default".
+3. Else ask. NEVER guess, NEVER assume "default", NEVER use the server ID,
+   NEVER infer the project from other sources, NEVER make up projects,
+   ALWAYS ask.
 
 **Target config file**
 
@@ -112,7 +130,7 @@ Run EXACTLY this command — no Fetch/WebFetch, no custom curl/Python, no direct
 ```bash
 npx --yes \
   --registry <REGISTRY_URL> \
-  @jfrog/mcp-gateway \
+  @jfrog/agent-guard \
   --inspect \
   --server <SERVER_ID> \
   --project <PROJECT> \
@@ -150,19 +168,31 @@ Split Step 2 inputs by `isRequired`:
 For each input in Step 4:
 
 - **Secrets** (`isSecret=true`): use `${env:VAR_NAME}` in the config;
-  tell the user to export it via `read -rs VAR_NAME && export
-  VAR_NAME && echo exported` (and add to `~/.zshrc` for persistence).
-  Picked up on next launch (Step 5). NEVER take secrets in chat,
-  echo them back, or write raw values into config.
+  tell the user to export it for the current session via
+  `read -rs VAR_NAME && export VAR_NAME && echo exported`.
+  For persistence, the right startup file depends on the user's
+  **shell**, not their OS — macOS and Linux both commonly run zsh or
+  bash. Detect the shell (e.g. `echo "$SHELL"`) and add the export to
+  the file that shell loads on startup:
+  - **zsh** (the macOS default) → `~/.zshrc`
+  - **bash** → `~/.bashrc`; note macOS login shells read
+    `~/.bash_profile`, which usually sources `~/.bashrc`
+  - **fish** → `~/.config/fish/config.fish` (use `set -gx`)
+  - **Windows** → use `setx VAR_NAME "<value>"` (PowerShell/CMD)
+    instead of the `read`/`export` snippet
+  If unsure which file the shell sources, ask the user. Values are
+  picked up on next launch (4a). NEVER take secrets in chat, echo them
+  back, or write raw values into config.
 - **Non-secrets**: literal in `env` or `${env:VAR_NAME}` — ask if
   unclear.
 
 ### Step 4: Write the config entry
 
 Add the entry under `mcpServers` in the target config (default
-`.cursor/mcp.json` — see Step 1). **Both `--yes` and `--registry
-<URL>` MUST come BEFORE `@jfrog/mcp-gateway`** or `npx` falls back
-to the default registry (404) and may block on a no-TTY prompt. Use
+`.cursor/mcp.json` — see Step 1).
+**Both `--yes` and `--registry <URL>` MUST come BEFORE
+`@jfrog/agent-guard`** or `npx` falls back to the default
+registry (404) and may block on a no-TTY prompt. Use
 `"type": "stdio"` — never `"http"`, `"sse"`, or a top-level `"url"`
 (those bypass the gateway).
 
@@ -176,12 +206,12 @@ to the default registry (404) and may block on a no-TTY prompt. Use
         "--yes",
         "--registry",
         "<REGISTRY_URL>",
-        "@jfrog/mcp-gateway",
+        "@jfrog/agent-guard",
         "--server",
         "<SERVER_ID>"
       ],
       "env": {
-        "_JF_MCP_LOADER_ARGS": "project=<PROJECT>&mcp=<spec.packageName>",
+        "_JF_ARGS": "project=<PROJECT>&mcp=<spec.packageName>",
         "<ENV_VAR_OR_HEADER_NAME>": "${env:<ENV_VAR_OR_HEADER_NAME>}"
       }
     }
@@ -191,52 +221,36 @@ to the default registry (404) and may block on a no-TTY prompt. Use
 
 Notes:
 
-- If a required `${env:VAR}` is unset, the gateway fails at startup
-  — confirm the user exported it before they restart.
-- For `Bearer`-prefixed headers, either include the prefix in the
-  env var or hard-code it: `"Bearer ${env:TOKEN}"`.
+- If a required `${env:VAR}` is unset, the gateway fails at startup.
+  Confirm the user exported it before they restart.
+  If any env vars are missing, ASK the user to export them and restart Cursor.
+- For `Bearer`-prefixed headers, either include the prefix in the env
+  var or hard-code it: `"Bearer ${env:TOKEN}"`.
 
-### Step 5: Enable and verify the entry (mandatory)
+### 4a: Enable and verify the entry (mandatory)
 
 Adding the entry to `mcp.json` is not enough — Cursor stores
 enable/approval state separately and does not auto-enable new
-servers. Run this from the workspace root for **every** server you
-just wrote, using the same string as the JSON key:
+servers in workspace level installations. User level installations
+often do get auto enabled.
 
-```bash
-cursor agent mcp enable <mcp-display-name>
-```
+ALWAYS ask the user to verify the installation and enable the installed 
+MCP in the Cursor settings under "Tools & MCPs" via the UI toggle.
 
-Resolution order for the `cursor` binary — try each in order, use
-the first that responds to `--version`:
-
-1. `cursor` (already on `PATH`)
-2. `~/.local/bin/cursor`
-3. `/usr/local/bin/cursor`
-4. `/Applications/Cursor.app/Contents/Resources/app/bin/cursor` (macOS)
-5. `%LOCALAPPDATA%\Programs\cursor\resources\app\bin\cursor.cmd` (Windows)
-6. `/opt/cursor/resources/app/bin/cursor` (Linux)
-
-Expected per server: `✓ Enabled and approved MCP server: <name>`.
-ONLY if every binary path fails OR the user has forbidden terminal
-commands: tell them to open **Settings → Tools & MCP** and toggle
-each server on.
-
-Then tell the user to export every `${env:VAR}` from the new entry
-in the launching shell, and restart Cursor (or `Developer: Reload
-Window`) so the new config + env are picked up.
-
-**Verify (mandatory):** `ready` in `cursor agent mcp list` is NOT
-proof of success — Cursor shows it as soon as the gateway proxy
-starts, even with 0 upstream tools loaded. The only proof is **tool
-descriptors actually present** in
-`~/.cursor/projects/<this-workspace>/mcps/<key>/tools/*.json` (the
-key matches the JSON key, optionally prefixed `user-`). If `tools/`
-is empty (or the directory is missing) after a `Developer: Reload
+**Verify (mandatory):** Being able to discover the MCP is not enough.
+`cursor agent mcp list` and `cursor agent mcp enable` are not authoritative for
+the cursor IDE. Do not trust these commands as proof for the MCP working or
+not working. The only proof is to see if the **tool descriptors are actually 
+present** in
+`~/.cursor/projects/<this-workspace>/mcps/<mcp-server-name>/tools/*.json` (the
+mcp-server-name is the JSON key of the mcp, optionally prefixed `user-`).
+NEVER ask the user to verify the tool descriptor files. ALWAYS Offer to check the
+tools for the user after they enabled the MCP.
+If `tools/` is empty (or the directory is missing) after a `Developer: Reload
 Window`, treat as Failed and follow Troubleshooting "`ready` but 0
 tools".
 
-### Step 6: Authenticate OAuth MCPs (auto, after Step 5)
+### Step 5: Authenticate OAuth MCPs (auto, after Step 4)
 
 Run ONLY for OAuth-style remote MCPs — i.e. `--inspect` showed a
 `remote` section with `type: "http"` AND Step 4 wrote no static auth
@@ -250,12 +264,14 @@ browser to sign you in to `<MCP_NAME>`" before:
 ```
 npx --yes \
   --registry <REGISTRY_URL> \
-  @jfrog/mcp-gateway \
+  @jfrog/agent-guard \
   --login \
   --server <SERVER_ID> \
   --project <PROJECT> \
   --mcp <spec.packageName>
 ```
+
+Note: This must run with `all` permissions when run in a sandbox.
 
 Outcomes:
 
@@ -268,7 +284,7 @@ Outcomes:
 
 1. Delete the entry from `mcpServers` in the file it was installed
    in (`.cursor/mcp.json` or `~/.cursor/mcp.json`).
-2. If OAuth was used (Step 6), also remove its entry from
+2. If OAuth was used (Step 5), also remove its entry from
    `~/.jfrog/jfrogmcp.conf.json`.
 3. Tell the user to reload Cursor (`Developer: Reload Window`) so
    the removed entry stops loading (`mcp.json` is read at session
@@ -299,12 +315,11 @@ elsewhere.
    `.cursor/mcp.json` (project) and `~/.cursor/mcp.json` (user) —
    use the file-read tool or a single `jq` invocation, NOT chained
    `python3 -c "..."` pipes. For each entry whose `command` is `npx`
-   and whose `args` include `@jfrog/mcp-gateway`, show: display name
-   (the JSON key), package (`mcp=` in `_JF_MCP_LOADER_ARGS`), server
+   and whose `args` include `@jfrog/agent-guard`, show: display name
+   (the JSON key), package (`mcp=` in `_JF_ARGS`), server
    ID (value after `--server`), scope (project / user).
 3. If a configured entry does not appear in `cursor agent mcp list`,
-   it was never enabled — re-run Step 5
-   (`cursor agent mcp enable <name>`).
+   it was never enabled — re-run Step 4a.
 
 ### Available to install
 
@@ -313,82 +328,89 @@ elsewhere.
    any existing `mcpServers` entry or pre-installed gateway —
    `npx --yes` fetches the gateway on demand, so this works on a
    fresh machine too.
-
-2. **STRICT LIVE EXECUTION MANDATE:** Every time the user asks to see available MCPs, 
-   the catalog, or what can be installed, you **MUST** physically run the terminal 
-   command below. **NEVER** copy, reuse, or re-display lists from previous turns 
-   or context history, even if the request was made just moments ago. A fresh, 
-   live execution tool call is mandatory for every single inquiry.
-
-3. Run EXACTLY this command — `--server` and `--project` are
-   passed as CLI flags, **no env vars needed**:
+2. Run EXACTLY this command — `--project` is passed as a CLI flag
+   To configure the server, either use the serverId from a jf cli
+   config with `--server` or omit `--server` if env vars are used to
+   configure URL and Access Token. **no additional env vars needed**:
 
 ```bash
 npx --yes \
   --registry <REGISTRY_URL> \
-  @jfrog/mcp-gateway \
+  @jfrog/agent-guard \
   --list-available \
-  --server <SERVER_ID> \
-  --project <PROJECT>
+  --project <PROJECT> \
+  [--server <SERVER_ID>]
 ```
 
 Output is a JSON array; each element has `name`, `packageName`,
 `description`, `type`, `packageVersion`, optional `env[]`.
 
-3. Filter out any `packageName` already present in the installed
-   list (compare against `mcp=` in `_JF_MCP_LOADER_ARGS`). Mark the
-   rest as available to install.
+3. Filter out any `packageName` already present in the installed list
+   (compare against `mcp=` in `_JF_ARGS`). Mark the rest as
+   available to install.
 
 ## Key Rules
 
 - **`npx` arg order:** `--yes`, `--registry <URL>`,
-  `@jfrog/mcp-gateway`, then gateway flags. Both `--yes` and
+  `@jfrog/agent-guard`, then gateway flags. Both `--yes` and
   `--registry` MUST precede the package name or `npx` falls back to
   the default registry (404) and may block on a no-TTY prompt.
-- **Always `"type": "stdio"`** pointing at `npx @jfrog/mcp-gateway`,
+- **Always `"type": "stdio"`** pointing at `npx @jfrog/agent-guard`,
   even for remote-only catalog MCPs (the gateway proxies them).
   `"http"`, `"sse"`, or a top-level `"url"` bypass the gateway.
-- `_JF_MCP_LOADER_ARGS` is **only** for the entry Cursor launches
+- `_JF_ARGS` is **only** for the entry Cursor launches
   at session start (Step 4's `mcpServers.*.env`); MUST contain
   `project=<NAME>&mcp=<PACKAGE_NAME>`.
-  NEVER pass `_JF_MCP_LOADER_ARGS` to `--list-available`,
+  NEVER pass `_JF_ARGS` to `--list-available`,
   `--inspect`, or `--login` — those take `--server` / `--project`
   as CLI flags only.
+- NEVER assume `default` as a project name. If the project is unknown
+  after Step 1's chain (existing `mcpServers` entries → `JF_PROJECT`
+  env var), STOP and ask the user. Same for server ID if used.
+  NEVER invent or guess projects or server IDs.
 - Package name MUST come from the catalog (`--inspect` /
   `--list-available`). NEVER guess. NEVER install MCPs outside the
   gateway. NEVER use Fetch/WebFetch for catalog calls.
 - NEVER write a raw secret into `mcp.json` — always use
   `${env:VAR_NAME}`. NEVER show tokens / API keys.
+  - NEVER try multiple servers — ask the user to pick one.
 
 ## Troubleshooting
 
 - **`ready` but 0 tools (empty `mcps/<key>/tools/` after a
-  `Developer: Reload Window`)** — gateway proxy started, upstream
-  MCP did not. The top-level `ready` label is misleading here.
-  NEVER report success. Open Cursor's MCP / Output panel for the
-  gateway stderr; diagnose by MCP type:
-  - **OAuth (remote)** — re-run Step 6 (`--login`); refresh token
-    likely expired.
-  - **Static-token (remote)** — confirm every `${env:VAR}` in `env`
-    is exported in the shell that launched Cursor and the token is
-    still valid.
-  - **Local (stdio)** — check that the bundled binary actually
-    launched (gateway stderr will show the spawn error).
+  Command Palette `Developer: Reload Window`)** — gateway proxy 
+  started, upstream MCP did not. The top-level `ready` label is 
+  misleading here. NEVER report success when there are 0 tools. 
+  1. Open Cursor's MCP / Output panel for the
+    gateway stderr; diagnose by MCP type:
+    - **OAuth (remote)** — re-run Step 5 (`--login`); refresh token
+      likely expired.
+    - **Static-token (remote)** — confirm every `${env:VAR}` in `env`
+      is exported in the shell that launched Cursor and the token is
+      still valid.
+    - **Local (stdio)** — check that the bundled binary actually
+      launched (gateway stderr will show the spawn error).
+  2. Verify that the mcp server is still allowed.
+     See "Listing MCPs > Available to install".
 - **`mcp.json` server missing from `cursor agent mcp list` /
-  Tools & MCP** — never enabled. Re-run Step 5
+  Tools & MCP** — never enabled. Re-run Step 4a
   (`cursor agent mcp enable <name>`); if the entry is brand-new,
   also `Developer: Reload Window` so Cursor picks up the file.
 - **Gateway: `multiple/no JFrog server configured`** (the gateway
   cannot pick a JFrog server) — pass `--server <ID>` (after
   `jf c add <SERVER_ID>`) OR export both `JFROG_URL` and
   `JFROG_ACCESS_TOKEN` in the launching shell, then relaunch Cursor.
-- **OAuth MCP failing** — refresh token expired; re-run Step 6.
+- **OAuth MCP failing** — refresh token expired; re-run Step 5.
 - **401/403 with `${env:VAR}`** — env var unset/wrong; re-export in
   the launching shell and relaunch Cursor.
 - **`cursor: command not found`** — the Cursor shell command is not
-  on `PATH`. Use the absolute binary for `enable` (see Step 5
+  on `PATH`. Use the absolute binary for `enable` (see Step 4a
   resolution order) and tell the user to install the shell command
   via `Cmd+Shift+P` → `Shell Command: Install 'cursor' command in
   PATH`, or symlink it themselves:
   `ln -s /Applications/Cursor.app/Contents/Resources/app/bin/cursor
   ~/.local/bin/cursor`.
+- **npx package fetch returns 403 in-agent**: Often caused by a 
+  Cursor network sandbox/egress policy. Run with `full_network`.
+  If it still fails with full_network, troubleshoot 
+  registry/auth/package/curation policy as usual.

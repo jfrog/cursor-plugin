@@ -1,36 +1,118 @@
-# JFrog Cursor Plugin (Experimental)
+# JFrog Plugin for Cursor
 
-JFrog Platform integration for [Cursor](https://cursor.com) — artifact management, security scanning, and supply-chain best practices powered by the JFrog MCP Server.
+JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, supply-chain best practices, and Agent Guard.
 
-## What's included
+## What's new in v0.5.0
 
-| Component | Path | Description |
-|---|---|---|
-| **MCP** | `plugins/jfrog/mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
-| **Skills** | `plugins/jfrog/skills/` | 11 AI skills covering Artifactory, Security, Access, CLI, Curation, Distribution, AppTrust, Runtime, Mission Control, Workers, and Patterns |
-| **Rule** | `plugins/jfrog/rules/jfrog-security.mdc` | Supply-chain security practices for dependency files |
-| **Agent** | `plugins/jfrog/agents/supply-chain-security.md` | Dependency audit for CVEs, licenses, and curation |
-| **Hook** | `plugins/jfrog/hooks/hooks.json` + `plugins/jfrog/scripts/inject-instructions.mjs` | `sessionStart` hook gated by the `JF_MCP_GATEWAY_FORCE_ENABLE` env var: when set to `"true"` it injects `templates/jfrog-mcp-management.md` as `additional_context`; otherwise it emits `{}` and stays silent |
-| **Template** | `plugins/jfrog/templates/jfrog-mcp-management.md` | Gateway governance rule body — loaded by the hook above (not auto-discovered as a Cursor rule) only when `JFROG_MCP_GATEWAY_FORCE_ENABLE=true` or when the administration AI/ML settings are enabled via the platform. Teaches the agent how to add, remove, and list MCP servers exclusively through `npx @jfrog/mcp-gateway`. |
+- **Official skills.** The plugin now uses the official [jfrog-skills](https://github.com/jfrog/jfrog-skills) v0.11.0, replacing the previously bundled skill content. This brings structured reference files, automation scripts, and a three-tier tool selection strategy (MCP, CLI, REST/GraphQL).
+- **Package safety skill.** New `jfrog-package-safety-and-download` skill for checking whether packages are safe, curated, or allowed before downloading them through Artifactory.
+---
+
+## Features
+
+The JFrog plugin provides the following capabilities, grouped by component:
+
+| Component | Feature | Description |
+| --- | --- | --- |
+| **Skill** | JFrog Platform | Interact with Artifactory repositories, builds, permissions, users, access tokens, projects, release bundles, and platform administration via the JFrog CLI and REST/GraphQL APIs. Also covers security audits, CVE lookups, and Advanced Security exposure queries. |
+| **Skill** | Package safety & download | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers. |
+| **Hook** | Agent Guard | Cursor manage MCPs through the JFrog Agent Guard. Through the Agent Guard you can discover, install, configure, update, and remove MCP servers from the JFrog AI Catalog approved for your project, and authenticate to remote HTTP MCPs via OAuth, API key, or bearer token. |
+
+---
 
 ## Prerequisites
 
-1. **JFrog Platform** access (Cloud or self-hosted).
-2. An admin enables the **JFrog MCP Server** on the platform (Cloud/SaaS only):
-   - **Administration > General > Settings > MCP Server** → toggle ON.
-3. Each developer configures Cursor with their JFrog Platform URL (see [Setup](#setup)).
-4. **JFrog CLI** (`jf`) is used by several skills for authentication and REST API operations. It will be installed automatically if missing. Install manually via `brew install jfrog-cli` or the [official install script](https://jfrog.com/help/r/jfrog-cli/install-the-jfrog-cli).
+Before installing, make sure you have:
 
-## Setup
+- **JFrog host URL and access token** — Your JFrog platform URL and a valid access token.
+- **Cursor** — Installed with AI features enabled.
+- **Node.js** (≥ 14) — with `npx` on your `PATH`.
+- **JFrog CLI** (≥ 2.x, optional) — If missing, the agent will attempt to install it. Recommended for CLI-based operations (see [Authentication](#authentication)).
+- **JFrog Platform access** (optional) — If you want to use the Agent Guard feature, your JFrog subscription needs to include the AI Catalog entitlement. Contact your JFrog account team if you're unsure whether it's enabled.
+- **JFrog project** (optional) — If you want to use the Agent Guard feature.
 
-1. Install the plugin in Cursor.
-2. Set the `JFROG_PLATFORM_URL` environment variable to your JFrog instance (e.g. `mycompany.jfrog.io`).
-3. Restart Cursor. An OAuth window opens in your browser — authorize access.
+---
 
-No manual tokens or API keys are required. MCP workflows use OAuth; CLI/REST-based skills authenticate automatically via `jf config` browser login.
+## Installation
 
-## Validation
+### Install the Cursor plugin
 
-```bash
-node scripts/validate-template.mjs
-```
+Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.com/ai-ml/docs/configure-cursor) documentation or Cursor's UI:
+
+1. Open **Cursor**.
+2. Open **Cursor Settings** and select **Plugins**.
+3. Search for **JFrog** and open the **JFrog** plugin.
+4. Choose **Add to Cursor**, then **Add Plugin**.
+
+---
+
+## Authentication
+
+### 1. Set persistent environment variables
+
+| Variable | Description |
+| --- | --- |
+| `JFROG_PLATFORM_URL` | Your JFrog platform URL, e.g. `mycompany.jfrog.io` |
+| `JFROG_ACCESS_TOKEN` | Your JFrog access token |
+
+### 2. Configure the JFrog CLI
+
+Run `jf login` for browser-based setup, or set the `JFROG_ACCESS_TOKEN` environment variable. MCP-based workflows authenticate via OAuth and require no additional configuration.
+
+---
+
+## Usage
+
+Once configured, interact with the JFrog plugin through natural language. Examples are grouped by capability.
+
+### JFrog Platform skill
+
+| Ask the agent… | What happens |
+| --- | --- |
+| "List my Artifactory repositories." | Returns repositories via the JFrog CLI. |
+| "Upload this build to Artifactory." | Publishes build artifacts and metadata. |
+| "Run a security audit on this project." | Runs an Xray / Advanced Security audit and summarizes findings. |
+| "Show me details on CVE-2021-23337." | Looks up CVE details in JFrog Advanced Security. |
+| "Create a scoped access token for CI." | Creates an access token with the requested scope. |
+| "Promote this release bundle to production." | Uses Lifecycle / Distribution APIs to promote the bundle. |
+
+### Package safety & download skill
+
+| Ask the agent… | What happens |
+| --- | --- |
+| "Is `lodash@4.17.21` safe to install?" | Checks JFrog Public Catalog signals and curation policy for the package. |
+| "Is this Maven package approved for use?" | Checks curation entitlement and policy for the requested package. |
+| "Download `requests` via JFrog." | Resolves the package through an Artifactory remote cache or curation-aware package manager. |
+
+### MCP server management (Agent Guard)
+
+| Ask the agent… | What happens |
+| --- | --- |
+| "Which MCP servers can I install?" | Returns all MCP servers approved for your current project that you can install. |
+| "What MCP servers do I already have?" | Returns only the MCP servers already installed on your machine. |
+| "Show me the details for the filesystem MCP server." | Returns detailed metadata, required configuration (environment variables, runtime arguments), and active tool policies for a given server. |
+| "Add the GitHub MCP server." | Installs an approved MCP server and syncs its tool policies locally. Secrets are requested via a CLI command — never in chat. |
+| "Update the environment variables for the Slack MCP." | Replaces the configuration for an already-installed server without removing and reinstalling it. |
+| "Remove the Slack MCP server." | Removes the server and its stored credentials from your local setup. Changes apply immediately. |
+| "Log in to the remote Jira MCP server using OAuth." | Authenticates with a remote HTTP-based MCP server (OAuth, API key, or bearer token). |
+| "Switch my project to `backend-team`." | Re-syncs approved servers and policies for the new project. |
+
+### How secrets are handled
+
+When an MCP server requires a sensitive configuration, the agent cannot set the value directly. Instead, it returns a CLI command for you to copy and run in your terminal. Secrets such as API keys, tokens, and connection strings are never exposed in the agent chat history.
+
+---
+
+## Troubleshooting
+
+See the [JFrog MCP Registry troubleshooting guide](https://docs.jfrog.com/ai-ml/docs/mcp-registry-troubleshooting).
+
+---
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development workflow and pull-request expectations.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
