@@ -328,7 +328,14 @@ elsewhere.
    any existing `mcpServers` entry or pre-installed gateway —
    `npx --yes` fetches the gateway on demand, so this works on a
    fresh machine too.
-2. Run EXACTLY this command — `--project` is passed as a CLI flag
+
+2. **STRICT LIVE EXECUTION MANDATE:** Every time the user asks to see available MCPs, 
+   the catalog, or what can be installed, you **MUST** physically run the terminal 
+   command below. **NEVER** copy, reuse, or re-display lists from previous turns 
+   or context history, even if the request was made just moments ago. A fresh, 
+   live execution tool call is mandatory for every single inquiry.
+
+3. Run EXACTLY this command — `--project` is passed as a CLI flag
    To configure the server, either use the serverId from a jf cli
    config with `--server` or omit `--server` if env vars are used to
    configure URL and Access Token. **no additional env vars needed**:
@@ -345,7 +352,7 @@ npx --yes \
 Output is a JSON array; each element has `name`, `packageName`,
 `description`, `type`, `packageVersion`, optional `env[]`.
 
-3. Filter out any `packageName` already present in the installed list
+4. Filter out any `packageName` already present in the installed list
    (compare against `mcp=` in `_JF_ARGS`). Mark the rest as
    available to install.
 
