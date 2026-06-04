@@ -19,15 +19,22 @@ node scripts/validate-template.mjs
 4. **Commit** with a clear, descriptive message.
 5. Open a **pull request** against `main` with a summary of what changed and why.
 
-### Updating the vendored skills
+## Updating the vendored skills
 
-The `skills/` tree under `plugins/jfrog/` is vendored from [jfrog/jfrog-skills](https://github.com/jfrog/jfrog-skills) and committed to `main` — see [`plugins/jfrog/VENDOR.md`](plugins/jfrog/VENDOR.md) for the full flow. To regenerate the tree locally against the pin in [`plugins/jfrog/.vendor.json`](plugins/jfrog/.vendor.json):
+The `skills/` tree is vendored from [`jfrog/jfrog-skills`](https://github.com/jfrog/jfrog-skills) at the version pinned in [`.github/scripts/sync-skills-vendor.json`](.github/scripts/sync-skills-vendor.json). To pull a newer upstream release into this repo:
 
-```bash
-node plugins/jfrog/scripts/sync-skills.mjs
-```
+1. Bump `pin` in `.github/scripts/sync-skills-vendor.json` to the new tag (e.g. `v0.12.0`).
+2. Run the sync script from the repo root:
 
-This downloads the pinned upstream tarball and replaces the contents of `plugins/jfrog/skills/`. Commit the result alongside any pin/version bumps.
+   ```bash
+   node .github/scripts/sync-skills.mjs
+   ```
+
+   It downloads the pinned tarball from `codeload.github.com`, extracts it, and replaces the directories listed in `paths` (today: `skills/`) under `plugins/jfrog/`.
+3. Bump `version` in [`plugins/jfrog/.cursor-plugin/plugin.json`](plugins/jfrog/.cursor-plugin/plugin.json) so users actually receive the update — Cursor skips installs whose resolved version hasn't changed.
+4. Commit the pin bump, the regenerated `plugins/jfrog/skills/` tree, and the version bump together, and open a PR.
+
+See [`VENDOR.md`](VENDOR.md) for the full picture.
 
 ## Reporting Issues
 

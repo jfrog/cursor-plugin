@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 // Vendors skill content from the upstream jfrog/jfrog-skills repository
 // into this plugin. Run manually when bumping the pin: bump `pin` in
-// .vendor.json, then run this script to regenerate skills/, then
-// commit both alongside each other.
+// sync-skills-vendor.json, then run this
+// script to regenerate `skills/`, then commit both alongside each other.
 //
 // Usage:
-//   node plugins/jfrog/scripts/sync-skills.mjs
+//   node .github/scripts/sync-skills.mjs
 //
 // Steps the script performs:
-//   1. Reads plugins/jfrog/.vendor.json to learn which repo + ref to pull.
+//   1. Reads sync-skills-vendor.json to learn which repo + ref to pull.
 //   2. Downloads that tarball from codeload.github.com (public, no auth).
 //   3. Extracts it into a temp directory.
 //   4. Copies the requested paths (e.g. "skills") into the plugin
-//      directory, replacing any existing tree.
+//      directory (plugins/jfrog/), replacing any existing tree.
 //
-// The pin in .vendor.json is the single source of truth — there is no
-// runtime override. To ship a different skill version, change the pin
-// in a PR and commit the synced tree alongside it.
+// The pin in sync-skills-vendor.json is the single source of truth —
+// there is no runtime override. To ship a different skill version,
+// change the pin in a PR and commit the synced tree alongside it.
 
 import { promises as fs, createWriteStream } from "node:fs";
 import { Readable } from "node:stream";
@@ -26,11 +26,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-// The script lives at <pluginDir>/scripts/sync-skills.mjs, so its
-// parent directory is the plugin root that owns .vendor.json + skills/.
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const pluginDir = path.resolve(scriptDir, "..");
-
+// filesystem helpers
 async function readJson(filePath) {
   return JSON.parse(await fs.readFile(filePath, "utf8"));
 }
@@ -38,6 +34,8 @@ async function readJson(filePath) {
 async function fileExists(filePath) {
   try { await fs.access(filePath); return true; } catch { return false; }
 }
+
+// download the upstream tarball
 
 // codeload.github.com serves any public repo's archive over HTTPS
 // without auth, accepting a tag, branch, or commit SHA as the ref.
@@ -49,11 +47,14 @@ async function downloadTarball(repo, ref, destPath) {
   console.log(`  fetched ${url}`);
 }
 
-// Shells out to the system `tar` instead of pulling in an npm tar
-// library — keeps the script zero-dependency. GitHub tarballs always
-// have exactly one top-level directory whose name encodes the repo +
-// commit; we return that path so the caller knows where to find the
-// extracted tree.
+// extract the tarball
+
+// Shells out to the system `tar` instead of pulling in an npm tar library —
+// keeps the script zero-dependency.
+//
+// GitHub tarballs always have exactly one top-level directory whose
+// name encodes the repo + commit. We return that path so the caller
+// knows where to find the extracted tree.
 async function extractTarball(tarballPath, intoDir) {
   await fs.mkdir(intoDir, { recursive: true });
   const result = spawnSync("tar", ["-xzf", tarballPath, "-C", intoDir], { stdio: "inherit" });
@@ -62,9 +63,10 @@ async function extractTarball(tarballPath, intoDir) {
   return path.join(intoDir, topLevel);
 }
 
+// copy one path from the extracted tree into the plugin
+
 // Removes the destination first so we never end up with stale leftovers
-// from a previous sync (e.g. a reference that got renamed upstream),
-// then creates the destination's parent directory and copies the tree.
+// from a previous sync, then creates the destination's parent directory then copies.
 async function copyPath(fromDir, toDir, relativePath) {
   const from = path.join(fromDir, relativePath);
   const to = path.join(toDir, relativePath);
@@ -77,10 +79,19 @@ async function copyPath(fromDir, toDir, relativePath) {
   console.log(`  ${relativePath} -> ${path.relative(process.cwd(), to)}`);
 }
 
+// Sync this plugin: read sync-skills-vendor.json, download + extract + copy.
+//
+// Paths are resolved relative to the script itself rather than CWD, so
+// the script works regardless of where it's invoked from. The repo root
+// is two levels up from .github/scripts/, and the plugin directory
+// (where skills/ lives) is plugins/jfrog under that.
 async function main() {
-  const vendorPath = path.join(pluginDir, ".vendor.json");
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(scriptDir, "..", "..");
+  const pluginDir = path.resolve(repoRoot, "plugins", "jfrog");
+  const vendorPath = path.join(scriptDir, "sync-skills-vendor.json");
   if (!(await fileExists(vendorPath))) {
-    throw new Error(`missing .vendor.json at ${vendorPath}`);
+    throw new Error(`missing sync-skills-vendor.json at ${vendorPath}`);
   }
 
   const { repo, pin, paths } = await readJson(vendorPath);
