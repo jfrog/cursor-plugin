@@ -103,10 +103,13 @@ not call `--inspect` — go to "Listing MCPs > Available to install"
 instead, show the catalog, have them pick, then come back to Step 2
 with the chosen name.
 
-Once you have a name, run a SINGLE command — no Fetch/WebFetch, no
-custom curl/Python, no direct JFrog API calls:
+Once you have a name, you must fetch its live details. 
 
-```
+**STRICT LIVE EXECUTION MANDATE:** Every time the user asks for details, parameters, configuration, or an inspection of a specific MCP, you **MUST** physically run the terminal command below. **NEVER** reuse, assume, or copy configuration payloads from previous chat turns or context history, as the underlying configuration or headers may have changed. A fresh, live execution tool call is mandatory for every single inquiry.
+
+Run EXACTLY this command — no Fetch/WebFetch, no custom curl/Python, no direct JFrog API calls:
+
+```bash
 npx --yes \
   --registry <REGISTRY_URL> \
   @jfrog/mcp-gateway \
@@ -310,10 +313,17 @@ elsewhere.
    any existing `mcpServers` entry or pre-installed gateway —
    `npx --yes` fetches the gateway on demand, so this works on a
    fresh machine too.
-2. Run EXACTLY this command — `--server` and `--project` are
+
+2. **STRICT LIVE EXECUTION MANDATE:** Every time the user asks to see available MCPs, 
+   the catalog, or what can be installed, you **MUST** physically run the terminal 
+   command below. **NEVER** copy, reuse, or re-display lists from previous turns 
+   or context history, even if the request was made just moments ago. A fresh, 
+   live execution tool call is mandatory for every single inquiry.
+
+3. Run EXACTLY this command — `--server` and `--project` are
    passed as CLI flags, **no env vars needed**:
 
-```
+```bash
 npx --yes \
   --registry <REGISTRY_URL> \
   @jfrog/mcp-gateway \
