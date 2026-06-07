@@ -27,7 +27,7 @@ Before installing, make sure you have:
 - **JFrog host URL and access token** — Your JFrog platform URL and a valid access token.
 - **Cursor** — Installed with AI features enabled.
 - **Node.js** (≥ 14) — with `npx` on your `PATH`.
-- **JFrog CLI** (≥ 2.x, optional) — If missing, the agent will attempt to install it. Recommended for CLI-based operations (see [Authentication](#authentication)).
+- **Skill runtime requirements** — `jf` CLI, `jq`, and `curl` on `PATH`, plus a configured JFrog instance. The exact versions, install links, and full list track the upstream skills release the plugin pins; see the [skills `Requirements`](https://github.com/jfrog/jfrog-skills/blob/v0.11.0/README.md#requirements) at the pinned version (`v0.11.0`). Configure the CLI with `jf config add` — see [Authentication](#authentication).
 - **JFrog Platform access** (optional) — If you want to use the Agent Guard feature, your JFrog subscription needs to include the AI Catalog entitlement. Contact your JFrog account team if you're unsure whether it's enabled.
 - **JFrog project** (optional) — If you want to use the Agent Guard feature.
 
@@ -122,7 +122,8 @@ The `skills/` tree is vendored from [`jfrog/jfrog-skills`](https://github.com/jf
 
    It downloads the pinned tarball from `codeload.github.com`, extracts it, and replaces the directories listed in `paths` (today: `skills/`) under `plugins/jfrog/`.
 3. Bump `version` in [`plugins/jfrog/.cursor-plugin/plugin.json`](plugins/jfrog/.cursor-plugin/plugin.json) so users actually receive the update — Cursor skips installs whose resolved version hasn't changed.
-4. Commit the pin bump, the regenerated `plugins/jfrog/skills/` tree, and the version bump together, and open a PR.
+4. Update the pinned-version link in the [Prerequisites](#prerequisites) section so the skill runtime requirements point at the new tag.
+5. Commit the pin bump, the regenerated `plugins/jfrog/skills/` tree, the version bump, and the README link bump together, and open a PR.
 
 See [`VENDOR.md`](VENDOR.md) for the full picture.
 
