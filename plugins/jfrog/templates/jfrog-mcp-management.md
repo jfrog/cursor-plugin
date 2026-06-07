@@ -121,7 +121,7 @@ not call `--inspect` — go to "Listing MCPs > Available to install"
 instead, show the catalog, have them pick, then come back to Step 2
 with the chosen name.
 
-Once you have a name, you must fetch its live details. 
+Once you have a name, you must fetch its live details.
 
 **STRICT LIVE EXECUTION MANDATE:** Every time the user asks for details, parameters, configuration, or an inspection of a specific MCP, you **MUST** physically run the terminal command below. **NEVER** reuse, assume, or copy configuration payloads from previous chat turns or context history, as the underlying configuration or headers may have changed. A fresh, live execution tool call is mandatory for every single inquiry.
 
@@ -329,10 +329,10 @@ elsewhere.
    `npx --yes` fetches the gateway on demand, so this works on a
    fresh machine too.
 
-2. **STRICT LIVE EXECUTION MANDATE:** Every time the user asks to see available MCPs, 
-   the catalog, or what can be installed, you **MUST** physically run the terminal 
-   command below. **NEVER** copy, reuse, or re-display lists from previous turns 
-   or context history, even if the request was made just moments ago. A fresh, 
+2. **STRICT LIVE EXECUTION MANDATE:** Every time the user asks to see available MCPs,
+   the catalog, or what can be installed, you **MUST** physically run the terminal
+   command below. **NEVER** copy, reuse, or re-display lists from previous turns
+   or context history, even if the request was made just moments ago. A fresh,
    live execution tool call is mandatory for every single inquiry.
 
 3. Run EXACTLY this command — `--project` is passed as a CLI flag
