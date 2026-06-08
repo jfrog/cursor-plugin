@@ -350,10 +350,16 @@ npx --yes \
   [--server <SERVER_ID>]
 ```
 
-Output is a JSON array; each element has `name`, `packageName`,
-`description`, `type`, `packageVersion`, optional `env[]`.
+The output is a compact TSV: a header line, then one server per line,
+tab-separated: `name<TAB>type<TAB>version<TAB>description`.
+Run the command ONCE and present the rows directly as a numbered
+table — do NOT re-run it, redirect it, or parse it with `python3`/`jq`.
+The `name` column is the install identifier (the value you pass to
+`--inspect --mcp` and to install); `packageName` is NOT a separate
+column — for remote/http MCPs there is no package name, so `name` is
+the display name.
 
-3. Filter out any `packageName` already present in the installed list
+3. Filter out any `name` already present in the installed list
    (compare against `mcp=` in `_JF_ARGS`). Mark the rest as
    available to install.
 
@@ -379,6 +385,11 @@ Output is a JSON array; each element has `name`, `packageName`,
 - Package name MUST come from the catalog (`--inspect` /
   `--list-available`). NEVER guess. NEVER install MCPs outside the
   agent guard. NEVER use Fetch/WebFetch for catalog calls.
+- NEVER pipe a catalog command through `python3`, and NEVER capture it
+  with `2>&1` — `npx`/`npm` writes progress to stderr, which corrupts
+  the output stream. For `--list-available` present the compact TSV it
+  prints; for `--inspect` read the JSON it prints on stdout
+  directly (or with a single `jq` filter), never via `python3`.
 - NEVER write a raw secret into `mcp.json` — always use
   `${env:VAR_NAME}`. NEVER show tokens / API keys.
   - NEVER try multiple servers — ask the user to pick one.
