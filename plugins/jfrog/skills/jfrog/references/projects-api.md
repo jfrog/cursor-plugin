@@ -13,8 +13,10 @@ All endpoints below use full product-prefixed paths (`/access/api/...`,
 
 ## Authentication
 
-Credentials are resolved automatically by `jf api` from the active `jf config`
-server — no token extraction or `curl` wiring is needed.
+All calls in this file require `required_permissions: ["full_network"]` in the
+Shell tool (see the Network permissions section in SKILL.md). Credentials are
+resolved automatically by `jf api` from the active `jf config` server — no
+token extraction or `curl` wiring is needed.
 
 ## Projects
 

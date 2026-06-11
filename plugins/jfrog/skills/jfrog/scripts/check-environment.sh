@@ -2,30 +2,26 @@
 # check-environment.sh — Cached JFrog CLI environment check
 #
 # Checks if jf is installed and its version, using a 24h-TTL cache
-# at ${JFROG_CLI_HOME_DIR:-$HOME/.jfrog}/skills-cache/jfrog-skill-state.json
-# to avoid redundant checks. The skills-cache/ dir holds only this file and
-# the OneModel schema cache — not temp API output.
+# at <skill_path>/local-cache/jfrog-skill-state.json to avoid redundant checks.
+# local-cache/ is only for this file and the OneModel schema cache — not temp API output.
 #
-# Usage:
-#   bash check-environment.sh [<model-slug>] [--force]
-#
-# stdout: bare JFROG_CLI_USER_AGENT value (one line) — agent captures it
-#         and runs `export JFROG_CLI_USER_AGENT='<v>'` once at the top of
-#         every bash invocation that calls jf
+# stdout: eval-able shell exports (JFROG_CLI_USER_AGENT)
 # stderr: JSON state (informational, also written to cache file)
 #
 # Exit codes:
-#   0 — cache fresh, CLI ready
-#   1 — cache refreshed, CLI ready
-#   2 — jf not installed
-#   3 — jf below MIN_CLI_VERSION (required for `jf api`)
+#   0 — Cache is fresh, CLI is ready
+#   1 — Cache was stale/missing and has been refreshed
+#   2 — jf is not installed
+#   3 — jf is installed but below MIN_CLI_VERSION (required for `jf api`)
+#
+# Usage:
+#   eval "$(bash check-environment.sh [--force])"
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-JFROG_HOME="${JFROG_CLI_HOME_DIR:-$HOME/.jfrog}"
-CACHE_DIR="$JFROG_HOME/skills-cache"
+CACHE_DIR="$SKILL_ROOT/local-cache"
 CACHE_FILE="$CACHE_DIR/jfrog-skill-state.json"
 DEFAULT_TTL_HOURS=24
 FORCE=false
@@ -35,14 +31,9 @@ FORCE=false
 # skill) landed in 2.100.0; older CLIs fail with "unknown command: api".
 MIN_CLI_VERSION="2.100.0"
 
-MODEL_SLUG=""
-for arg in "$@"; do
-  if [[ "$arg" == "--force" ]]; then
-    FORCE=true
-  elif [[ -z "$MODEL_SLUG" ]]; then
-    MODEL_SLUG="$arg"
-  fi
-done
+if [[ "${1:-}" == "--force" ]]; then
+  FORCE=true
+fi
 
 now_epoch() {
   date -u +%s
@@ -143,56 +134,19 @@ EOF
   return 1
 }
 
-# Detect the calling harness from environment signals. Output is one of:
-# claude, cursor, gemini, goose, copilot, codex, unknown — or empty
-# string when no agent signal is present (direct CLI/CI invocation).
-# Naming matches the JFrog CLI's DetectExecutionContext() vocabulary.
-detect_harness() {
-  if [[ -n "${CLAUDECODE:-}" || -n "${CLAUDE_CODE_ENTRYPOINT:-}" ]]; then
-    echo "claude"
-  elif [[ -n "${CURSOR_AGENT:-}" || -n "${CURSOR_CLI:-}" || -n "${CURSOR_TRACE_ID:-}" ]]; then
-    echo "cursor"
-  elif [[ -n "${GEMINI_CLI:-}" ]]; then
-    echo "gemini"
-  elif [[ -n "${GOOSE_TERMINAL:-}" ]]; then
-    echo "goose"
-  elif [[ -n "${COPILOT_CLI:-}" ]]; then
-    echo "copilot"
-  elif [[ -n "${CODEX_CI:-}" || -n "${CODEX_THREAD_ID:-}" || -n "${CODEX_SANDBOX:-}" ]]; then
-    echo "codex"
-  elif [[ -n "${AGENT:-}" || -n "$MODEL_SLUG" ]]; then
-    # Agent invoked us but we can't name it.
-    echo "unknown"
-  fi
-  # No match → print nothing; emitter omits the parens block entirely.
-}
-
 # Emit skill-level env vars to stdout (for eval by the caller)
 emit_skill_env() {
-  local skill_version cli_version ua harness
+  local skill_version cli_version ua
   # Parse version from SKILL.md YAML frontmatter (metadata.version)
   skill_version="$(awk '/^---$/{n++; next} n==1 && /^[[:space:]]*version:/{gsub(/["'"'"']/, "", $2); print $2; exit}' "$SKILL_ROOT/SKILL.md" 2>/dev/null | tr -d '[:space:]')"
   skill_version="${skill_version:-unknown}"
   cli_version=$(jq -r '.cli_version // "unknown"' "$CACHE_FILE" 2>/dev/null || echo "unknown")
-  harness=$(detect_harness)
-  # Build the parens block: semicolon-separated key=value pairs.
-  local meta=""
-  if [[ -n "$harness" ]]; then
-    meta="tool=${harness}"
+  ua=""
+  if [[ -n "${JFROG_SKILL_MODEL:-}" ]]; then
+    ua="model/${JFROG_SKILL_MODEL} "
   fi
-  if [[ -n "$MODEL_SLUG" ]]; then
-    if [[ -n "$meta" ]]; then
-      meta="${meta}; model=${MODEL_SLUG}"
-    else
-      meta="model=${MODEL_SLUG}"
-    fi
-  fi
-  ua="jfrog-skills/${skill_version}"
-  if [[ -n "$meta" ]]; then
-    ua="${ua} (${meta})"
-  fi
-  ua="${ua} jfrog-cli-go/${cli_version}"
-  printf '%s\n' "$ua"
+  ua="${ua}jfrog-skills/${skill_version} jfrog-cli-go/${cli_version}"
+  echo "export JFROG_CLI_USER_AGENT='${ua}'"
 }
 
 # Main
