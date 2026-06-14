@@ -41,8 +41,9 @@ opt out of admin policy. If admins use a URL allowlist, they should
 permit `https://${JFROG_PLATFORM_URL}/mcp` (e.g. via a wildcard like
 `https://*.jfrog.io/mcp`). The claude-plugin and vscode-plugin
 sibling plugins use a different shape (`npx @jfrog/agent-guard` with
-a builtin signal in env) for tighter integration with the JFrog
-agent-guard policy hook on those platforms.
+the reserved name `jfrog-plugin-mcp` in `_JF_ARGS` and no project)
+for tighter integration with the JFrog agent-guard policy hook on
+those platforms.
 
 ### Skills
 
