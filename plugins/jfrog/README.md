@@ -17,33 +17,18 @@ CLI authentication options: run `jf login` for browser-based setup, or set the `
 
 | Component | Path | Description |
 |---|---|---|
-| **MCP** | `mcp.json` | Plugin-bundled JFrog MCP at `https://${JFROG_PLATFORM_URL}/mcp` (server name: `jfrog`). Always available, not subject to AI Catalog policy — see [Plugin-managed JFrog MCP](#plugin-managed-jfrog-mcp). |
+| **MCP** | `mcp.json` | Built-in JFrog MCP at `https://${JFROG_PLATFORM_URL}/mcp` (server name: `jfrog`). Always available, not subject to AI Catalog policy — see [JFrog MCP](#jfrog-mcp). |
 | **Rule** | `rules/jfrog-security.mdc` | Supply-chain security practices for dependency files |
 | **Agent** | `agents/supply-chain-security.md` | Dependency audit for CVEs, licenses, and curation |
 | **Hook** | `hooks/hooks.json` | Agent Guard — MCP server governance via JFrog AI Catalog |
 
-### Plugin-managed JFrog MCP
+### JFrog MCP
 
-The plugin ships a built-in `jfrog` MCP registered in `mcp.json`,
-pointing at `https://${JFROG_PLATFORM_URL}/mcp`. Cursor starts it
-automatically when the plugin is enabled — no manual install, no
-Agent Guard catalog fetch, no AI Catalog approval involved.
-
-**Always on, regardless of AI Catalog policy.** The plugin owns this
-MCP. AI Catalog allow/deny lists, missing entitlement, and catalog
-reconciliation never reach this entry. The only supported removal is
-uninstalling the plugin from Cursor.
-
-**Subject to Cursor admin MCP Configuration.** Like every MCP, the
-`jfrog` server is filtered by your Cursor admin's **MCP
-Configuration** panel and the global MCP toggles. The plugin cannot
-opt out of admin policy. If admins use a URL allowlist, they should
-permit `https://${JFROG_PLATFORM_URL}/mcp` (e.g. via a wildcard like
-`https://*.jfrog.io/mcp`). The claude-plugin and vscode-plugin
-sibling plugins use a different shape (`npx @jfrog/agent-guard` with
-the reserved name `jfrog-plugin-mcp` in `_JF_ARGS` and no project)
-for tighter integration with the JFrog agent-guard policy hook on
-those platforms.
+The plugin ships a built-in `jfrog` MCP registered in `mcp.json`, pointing
+at `https://${JFROG_PLATFORM_URL}/mcp`. Cursor launches it automatically
+when the plugin is enabled. If your Cursor admin enforces a URL allowlist,
+permit `https://${JFROG_PLATFORM_URL}/mcp` (or a wildcard like
+`https://*.jfrog.io/mcp`).
 
 ### Skills
 

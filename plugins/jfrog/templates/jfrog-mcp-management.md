@@ -1,34 +1,24 @@
-# Plugin-managed JFrog MCP — always-on, off-limits to Agent Guard
+# Built-in `jfrog` MCP
 
-The plugin ships a built-in `jfrog` MCP (HTTP at
-`https://${JFROG_PLATFORM_URL}/mcp`) registered in the plugin's own
-`mcp.json`. **Read these rules before any MCP action below**:
+The plugin ships a built-in `jfrog` MCP at
+`https://${JFROG_PLATFORM_URL}/mcp` in its read-only `mcp.json`.
+**Hard rules** (apply before any MCP action below):
 
-- `jfrog` is always available to the user with respect to AI Catalog
-  policy. Never tell them it is blocked, missing, or pending because
-  the catalog disallowed it or entitlement is off.
+- `jfrog` is always available with respect to AI Catalog policy;
+  never tell the user it's blocked or missing for catalog reasons.
 - NEVER run any Agent Guard flow (`--inspect`, `--login`, install,
-  remove) against the plugin-managed `jfrog` server, and NEVER edit,
-  replace, or delete its entry. The entry lives in the plugin's
-  read-only `mcp.json`, not in the user's `~/.cursor/mcp.json` or any
-  workspace `.cursor/mcp.json`. Removal is only possible by
-  uninstalling the plugin from Cursor.
-- Always report `jfrog` in any "currently installed" listing as
+  remove) against `jfrog`, and NEVER edit or delete its entry.
+  Removal is only possible by uninstalling the plugin from Cursor.
+- In any "currently installed" listing, report `jfrog` as
   `scope: plugin (jfrog)`, `managed-by: plugin`. The rest of this
   document does not apply to it.
-- If the AI Catalog also exposes a JFrog-branded MCP whose name
-  resolves to `jfrog`, do NOT install it on top of the plugin-managed
-  one — the names would collide. Skip the install and tell the user
-  the plugin already provides `jfrog`.
-- Entitlement transitions (gaining/losing AI Catalog entitlement,
-  catalog adding/removing `jfrog`) MUST NOT trigger any reconciliation
-  against the plugin-managed `jfrog` server.
-- The always-on guarantee is **with respect to AI Catalog / Agent
-  Guard policy only**. Cursor's enterprise admin **MCP Configuration**
-  panel (Server/Command list, Command or URL entries) sits above
+- If the AI Catalog also exposes an MCP whose name resolves to
+  `jfrog`, do NOT install it — names would collide. Skip and tell
+  the user the plugin already provides `jfrog`.
+- Cursor's enterprise admin **MCP Configuration** panel sits above
   plugins and CAN block `jfrog`. If the user reports `jfrog` is
-  missing, see "Plugin-managed `jfrog` MCP missing under enterprise
-  MCP Configuration" in Troubleshooting.
+  missing, see "Built-in `jfrog` MCP missing under enterprise MCP
+  Configuration" in Troubleshooting.
 
 # MCP Server Management — JFrog Agent Guard
 
@@ -447,8 +437,8 @@ the display name.
   Tools & MCP** — never enabled. Re-run Step 4a
   (`cursor agent mcp enable <name>`); if the entry is brand-new,
   also `Developer: Reload Window` so Cursor picks up the file.
-- **Plugin-managed `jfrog` MCP missing under enterprise MCP
-  Configuration** — the plugin-managed `jfrog` server is HTTP at
+- **Built-in `jfrog` MCP missing under enterprise MCP
+  Configuration** — the built-in `jfrog` server is HTTP at
   `https://${JFROG_PLATFORM_URL}/mcp` and is filtered by Cursor's
   admin **MCP Configuration** allowlist (Server/Command list with
   Command or URL entries) like every MCP. Most common silent-block:
