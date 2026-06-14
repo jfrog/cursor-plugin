@@ -12,9 +12,12 @@ The plugin ships a built-in `jfrog` MCP at
 - In any "currently installed" listing, report `jfrog` as
   `scope: plugin (jfrog)`, `managed-by: plugin`. The rest of this
   document does not apply to it.
-- If the AI Catalog also exposes an MCP whose name resolves to
-  `jfrog`, do NOT install it — names would collide. Skip and tell
-  the user the plugin already provides `jfrog`.
+- If the AI Catalog also publishes the JFrog MCP (typically as
+  `jfrog-mcp`) and the user wants catalog-managed tool policy,
+  install it via the standard catalog flow under a different
+  `mcpServers` key — e.g., `jfrog-catalog` — so it coexists with
+  the built-in `jfrog`. Tell the user about the rename and that
+  they end up with both entries.
 - Cursor's enterprise admin **MCP Configuration** panel sits above
   plugins and CAN block `jfrog`. If the user reports `jfrog` is
   missing, see "Built-in `jfrog` MCP missing under enterprise MCP
