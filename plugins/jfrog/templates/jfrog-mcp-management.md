@@ -32,7 +32,7 @@ workflow below instead.
 
 
 **Registry URL**: Wherever `<REGISTRY_URL>` appears below, substitute
-the value of the `JFROG_MCP_GATEWAY_REPO` environment variable if it
+the value of the `JFROG_AGENT_GUARD_REPO` environment variable if it
 is set. Otherwise use
 `https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/`.
 
@@ -390,6 +390,12 @@ the display name.
 
 ## Key Rules
 
+- **Package scope is case-sensitive — ALWAYS write it lowercase as
+  `@jfrog/agent-guard`, NEVER `@JFrog/agent-guard`.** npm scopes are
+  case-sensitive; the published package is the lowercase
+  `@jfrog/agent-guard`. Capitalizing the brand (`@JFrog`) points at a
+  different/nonexistent scope and breaks the command. Use the exact
+  lowercase string in every command and config entry.
 - **`npx` arg order:** `--yes`, `--registry <URL>`,
   `@jfrog/agent-guard`, then agent guard flags. Both `--yes` and
   `--registry` MUST precede the package name or `npx` falls back to

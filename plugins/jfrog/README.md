@@ -18,8 +18,6 @@ CLI authentication options: run `jf login` for browser-based setup, or set the `
 | Component | Path | Description |
 |---|---|---|
 | **MCP** | `mcp.json` | Built-in JFrog MCP at `https://${JFROG_PLATFORM_URL}/mcp` (server name: `jfrog`). Always available, not subject to AI Catalog policy — see [JFrog MCP](#jfrog-mcp). |
-| **Rule** | `rules/jfrog-security.mdc` | Supply-chain security practices for dependency files |
-| **Agent** | `agents/supply-chain-security.md` | Dependency audit for CVEs, licenses, and curation |
 | **Hook** | `hooks/hooks.json` | Agent Guard — MCP server governance via JFrog AI Catalog |
 
 ### JFrog MCP
