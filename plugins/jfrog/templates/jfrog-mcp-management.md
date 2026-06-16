@@ -1,27 +1,28 @@
 # Built-in `jfrog` MCP
 
-The plugin ships a built-in `jfrog` MCP at
-`https://${JFROG_PLATFORM_URL}/mcp` in its read-only `mcp.json`.
-**Hard rules** (apply before any MCP action below):
+The plugin ships a built-in `jfrog` MCP in its read-only `mcp.json`,
+launched as `npx @jfrog/agent-guard` with `_JF_ARGS=mcp=jfrog-mcp`.
+agent-guard recognizes that shape, skips the AI Catalog, and connects
+directly to `${JFROG_URL}/mcp`. **Hard rules** (apply before any MCP
+action below):
 
-- `jfrog` is always available with respect to AI Catalog policy;
-  never tell the user it's blocked or missing for catalog reasons.
-- NEVER run any Agent Guard flow (`--inspect`, `--login`, install,
-  remove) against `jfrog`, and NEVER edit or delete its entry.
-  Removal is only possible by uninstalling the plugin from Cursor.
+- `jfrog` is always available; never tell the user it's blocked,
+  missing, or pending because of catalog/entitlement.
+- NEVER run any Agent Guard catalog flow (`--inspect`, `--login`,
+  install, remove) against `jfrog`, and NEVER edit or delete its
+  entry. Removal is only possible by uninstalling the plugin from
+  Cursor.
 - In any "currently installed" listing, report `jfrog` as
   `scope: plugin (jfrog)`, `managed-by: plugin`. The rest of this
   document does not apply to it.
-- If the AI Catalog also publishes the JFrog MCP (typically as
-  `jfrog-mcp`) and the user wants catalog-managed tool policy,
-  install it via the standard catalog flow under a different
-  `mcpServers` key — e.g., `jfrog-catalog` — so it coexists with
-  the built-in `jfrog`. Tell the user about the rename and that
-  they end up with both entries.
-- Cursor's enterprise admin **MCP Configuration** panel sits above
-  plugins and CAN block `jfrog`. If the user reports `jfrog` is
-  missing, see "Built-in `jfrog` MCP missing under enterprise MCP
-  Configuration" in Troubleshooting.
+- Tool calls on the built-in `jfrog` are constrained by the JFrog
+  access token, not by AI Catalog tool policy. If the AI Catalog
+  also publishes the JFrog MCP (typically as `jfrog-mcp`) and the
+  user wants catalog-managed tool policy, install it via the
+  standard catalog flow (`_JF_ARGS=project=<key>&mcp=jfrog-mcp`)
+  under a different `mcpServers` key — e.g., `jfrog-catalog` — so
+  it coexists with the built-in `jfrog`. Tell the user about the
+  rename and that they end up with both entries.
 
 # MCP Server Management — JFrog Agent Guard
 
@@ -446,18 +447,16 @@ the display name.
   Tools & MCP** — never enabled. Re-run Step 4a
   (`cursor agent mcp enable <name>`); if the entry is brand-new,
   also `Developer: Reload Window` so Cursor picks up the file.
-- **Built-in `jfrog` MCP missing under enterprise MCP
-  Configuration** — the built-in `jfrog` server is HTTP at
-  `https://${JFROG_PLATFORM_URL}/mcp` and is filtered by Cursor's
-  admin **MCP Configuration** allowlist (Server/Command list with
-  Command or URL entries) like every MCP. Most common silent-block:
-  an allowlist with only Command entries (e.g. agent-guard-only
-  `npx ... @jfrog/agent-guard ...`) and zero URL entries — an HTTP
-  server has nothing to match. The plugin cannot bypass the admin
-  panel. Tell the user this is an enterprise-policy block (not a
-  plugin or AI Catalog issue) and to ask their Cursor admin to add a
-  URL entry covering `https://${JFROG_PLATFORM_URL}/mcp` in the
-  admin **MCP Configuration** panel.
+- **Built-in `jfrog` MCP missing** — almost always either (a)
+  `JFROG_URL` / `JFROG_ACCESS_TOKEN` unset (agent-guard fails fast at
+  startup; check the error in the Cursor MCP / Output panel), or (b)
+  Cursor's admin **MCP Configuration** allowlist filters the
+  `npx ... @jfrog/agent-guard` Command. The plugin cannot bypass the
+  admin panel — tell the user this is an environment / enterprise
+  policy issue (not a plugin or AI Catalog issue) and either to set
+  the env vars or to ask their Cursor admin to add a Command entry
+  covering `npx ... @jfrog/agent-guard` (no `--server` / `--mcp` /
+  `--project` args) in the admin **MCP Configuration** panel.
 - **Agent Guard: `multiple/no JFrog server configured`** (the agent guard
   cannot pick a JFrog server) — pass `--server <ID>` (after
   `jf c add <SERVER_ID>`) OR export both `JFROG_URL` and
