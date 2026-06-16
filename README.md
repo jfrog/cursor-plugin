@@ -52,12 +52,14 @@ Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.c
 
 | Variable | Description |
 | --- | --- |
-| `JFROG_PLATFORM_URL` | Your JFrog platform URL, e.g. `mycompany.jfrog.io` |
+| `JFROG_URL` | Your JFrog platform URL, e.g. `https://mycompany.jfrog.io` |
 | `JFROG_ACCESS_TOKEN` | Your JFrog access token |
+
+The built-in `jfrog` MCP launches `npx @jfrog/agent-guard` and reads both `JFROG_URL` and `JFROG_ACCESS_TOKEN` from the launching shell, so make sure they're exported in the shell that starts Cursor.
 
 ### 2. Configure the JFrog CLI
 
-Run `jf login` for browser-based setup, or set the `JFROG_ACCESS_TOKEN` environment variable. MCP-based workflows authenticate via OAuth and require no additional configuration.
+Run `jf login` for browser-based setup, or set the same `JFROG_ACCESS_TOKEN` from step 1.
 
 ---
 
