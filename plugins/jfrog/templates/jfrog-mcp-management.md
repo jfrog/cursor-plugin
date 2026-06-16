@@ -7,7 +7,7 @@ below instead.
 
 
 **Registry URL**: Wherever `<REGISTRY_URL>` appears below, substitute
-the value of the `JFROG_MCP_GATEWAY_REPO` environment variable if it
+the value of the `JFROG_AGENT_GUARD_REPO` environment variable if it
 is set. Otherwise use
 `https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/`.
 
