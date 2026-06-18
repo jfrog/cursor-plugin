@@ -1,15 +1,7 @@
 {
   "mcpServers": {
     "jfrog": {
-      "command": "npx",
-      "args": [
-        "--yes",
-        "--registry", "https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/",
-        "@jfrog/agent-guard"
-      ],
-      "env": {
-        "_JF_ARGS": "mcp=jfrog-mcp"
-      }
+      "url": "https://${JFROG_PLATFORM_URL}/mcp"
     }
   }
 }

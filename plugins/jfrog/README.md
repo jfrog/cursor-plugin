@@ -8,27 +8,17 @@ JFrog Platform integration for Cursor — artifact management, security scanning
 2. An admin must **enable the JFrog MCP Server** on the platform (Cloud/SaaS only):
    - Navigate to **Administration > General > Settings** in the JFrog UI.
    - Toggle the **MCP Server** option ON and save.
-3. Set the `JFROG_URL` (full URL, e.g. `https://mycompany.jfrog.io`) and `JFROG_ACCESS_TOKEN` environment variables — the built-in `jfrog` MCP needs both at launch.
-4. **Node.js** (≥ 14) — with `npx` on your `PATH` (used to launch `@jfrog/agent-guard`).
-5. **JFrog CLI** (`jf`) is used by the skills for authentication and REST/GraphQL API operations. If missing, the agent will attempt to install it. You can also install manually via `brew install jfrog-cli` or the [official install script](https://jfrog.com/help/r/jfrog-cli/install-the-jfrog-cli).
+3. Set the `JFROG_PLATFORM_URL` environment variable to your JFrog instance (e.g., `mycompany.jfrog.io`).
+4. **JFrog CLI** (`jf`) is used by the skills for authentication and REST/GraphQL API operations. If missing, the agent will attempt to install it. You can also install manually via `brew install jfrog-cli` or the [official install script](https://jfrog.com/help/r/jfrog-cli/install-the-jfrog-cli).
 
-CLI authentication options: run `jf login` for browser-based setup, or set the same `JFROG_ACCESS_TOKEN` from step 3.
+CLI authentication options: run `jf login` for browser-based setup, or set the `JFROG_ACCESS_TOKEN` environment variable. MCP-based workflows authenticate via **OAuth** and require no additional configuration.
 
 ## Included
 
 | Component | Path | Description |
 |---|---|---|
-| **MCP** | `mcp.json` | Built-in JFrog MCP routed through `@jfrog/agent-guard` to `${JFROG_URL}/mcp` (server name: `jfrog`). Always available, not subject to AI Catalog policy — see [JFrog MCP](#jfrog-mcp). |
+| **MCP** | `mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
 | **Hook** | `hooks/hooks.json` | Agent Guard — MCP server governance via JFrog AI Catalog |
-
-### JFrog MCP
-
-The plugin ships a built-in `jfrog` MCP registered in `mcp.json`. Cursor
-launches it automatically as `npx @jfrog/agent-guard` with
-`_JF_ARGS=mcp=jfrog-mcp`. agent-guard recognizes that shape, skips the AI
-Catalog, and connects directly to `${JFROG_URL}/mcp` with
-`Authorization: Bearer ${JFROG_ACCESS_TOKEN}` (both env vars are listed
-under [Prerequisites](#prerequisites)).
 
 ### Skills
 
