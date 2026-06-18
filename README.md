@@ -6,6 +6,7 @@ JFrog plugin for [Cursor](https://cursor.com): artifact management, security sca
 
 - **Official skills.** The plugin now uses the official [jfrog-skills](https://github.com/jfrog/jfrog-skills) v0.11.0, replacing the previously bundled skill content. This brings structured reference files, automation scripts, and a three-tier tool selection strategy (MCP, CLI, REST/GraphQL).
 - **Package safety skill.** New `jfrog-package-safety-and-download` skill for checking whether packages are safe, curated, or allowed before downloading them through Artifactory.
+- **Built-in `jfrog` MCP** routed through `@jfrog/agent-guard`. **Breaking:** the previous `JFROG_PLATFORM_URL` env var (host-only, e.g. `mycompany.jfrog.io`) is replaced by `JFROG_URL`, which **must include the scheme** (e.g. `https://mycompany.jfrog.io`). Carrying over the old host-only value will produce a silently-broken endpoint URL — re-export the variable with `https://` before relaunching Cursor. See [Authentication](#authentication).
 ---
 
 ## Features
@@ -52,12 +53,16 @@ Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.c
 
 | Variable | Description |
 | --- | --- |
-| `JFROG_PLATFORM_URL` | Your JFrog platform URL, e.g. `mycompany.jfrog.io` |
+| `JFROG_URL` | Your JFrog platform URL **including the scheme**, e.g. `https://mycompany.jfrog.io`. A host-only value (e.g. `mycompany.jfrog.io`) will produce a malformed endpoint and the MCP will fail to connect. |
 | `JFROG_ACCESS_TOKEN` | Your JFrog access token |
+
+> **Upgrading from a pre-v0.5.0 plugin?** The old `JFROG_PLATFORM_URL` (host-only) is gone — re-export your URL as `JFROG_URL` with `https://` in front of the host.
+
+The built-in `jfrog` MCP launches `npx @jfrog/agent-guard` and reads both `JFROG_URL` and `JFROG_ACCESS_TOKEN` from the launching shell, so make sure they're exported in the shell that starts Cursor.
 
 ### 2. Configure the JFrog CLI
 
-Run `jf login` for browser-based setup, or set the `JFROG_ACCESS_TOKEN` environment variable. MCP-based workflows authenticate via OAuth and require no additional configuration.
+Run `jf login` for browser-based setup, or set the same `JFROG_ACCESS_TOKEN` from step 1.
 
 ---
 
