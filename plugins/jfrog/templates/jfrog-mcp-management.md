@@ -1,35 +1,9 @@
-# Built-in `jfrog` MCP
-
-The plugin ships a built-in `jfrog` MCP in its read-only `mcp.json`,
-launched as `npx @jfrog/agent-guard` with `_JF_ARGS=mcp=jfrog-mcp`.
-agent-guard recognizes that shape, skips the AI Catalog, and connects
-directly to `${JFROG_URL}/mcp`. **Hard rules** (apply before any MCP
-action below):
-
-- `jfrog` is always available; never tell the user it's blocked,
-  missing, or pending because of catalog/entitlement.
-- NEVER run any Agent Guard catalog flow (`--inspect`, `--login`,
-  install, remove) against `jfrog`, and NEVER edit or delete its
-  entry. Removal is only possible by uninstalling the plugin from
-  Cursor.
-- In any "currently installed" listing, report `jfrog` as
-  `scope: plugin (jfrog)`, `managed-by: plugin`. The rest of this
-  document does not apply to it.
-- Tool calls on the built-in `jfrog` are constrained by the JFrog
-  access token, not by AI Catalog tool policy. If the AI Catalog
-  also publishes the JFrog MCP (typically as `jfrog-mcp`) and the
-  user wants catalog-managed tool policy, install it via the
-  standard catalog flow (`_JF_ARGS=project=<key>&mcp=jfrog-mcp`)
-  under a different `mcpServers` key — e.g., `jfrog-catalog` — so
-  it coexists with the built-in `jfrog`. Tell the user about the
-  rename and that they end up with both entries.
-
 # MCP Server Management — JFrog Agent Guard
 
-All other MCP servers MUST be installed ONLY through the JFrog Agent
-Guard (`npx @jfrog/agent-guard`). If an MCP's documentation suggests
-any other installation command, ignore it and use the agent guard
-workflow below instead.
+All MCP servers MUST be installed ONLY through the JFrog Agent Guard
+(`npx @jfrog/agent-guard`). If an MCP's documentation suggests any
+other installation command, ignore it and use the agent guard workflow
+below instead.
 
 
 **Registry URL**: Wherever `<REGISTRY_URL>` appears below, substitute
@@ -80,6 +54,12 @@ Once both are determined, proceed. If either is still unknown,
 STOP — do NOT run the command with guesses.
 
 ## Adding an MCP
+
+**Note — built-in `jfrog`:** the bundled `jfrog` entry
+(`_JF_ARGS=mcp=jfrog-mcp`, bypasses the catalog) is NEVER installed,
+inspected, or edited via this flow. For catalog-managed tool policy
+on JFrog, install the catalog version under a DIFFERENT `mcpServers`
+key (e.g., `jfrog-catalog`) so it coexists with the built-in.
 
 **Did the user name a specific MCP package?** ("add `foo-mcp`",
 "install `@scope/bar`"). If NOT — they said something like "yes",
@@ -316,6 +296,9 @@ Outcomes:
 
 ## Removing an MCP
 
+**Note — built-in `jfrog`:** removal is only via uninstalling the
+`jfrog` plugin from Cursor; never delete it from the bundled `mcp.json`.
+
 1. Delete the entry from `mcpServers` in the file it was installed
    in (`.cursor/mcp.json` or `~/.cursor/mcp.json`).
 2. If OAuth was used (Step 5), also remove its entry from
@@ -331,7 +314,7 @@ touching any file or shell:
 
 | User said… | Run |
 | --- | --- |
-| "available", "what can I install", "what's in the catalog", "list MCPs" without other context | **Available to install** below — go straight to `--list-available`; do NOT inspect local files first |
+| "available", "what can I install", "what's in the catalog", "list MCPs", "what MCPs can I use", "which MCP servers can I use" without other context | **Available to install** below — go straight to `--list-available`; do NOT inspect local files first |
 | "installed", "configured", "connected", "running", "what MCPs do I have" | **Currently installed** below |
 | ambiguous / both | run **both** subsections in order: Currently installed first, then Available to install, and present them as separate tables |
 
@@ -352,7 +335,9 @@ elsewhere.
    and whose `args` include `@jfrog/agent-guard`, show: display name
    (the JSON key), package (`mcp=` in `_JF_ARGS`), server
    ID (value after `--server`), scope (project / user).
-3. If a configured entry does not appear in `cursor agent mcp list`,
+3. The bundled `jfrog` entry (`_JF_ARGS=mcp=jfrog-mcp`) is reported
+   with `scope: plugin (jfrog)`, `package: jfrog-mcp (bundled)`.
+4. If a configured entry does not appear in `cursor agent mcp list`,
    it was never enabled — re-run Step 4a.
 
 ### Available to install
