@@ -432,20 +432,12 @@ the display name.
   Tools & MCP** — never enabled. Re-run Step 4a
   (`cursor agent mcp enable <name>`); if the entry is brand-new,
   also `Developer: Reload Window` so Cursor picks up the file.
-- **Built-in `jfrog` MCP missing** — almost always either (a)
-  `JFROG_URL` / `JFROG_ACCESS_TOKEN` not exported in the launching
-  shell (agent-guard reads them from the shell for the plugin's
-  bundled `jfrog` entry — they MUST NEVER be added to any
-  `mcp.json` `env` block, including the bundled one); agent-guard
-  fails fast at startup, check the error in the Cursor MCP / Output
-  panel. Or (b)
-  Cursor's admin **MCP Configuration** allowlist filters the
-  `npx ... @jfrog/agent-guard` Command. The plugin cannot bypass the
-  admin panel — tell the user this is an environment / enterprise
-  policy issue (not a plugin or AI Catalog issue) and either to set
-  the env vars or to ask their Cursor admin to add a Command entry
-  covering `npx ... @jfrog/agent-guard` (no `--server` / `--mcp` /
-  `--project` args) in the admin **MCP Configuration** panel.
+- **Built-in `jfrog` MCP missing** — almost always `JFROG_URL` /
+  `JFROG_ACCESS_TOKEN` not exported in the launching shell
+  (agent-guard reads them from the shell for the plugin's bundled
+  `jfrog` entry — they MUST NEVER be added to any `mcp.json` `env`
+  block, including the bundled one); agent-guard fails fast at
+  startup, check the error in the Cursor MCP / Output panel.
 - **Agent Guard: `multiple/no JFrog server configured`** (the agent guard
   cannot pick a JFrog server) — pass `--server <ID>` (after
   `jf c add <SERVER_ID>`) OR export both `JFROG_URL` and
