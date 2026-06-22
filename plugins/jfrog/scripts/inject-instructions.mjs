@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // Copyright (c) JFrog Ltd. 2026
 // Licensed under the Apache License, Version 2.0
-// https://www.apache.org/licenses/LICENSE-2.0
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
