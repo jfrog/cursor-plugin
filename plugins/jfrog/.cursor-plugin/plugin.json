@@ -23,7 +23,8 @@
   "logo": "assets/logo.svg",
   "skills": [
     "skills/jfrog/SKILL.md",
-    "skills/jfrog-package-safety-and-download/SKILL.md"
+    "skills/jfrog-package-safety-and-download/SKILL.md",
+    "skills/jfrog-ai-catalog-skills/SKILL.md"
   ],
   "hooks": "hooks/hooks.json"
 }

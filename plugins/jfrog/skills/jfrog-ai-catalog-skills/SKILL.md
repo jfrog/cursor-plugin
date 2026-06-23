@@ -49,18 +49,27 @@ Pick the row matching the user's intent and read that reference file.
   `~/.jfrog/jfrog-cli.conf.v6` (it can hold access tokens); list servers only
   with `jf config show`, which redacts secrets.
 - **Agent Guard registry.** Catalog discovery and repo provisioning run through
-  `npx --yes @jfrog/agent-guard`. Substitute `<REGISTRY_URL>` from
-  `JFROG_AGENT_GUARD_REPO` if set, else use
+  `npx --yes @jfrog/agent-guard`. `<REGISTRY_URL>` is the npm registry that
+  provides the `@jfrog/agent-guard` package itself: use `JFROG_AGENT_GUARD_REPO`
+  if set, otherwise
   `https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/`. Pass the
   same `<SID>` to Agent Guard as `--server "<SID>"` so it targets the same server
   as your `jf` calls. Agent Guard also reads `JFROG_URL` / `JF_URL` directly when
   set, so make sure the `<SID>` you resolved points at that same host.
-- **Resolve the project (`<PROJECT>`) only when needed.** It is required for
-  `--list-skills` (browse/name-search), `--list-skill-versions`, and
-  `--provision-skills-repository` (auto-creating a publish repo when the user
-  names none). Resolve it from `JF_PROJECT`, else ask the user. Never assume
-  `default`, never invent one. Install, update, remove, and publishing to an
-  explicit `--repo` are keyed by skill **name** and/or **repo**, not a project.
+- **Resolve the project (`<PROJECT>`) only when needed, and always to a key.**
+  `<PROJECT>` must be the JFrog **project key**, not the display name. It is
+  required for `--list-skills`, `--list-skill-versions`, and
+  `--provision-skills-repository`. Take the value from `JF_PROJECT` or the user,
+  then resolve it to a key against the projects list (see *List all projects* in
+  the base `jfrog` skill's [`references/projects-api.md`](../jfrog/references/projects-api.md)):
+  ```bash
+  jf api '/access/api/v1/projects' --server-id "<SID>" \
+    | jq -r '.[] | select(.project_key=="<value>" or .display_name=="<value>") | .project_key'
+  ```
+  Use the printed key. If it prints nothing, ask the user for the key. Never
+  assume `default`, never invent one. Install, update, remove, and publishing to
+  an explicit `--repo` are keyed by skill **name** and/or **repo**, not a
+  project.
 
 ## Workflow overview
 
