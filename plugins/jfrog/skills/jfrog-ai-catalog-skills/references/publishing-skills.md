@@ -2,8 +2,8 @@
 
 Publishing is mutating, so **always confirm the target repository and the skill
 name with the user before publishing**. Resolve the repo and read the name from
-the bundle, then show both and wait for an explicit "yes" — never publish on the
-initial request alone. Never auto-pick a repo without surfacing it first.
+the bundle, then show both and wait for an explicit "yes". Never publish on the
+initial request alone, and never auto-pick a repo without surfacing it first.
 
 ## Contents
 
@@ -135,7 +135,7 @@ Once `<repo>` is resolved and the bundle validated, **show the user what will be
 published and wait for an explicit confirmation**. Reply using this exact
 template and do not run `jf skills publish` until the user agrees:
 
-  > About to publish skill `<slug>` to repository `<repo>` on `<SID>`. Publish?
+  > Publishing skill `<slug>` uploads it to repository `<repo>` on server `<SID>`. Do you want to publish it?
 
 If the user says no or names a different repo/name, use that instead and confirm
 again. Only proceed to *Publish* after an explicit "yes".
