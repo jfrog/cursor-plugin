@@ -50,23 +50,12 @@ else
 fi
 ```
 
-Confirm with the user before deleting.
+**Confirm before deleting.** Show exactly what will be removed using **this exact
+template** and wait for an explicit "yes":
+
+> Removing skill `<slug>` deletes its local install from `<harness>`. Do you want to remove it?
 
 On success, reply using **this exact template**:
 
 > Removed `<slug>` from `<harness>`.
 > Restart your agent session for the removal to take effect.
-
-**Registry delete (different, destructive).** `jf skills delete` removes a
-version from the Artifactory **registry** for everyone, not just locally. Only do
-this when the user explicitly asks to delete from the registry. Confirm first and
-prefer `--dry-run` to preview:
-
-```bash
-jf skills delete "<slug>" --version "<version>" --repo "<repo>" --server-id "<SID>" --dry-run
-jf skills delete "<slug>" --version "<version>" --repo "<repo>" --server-id "<SID>"
-```
-
-On success, reply using **this exact template**:
-
-> Deleted `<slug>@<version>` from the registry repo `<repo>` on `<SID>`.
