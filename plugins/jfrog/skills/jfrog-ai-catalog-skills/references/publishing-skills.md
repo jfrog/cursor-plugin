@@ -1,9 +1,9 @@
 # Publishing a skill
 
-Treat the user's publish request as the confirmation: just publish and report
-which repo it landed in. The one exception is an unresolved repo (provisioning
-failed and the user named none): stop and ask which repo to use, and never
-auto-pick one.
+Publishing is mutating, so **always confirm the target repository and the skill
+name with the user before publishing**. Resolve the repo and read the name from
+the bundle, then show both and wait for an explicit "yes" — never publish on the
+initial request alone. Never auto-pick a repo without surfacing it first.
 
 ## Contents
 
@@ -33,9 +33,9 @@ npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
 ```
 
    It prints the bare repo key (or `{"repoKey":"<repo>"}` with `--format json`).
-   Use that as `<repo>` and publish to it directly. **Do not ask the user to
-   confirm the provisioned repo**. The publish request is the confirmation. Which
-   repo was used is stated in the success message (see *Report the publish result*).
+   Use that as `<repo>`, then **show the user the provisioned repo and the skill
+   name and wait for confirmation** before publishing (see *Confirm before
+   publishing*). Do not publish to it silently.
 
 3. **Provisioning failed. Stop and ask the user which repo to use.** Do not
    retry in a loop. Publishing is mutating, so you must get an explicit repo from
@@ -128,6 +128,17 @@ jf evd gen-keys --key-alias "<alias>" \
 The key must be a **PEM private key**. Despite `--help` saying "PGP", an armored
 PGP key fails with `failed to decode the data as PEM block`. `jf evd gen-keys`
 produces the right format.
+
+## Confirm before publishing
+
+Once `<repo>` is resolved and the bundle validated, **show the user what will be
+published and wait for an explicit confirmation**. Reply using this exact
+template and do not run `jf skills publish` until the user agrees:
+
+  > About to publish skill `<slug>` to repository `<repo>` on `<SID>`. Publish?
+
+If the user says no or names a different repo/name, use that instead and confirm
+again. Only proceed to *Publish* after an explicit "yes".
 
 ## Publish
 
