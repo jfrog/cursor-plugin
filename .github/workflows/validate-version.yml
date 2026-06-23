@@ -1,0 +1,31 @@
+name: Validate version
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version consistency
+        run: |
+          VERSION=$(cat VERSION)
+          FAILED=0
+
+          PLUGIN_VERSION=$(jq -r '.version' plugins/jfrog/.cursor-plugin/plugin.json)
+          if [ "$VERSION" != "$PLUGIN_VERSION" ]; then
+            echo "::error::Version mismatch: VERSION=$VERSION but plugins/jfrog/.cursor-plugin/plugin.json.version=$PLUGIN_VERSION"
+            FAILED=1
+          fi
+
+          MARKET_VERSION=$(jq -r '.metadata.version' .cursor-plugin/marketplace.json)
+          if [ "$VERSION" != "$MARKET_VERSION" ]; then
+            echo "::error::Version mismatch: VERSION=$VERSION but .cursor-plugin/marketplace.json.metadata.version=$MARKET_VERSION"
+            FAILED=1
+          fi
+
+          [ "$FAILED" -eq 0 ] && echo "All versions consistent: $VERSION"
+          exit $FAILED
