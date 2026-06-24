@@ -8,11 +8,21 @@ below instead.
 
 **Registry URL**: Wherever `<REGISTRY_URL>` appears below, substitute
 the value of the `JFROG_MCP_GATEWAY_REPO` environment variable if it
-is set. Otherwise use
+is set. Otherwise, use
 `https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/`.
 
 **Pre-flight (applies to every gateway command —
 `--list-available`, `--inspect`, `--login`)**:
+
+- **Live execution is MANDATORY — context reuse is FORBIDDEN.** Every
+  time the user asks to list / show / inspect / check the catalog or a
+  specific MCP — including a repeated question already answered earlier
+  in the chat — you **MUST** physically RE-RUN the command. NEVER reuse,
+  copy, or re-display output from previous turns or context history; the
+  catalog, headers, and required inputs change between prompts. (Applies
+  to these catalog/registry fetches only — `--list-available` and
+  `--inspect`; NOT `--login`, which would re-open the OAuth browser, and
+  NOT reading local config for *installed* state.)
 
 - **`<PROJECT>` is always mandatory.** Resolve via Step 1's project
   chain: existing `mcpServers` entries (`_JF_ARGS` →
@@ -22,7 +32,10 @@ is set. Otherwise use
 
 - **`<SERVER_ID>` is auto-resolvable.** Resolve via Step 1's server
   chain: existing `mcpServers` entries (value after `--server` in
-  `args`) → `~/.jfrog/jfrog-cli.conf.v6`:
+  `args`) → list configured servers with the jf CLI
+  (`jf config show --format=json`; do NOT parse
+  `~/.jfrog/jfrog-cli.conf.v6`; the CLI masks tokens, so its output is
+  safe):
   - Exactly one jf CLI server configured → use it without asking;
     pass it as `--server <ID>`. The gateway would auto-resolve to the same
     value if `--server` were omitted, but we pass it explicitly for
@@ -50,11 +63,11 @@ STOP — do NOT run the command with guesses.
 "add an MCP", "what can I install" — your FIRST action is to show
 them the catalog so they can pick:
 
-1. Resolve server (Server ID`<SERVER_ID>` or URL `JFROG_URL`)
+1. Resolve server (Server ID `<SERVER_ID>` or URL `JFROG_URL`)
    and `<PROJECT>` per the Pre-flight rule at the top of this document.
    Server: auto-use the single jf CLI configs serverId as the server ID
    or the `JFROG_URL` env var as the URL if unambiguous; only ask when
-   there are multiple or no jf configs and not env vars.
+   there are multiple or no jf configs and no env vars.
    Project: Ask unless `JF_PROJECT` is set, or it's already in an
    existing `mcpServers` entry.
 2. Run "Listing MCPs > Available to install" with that server +
@@ -80,11 +93,10 @@ unless absolutely necessary:
    gateway can resolve credentials from these directly;
    DO NOT pass `--server` as that would make the gateway try to
    parse the server details from the jf cli configuration.
-3. Else read `~/.jfrog/jfrog-cli.conf.v6`
-   (`%USERPROFILE%\.jfrog\jfrog-cli.conf.v6` on Windows) via a
-   terminal command (file-search skips hidden dirs)
-   NEVER print the full file contents as it can contain secrets.
-   Use the serverId subkeys::
+3. Else list configured servers with the jf CLI — run
+   `jf config show --format=json` (do NOT parse
+   `~/.jfrog/jfrog-cli.conf.v6` yourself; the CLI masks tokens, so its
+   output is safe to read). From the result:
    - exactly one server → use it without asking.
    - two or more → list the `serverId`s and ASK the user which one.
 4. Else (file missing, empty, or unreadable, and no `JFROG_URL`)

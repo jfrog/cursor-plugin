@@ -40,6 +40,7 @@ function resolveCredentials() {
     configToken = execFileSync("jf", ["config", "export"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      timeout: 3000,
     }).trim();
   } catch (error) {
     debug(`'jf config export' failed (jf not on PATH or no server configured): ${error.message}`);
@@ -129,6 +130,7 @@ try {
   );
 } catch (error) {
   debug(`Could not read instructions template: ${error.message}`);
+  process.stdout.write("{}");
   process.exit(0);
 }
 
