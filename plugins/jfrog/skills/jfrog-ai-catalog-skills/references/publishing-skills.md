@@ -153,6 +153,7 @@ jf skills publish "<path>" \
   --server-id "<SID>" \
   --repo "<repo>" \
   --skip-scan \
+  --quiet \
   [--version "<semver>"] \
   [--signing-key "<private-key-path>" --key-alias "<alias>"]
 ```
@@ -210,7 +211,7 @@ jf api '/artifactory/api/storage/<repo>/<slug>/<version>' --server-id "<SID>"
 
   If it is still present, tell the user the malicious-flagged artifact remains
   and offer to delete it (`jf skills delete "<slug>" --version "<version>"
-  --repo "<repo>"`). Treat the malicious flag as a real security signal. Reply
+  --repo "<repo>" --server-id "<SID>"`). Treat the malicious flag as a real security signal. Reply
   using **this exact template**:
 
   > Publish of `<slug>@<version>` was **blocked by the Xray scan** (`<violation>`).
