@@ -37,11 +37,13 @@ defaults to `$CI`, so exporting `CI=true` has the same effect if the flag is eve
 unavailable. Run non-interactively and resolve every choice (`--repo`, target)
 up front.
 
-**`<harness>` is the agent you are running in. Never hardcode it.** This skill
-works for any AI agent (`cursor`, `claude-code`, `windsurf`, `gemini`, `codex`,
-…). Use the harness for the *current* agent. If you can't determine it or the
-user names a different one, ask. To see the harness values the installed CLI
-supports, run `jf skills install --help`.
+**Resolve `<harness>` from the host you are running in. Never take it from your
+model name, and never hardcode it.** Get the valid names from the CLI: run
+`jf skills list --harness '?'` to print the
+`Supported agents:` table, then install into the row for your host. Identify the
+host from its environment. For example, `CURSOR_*` → `cursor`,
+`CLAUDECODE` → `claude-code`, VS Code / GitHub Copilot → `github-copilot`. If
+nothing identifies the host, ask the user. Never assume.
 
 Choose exactly one install target (these are mutually exclusive):
 
