@@ -71,7 +71,8 @@ listing (`--list-skills`, even with `--name`) returns just names, not repos or
 versions, so use the versions call above to pick the repo, never a name listing.
 
 - **One repo hosts the slug.** Use it as `--repo <repoKey>` directly. Don't ask.
-- **Multiple repos host the slug.** Do not pick silently. List the repos (and
+- **Multiple repos host the slug.** Do not pick silently. Naming a project is not
+  a repo choice, so ask even when one repo is project-scoped. List the repos (and
   the version each holds), ask the user which to install from, then pass
   `--repo <chosen>`. The newest version may only exist in one of them, so
   surface that to avoid giving the user a stale version.
