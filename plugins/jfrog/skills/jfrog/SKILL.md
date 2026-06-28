@@ -17,7 +17,7 @@ compatibility: >-
   Requires jq on PATH.
 metadata:
   role: base
-  version: "0.11.0"
+  version: "dev"
 ---
 
 # JFrog Skill
