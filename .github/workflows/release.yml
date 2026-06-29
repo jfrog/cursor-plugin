@@ -17,7 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Detect release tag in commit message
@@ -25,46 +24,19 @@ jobs:
         run: |
           MSG="${{ github.event.head_commit.message }}"
           if echo "$MSG" | grep -qE '\[(major|minor|patch)\]'; then
-            TAG=$(echo "$MSG" | grep -oE '\[(major|minor|patch)\]' | head -1 | tr -d '[]')
-            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
             echo "triggered=true" >> "$GITHUB_OUTPUT"
           else
             echo "triggered=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Compute next version
+      - name: Read version
         if: steps.detect.outputs.triggered == 'true'
         id: version
-        run: |
-          VERSION=$(cat VERSION)
-          MAJOR=$(echo "$VERSION" | cut -d. -f1)
-          MINOR=$(echo "$VERSION" | cut -d. -f2)
-          PATCH=$(echo "$VERSION" | cut -d. -f3)
-          case "${{ steps.detect.outputs.tag }}" in
-            major) NEXT="$((MAJOR + 1)).0.0" ;;
-            minor) NEXT="${MAJOR}.$((MINOR + 1)).0" ;;
-            patch) NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
-          esac
-          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
-      - name: Update VERSION and JSON files
+      - name: Create and push tag
         if: steps.detect.outputs.triggered == 'true'
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          echo "$VERSION" > VERSION
-          jq --arg v "$VERSION" '.version = $v' plugins/jfrog/.cursor-plugin/plugin.json > /tmp/plugin.json
-          mv /tmp/plugin.json plugins/jfrog/.cursor-plugin/plugin.json
-          jq --arg v "$VERSION" '.metadata.version = $v' .cursor-plugin/marketplace.json > /tmp/marketplace.json
-          mv /tmp/marketplace.json .cursor-plugin/marketplace.json
-
-      - name: Commit, tag, and push
-        if: steps.detect.outputs.triggered == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION plugins/jfrog/.cursor-plugin/plugin.json .cursor-plugin/marketplace.json
-          git commit -m "Release v${{ steps.version.outputs.version }}"
-          git push origin main
           git tag "v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}"
 
