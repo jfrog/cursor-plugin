@@ -36,6 +36,22 @@ The `skills/` tree is vendored from [`jfrog/jfrog-skills`](https://github.com/jf
 
 See [`VENDOR.md`](VENDOR.md) for the full picture.
 
+## Releasing
+
+Releases are automated by `.github/workflows/release.yml`. To cut a release, push (or merge) a commit to `main` whose message contains `[major]`, `[minor]`, or `[patch]`:
+
+- `[patch]` — bug fixes; bumps `X.Y.Z` → `X.Y.Z+1`
+- `[minor]` — new features; bumps `X.Y.Z` → `X.Y+1.0`
+- `[major]` — breaking changes; bumps `X.Y.Z` → `X+1.0.0`
+
+The workflow:
+1. Bumps `VERSION` and syncs the version in `plugins/jfrog/.cursor-plugin/plugin.json` and `.cursor-plugin/marketplace.json`
+2. Commits and pushes the bump to `main`
+3. Creates a `vX.Y.Z` git tag
+4. Publishes a GitHub Release with a repo zip attached
+
+**Prerequisite:** `github-actions[bot]` must be allowed to push to `main`. In the repository's branch protection (or ruleset) settings, add `github-actions[bot]` to the bypass list.
+
 ## Reporting Issues
 
 Open a [GitHub issue](https://github.com/jfrog/cursor-plugin/issues) with:
