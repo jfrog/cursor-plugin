@@ -2,6 +2,7 @@
 
 // Copyright (c) JFrog Ltd. 2026
 // Licensed under the Apache License, Version 2.0
+// https://www.apache.org/licenses/LICENSE-2.0
 
 // Smoke test for the sessionStart injector + plugin packaging, grouped into:
 //   Syntax         — the injector exists and parses.
