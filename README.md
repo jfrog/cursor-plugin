@@ -35,6 +35,10 @@ Before installing, make sure you have:
 
 ## Installation
 
+### Internal beta (Agent Package Resolution)
+
+For dogfooding on branch `feature/package-resolution`, see **[AGENT-PACKAGE-RESOLUTION-BETA.md](AGENT-PACKAGE-RESOLUTION-BETA.md)** — one-command local install, no marketplace.
+
 ### Install the Cursor plugin
 
 Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.com/ai-ml/docs/configure-cursor) documentation or Cursor's UI:
