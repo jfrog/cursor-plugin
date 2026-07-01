@@ -46,6 +46,12 @@ async function main() {
   const stdinRaw = await readStdin();
   const harness = detectHarness(stdinRaw);
   if (harness && harness !== HARNESS_ID) {
+    setLogContext({ ide: HARNESS_ID, sessionId: parseSessionId(stdinRaw) });
+    log.debug("harness mismatch; wrong adapter invoked", {
+      expected: HARNESS_ID,
+      detected: harness,
+      adapter: "claude-session-start",
+    });
     writeNoOp();
     return;
   }

@@ -24,6 +24,33 @@ const LOCAL_PLUGIN_NAME = "jfrog-beta";
 const DEFAULT_CLONE = path.join(homedir(), ".jfrog", "cursor-plugin-beta");
 const INSTALL_DIR = path.join(homedir(), ".cursor", "plugins", "local", LOCAL_PLUGIN_NAME);
 
+const PLUGIN_HOOKS_BUG_URL =
+  "https://forum.cursor.com/t/plugin-hooks-not-loading-into-cursor-ide/156702";
+
+const useColor =
+  !process.env.NO_COLOR && (process.env.FORCE_COLOR === "1" || process.stdout.isTTY);
+
+function paint(open, text, close = "\x1b[0m") {
+  return useColor ? `${open}${text}${close}` : text;
+}
+
+const style = {
+  bold: (text) => paint("\x1b[1m", text),
+  dim: (text) => paint("\x1b[2m", text),
+  title: (text) => paint("\x1b[1m\x1b[36m", text),
+  success: (text) => paint("\x1b[32m", text),
+  warn: (text) => paint("\x1b[33m", text),
+  info: (text) => paint("\x1b[36m", text),
+  label: (text) => paint("\x1b[2m", text),
+  path: (text) => paint("\x1b[36m", text),
+  url: (text) => paint("\x1b[34m", text),
+  step: (text) => paint("\x1b[1m\x1b[35m", text),
+  code: (text) => paint("\x1b[32m", text),
+  error: (text) => paint("\x1b[1m\x1b[31m", text),
+  divider: (text) => paint("\x1b[2m", text),
+  bullet: (text) => paint("\x1b[33m", "•") + (useColor ? " " : " ") + text,
+};
+
 function parseArgs(argv) {
   const o = { repoPath: DEFAULT_REPO, uninstall: false, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
@@ -38,7 +65,7 @@ function parseArgs(argv) {
 }
 
 function printUsage(code, msg) {
-  if (msg) console.error(`${msg}\n`);
+  if (msg) console.error(style.error(`${msg}\n`));
   console.log(`Usage:
   node scripts/install-beta.mjs [--repo-path PATH] [--dry-run]
   node scripts/install-beta.mjs --uninstall [--dry-run]
@@ -60,10 +87,139 @@ function shortPath(p) {
   return p.replace(homedir(), "~");
 }
 
-function printLocalPluginReminder() {
-  console.log("\nnote: if the plugin does not appear after reload, your team may block local");
-  console.log("  plugin imports (Cursor Enterprise). Ask admin to enable Allow Local Plugin");
-  console.log("  Imports, then Cmd+Q and reopen. See AGENT-PACKAGE-RESOLUTION-BETA.md.");
+function fmtPath(p) {
+  return style.path(shortPath(p));
+}
+
+function fmtLine(text) {
+  if (text.startsWith("http://") || text.startsWith("https://")) return style.url(text);
+  if (text.includes("→") || text.startsWith("~") || text.startsWith("/")) return style.path(text);
+  return text;
+}
+
+function blank() {
+  console.log("");
+}
+
+function heading(title) {
+  blank();
+  console.log(style.bold(title));
+  console.log(style.divider("─".repeat(Math.min(title.length, 72))));
+}
+
+function step(n, title, lines = []) {
+  console.log(`  ${style.step(String(n))}. ${style.bold(title)}`);
+  for (const line of lines) {
+    console.log(`     ${fmtLine(line)}`);
+  }
+}
+
+function bullet(lines) {
+  for (const line of lines) {
+    console.log(`  ${style.bullet(fmtLine(line))}`);
+  }
+}
+
+function printInstallHeader({ dryRun }) {
+  blank();
+  if (dryRun) {
+    console.log(style.warn("JFrog Cursor beta — install preview (dry run)"));
+  } else {
+    console.log(style.success("✓ ") + style.title("JFrog Cursor beta — installed"));
+  }
+}
+
+function printInstallPaths(sourceDir) {
+  blank();
+  console.log(`  ${style.label("Source")}   ${fmtPath(sourceDir)}`);
+  console.log(`  ${style.label("Target")}   ${fmtPath(INSTALL_DIR)}`);
+}
+
+function printInstallActions(o, sourceDir) {
+  if (o.dryRun) {
+    blank();
+    console.log(`  ${style.warn("Would run:")}`);
+    bullet([`Remove ${shortPath(INSTALL_DIR)}`, `Copy ${shortPath(sourceDir)} → ${shortPath(INSTALL_DIR)}`]);
+    return;
+  }
+
+  blank();
+  console.log(`  ${style.success("✓")} Plugin files are in place.`);
+}
+
+function printNextSteps() {
+  heading("What's next in Cursor");
+
+  step(1, "Reload Cursor", [
+    "Developer → Reload Window",
+    "Or quit Cursor fully (Cmd+Q) and reopen",
+  ]);
+
+  step(2, "Turn on plugin hooks (required for sessionStart today)", [
+    "Settings → Rules, Skills, Subagents",
+    'Enable "Include third-party Plugins, Skills, and other configs"',
+    style.dim("Skills and MCP from this plugin work without this setting."),
+    style.warn("Session-start hooks do not — Cursor bug, workaround above:"),
+    PLUGIN_HOOKS_BUG_URL,
+  ]);
+
+  step(3, "Open a new Agent chat");
+
+  step(4, "Confirm the plugin loaded", [
+    "Settings → Plugins → Installed",
+    'Look for "JFrog Platform" (local name: jfrog-beta)',
+  ]);
+}
+
+function printOptionalConfig() {
+  heading("Optional — route installs through Artifactory");
+
+  console.log(`  ${style.label("Edit")} ${fmtPath(path.join(homedir(), ".jfrog", "agents-conf.json"))}:`);
+  blank();
+  console.log(`    ${style.code('{ "packageResolution": { "enabled": true } }')}`);
+  blank();
+  console.log(`  ${style.dim("Open a new Agent chat after changing this file.")}`);
+}
+
+function printTroubleshooting() {
+  heading("If the plugin does not show up");
+
+  bullet([
+    "Enterprise teams may block local plugins.",
+    'Ask an admin: Dashboard → Security & Identity → Marketplace and Plugins',
+    '→ "Allow Local Plugin Imports" → ON',
+    "Then quit Cursor fully and reopen.",
+    "More detail: AGENT-PACKAGE-RESOLUTION-BETA.md in this repo.",
+  ]);
+}
+
+function printUninstallResult({ dryRun, wasInstalled, cloneHint }) {
+  blank();
+  if (dryRun) {
+    console.log(style.warn("JFrog Cursor beta — uninstall preview (dry run)"));
+  } else {
+    console.log(style.success("✓ ") + style.title("JFrog Cursor beta — uninstalled"));
+  }
+  blank();
+  console.log(`  ${style.label("Target")}   ${fmtPath(INSTALL_DIR)}`);
+
+  blank();
+  if (!wasInstalled) {
+    console.log(`  ${style.dim("Nothing to remove — plugin was not installed.")}`);
+  } else if (dryRun) {
+    console.log(`  ${style.warn("Would remove the plugin directory above.")}`);
+  } else {
+    console.log(`  ${style.success("✓")} Plugin directory removed.`);
+  }
+
+  heading("What's next in Cursor");
+  step(1, "Reload Cursor", ["Developer → Reload Window"]);
+
+  if (cloneHint) {
+    heading("Optional cleanup");
+    console.log(`  ${style.dim("Remove the cloned repo if you no longer need it:")}`);
+    console.log(`  ${style.code(`rm -rf ${shortPath(cloneHint)}`)}`);
+  }
 }
 
 async function cmdInstall(o, sourceDir) {
@@ -72,47 +228,37 @@ async function cmdInstall(o, sourceDir) {
     throw new Error(`not a Cursor plugin (missing ${manifest})`);
   }
 
-  console.log(`plugin source: ${shortPath(sourceDir)}`);
-  console.log(`install to:    ${shortPath(INSTALL_DIR)}`);
+  printInstallHeader({ dryRun: o.dryRun });
+  printInstallPaths(sourceDir);
 
   if (o.dryRun) {
-    console.log(`  [dry-run] rm -rf ${shortPath(INSTALL_DIR)}`);
-    console.log(`  [dry-run] cp -R ${shortPath(sourceDir)} ${shortPath(INSTALL_DIR)}`);
+    printInstallActions(o, sourceDir);
   } else {
     await rm(INSTALL_DIR, { recursive: true, force: true });
     await mkdir(path.dirname(INSTALL_DIR), { recursive: true });
     await cp(sourceDir, INSTALL_DIR, { recursive: true, force: true });
-    console.log(`  installed: ${shortPath(INSTALL_DIR)}`);
+    printInstallActions(o, sourceDir);
   }
 
-  console.log("\nnext:");
-  console.log("  1. In Cursor: Developer → Reload Window");
-  console.log("  2. Open a new Agent chat");
-  console.log("  3. Verify under Settings → Plugins → Installed");
-  console.log(
-    "\nenable Agent Package Resolution: set packageResolution.enabled to true in ~/.jfrog/agents-conf.json",
-  );
-  if (!o.dryRun) printLocalPluginReminder();
+  printNextSteps();
+  printOptionalConfig();
+  if (!o.dryRun) {
+    printTroubleshooting();
+  } else {
+    blank();
+    console.log(`  ${style.info("Re-run without --dry-run to install for real.")}`);
+  }
 }
 
 async function cmdUninstall(o) {
-  console.log(`remove: ${shortPath(INSTALL_DIR)}`);
-
-  if (!(await exists(INSTALL_DIR))) {
-    console.log("  (not installed — nothing to remove)");
-  } else if (o.dryRun) {
-    console.log(`  [dry-run] rm -rf ${shortPath(INSTALL_DIR)}`);
-  } else {
-    await rm(INSTALL_DIR, { recursive: true, force: true });
-    console.log("  removed");
-  }
-
+  const wasInstalled = await exists(INSTALL_DIR);
   const cloneHint = (await exists(DEFAULT_CLONE)) ? DEFAULT_CLONE : null;
-  console.log("\nuninstalled jfrog beta local plugin.");
-  console.log("reload Cursor: Developer → Reload Window");
-  if (cloneHint) {
-    console.log(`\noptional — remove the cloned repo:\n  rm -rf ${shortPath(cloneHint)}`);
+
+  if (wasInstalled && !o.dryRun) {
+    await rm(INSTALL_DIR, { recursive: true, force: true });
   }
+
+  printUninstallResult({ dryRun: o.dryRun, wasInstalled, cloneHint });
 }
 
 async function main() {
@@ -124,11 +270,10 @@ async function main() {
     return;
   }
 
-  console.log(`repo root: ${shortPath(o.repoPath)}`);
   await cmdInstall(o, sourceDir);
 }
 
 main().catch((err) => {
-  console.error(`install-beta failed: ${err?.message ?? err}`);
+  console.error(`\n${style.error("Install failed:")} ${err?.message ?? err}`);
   process.exit(1);
 });
