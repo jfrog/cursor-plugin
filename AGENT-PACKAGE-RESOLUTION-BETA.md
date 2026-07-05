@@ -21,12 +21,12 @@ Internal dogfooding branch **`feature/package-resolution`**. Not on the public m
 
 ## Install
 
-Replace `<REPO_URL>` with your git remote (e.g. `git@github.jfrog.info:JFROG/cursor-plugin.git`):
-
 ```bash
-git clone -b feature/package-resolution --depth 1 <REPO_URL> ~/.jfrog/cursor-plugin-beta && \
+git clone -b feature/package-resolution --depth 1 https://github.com/jfrog/cursor-plugin.git ~/.jfrog/cursor-plugin-beta && \
   node ~/.jfrog/cursor-plugin-beta/scripts/install-beta.mjs --repo-path ~/.jfrog/cursor-plugin-beta
 ```
+
+Branch: [`feature/package-resolution`](https://github.com/jfrog/cursor-plugin/tree/feature/package-resolution)
 
 Then **Cmd+Q** quit Cursor fully, reopen, and start a **new Agent chat**.
 
@@ -104,7 +104,7 @@ To get a completely fresh clone instead:
 
 ```bash
 rm -rf ~/.jfrog/cursor-plugin-beta && \
-  git clone -b feature/package-resolution --depth 1 <REPO_URL> ~/.jfrog/cursor-plugin-beta && \
+  git clone -b feature/package-resolution --depth 1 https://github.com/jfrog/cursor-plugin.git ~/.jfrog/cursor-plugin-beta && \
   node ~/.jfrog/cursor-plugin-beta/scripts/install-beta.mjs --repo-path ~/.jfrog/cursor-plugin-beta
 ```
 
