@@ -185,8 +185,7 @@ function printTroubleshooting() {
   heading("If the plugin does not show up");
 
   bullet([
-    "Enterprise teams may block local plugins.",
-    'Ask an admin: Dashboard → Security & Identity → Marketplace and Plugins',
+    "Dashboard → Settings → Security & Identity → Marketplace and Plugins",
     '→ "Allow Local Plugin Imports" → ON',
     "Then quit Cursor fully and reopen.",
     "More detail: AGENT-PACKAGE-RESOLUTION-BETA.md in this repo.",

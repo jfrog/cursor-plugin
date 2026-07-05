@@ -17,7 +17,7 @@ Internal dogfooding branch **`feature/package-resolution`**. Not on the public m
 - **Cursor** with AI features enabled
 - **Node.js** ≥ 14 on `PATH` (hooks run via `node`)
 - **`jf` CLI** configured (`jf config add`) or `JFROG_PLATFORM_URL` + `JFROG_ACCESS_TOKEN`
-- **Local plugin imports allowed** — on Cursor Enterprise, a team admin must enable **Allow Local Plugin Imports** (see [Troubleshooting](#troubleshooting))
+- **Local plugin imports allowed** — enable **Allow Local Plugin Imports** in Cursor settings (see [Troubleshooting](#troubleshooting))
 
 ## Install
 
@@ -130,6 +130,4 @@ Does **not** remove `~/.jfrog/agents-conf.json` — edit or delete that file man
 
 The files are in `~/.cursor/plugins/local/jfrog-beta/`, but Cursor may ignore them if local imports are blocked (`userLocal=false` in **Cursor Plugins.log**).
 
-Ask a **team admin** (Enterprise): **Dashboard → Settings → Security & Identity → Marketplace and Plugins → Allow Local Plugin Imports → ON**, then **Cmd+Q** and reopen Cursor.
-
-If your org cannot enable local imports, this install path will not work — wait for marketplace or team-marketplace distribution.
+Enable local plugin imports: **Dashboard → Settings → Security & Identity → Marketplace and Plugins → Allow Local Plugin Imports → ON**, then **Cmd+Q** and reopen Cursor.
