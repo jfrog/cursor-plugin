@@ -3,7 +3,6 @@
 // Licensed under the Apache License, Version 2.0
 // https://www.apache.org/licenses/LICENSE-2.0
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -25,53 +24,17 @@ const forceDisabled =
 const forceEnabled =
     env("JF_AGENT_GUARD_FORCE_ENABLE") === "true";
 
-// Resolve {baseUrl, token} from env vars, falling back to the JFrog CLI's
-// default server. Returns null when nothing resolves.
-function resolveCredentials() {
+async function isAgentGuardEnabledViaSettings() {
   const baseUrl = env("JFROG_URL", "JF_URL");
   const token = env("JFROG_ACCESS_TOKEN", "JF_ACCESS_TOKEN");
-  if (baseUrl && token) {
-    debug("Resolved credentials from environment variables");
-    return { baseUrl, token };
-  }
-
-  // `jf config export` emits the default server as a base64-encoded JSON token.
-  let configToken;
-  try {
-    configToken = execFileSync("jf", ["config", "export"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1500,
-    }).trim();
-  } catch (error) {
-    debug(`'jf config export' failed (jf not on PATH or no server configured): ${error.message}`);
-    return null;
-  }
-
-  let cfg;
-  try {
-    cfg = JSON.parse(Buffer.from(configToken, "base64").toString("utf8"));
-  } catch (error) {
-    debug(`Could not decode the jf Config Token: ${error.message}`);
-    return null;
-  }
-
-  if (!cfg?.url || !cfg?.accessToken) {
-    debug("jf Config Token did not contain a usable url + accessToken");
-    return null;
-  }
-
-  debug(`Resolved credentials via 'jf config export' (serverId: ${cfg.serverId ?? "<unknown>"})`);
-  return { baseUrl: cfg.url, token: cfg.accessToken };
-}
-
-async function isAgentGuardEnabledViaSettings() {
-  const credentials = resolveCredentials();
-  if (!credentials) {
-    debug("No JFrog credentials resolved; skipping settings check");
+  if (!baseUrl) {
+    debug("JFROG_URL/JF_URL is not set; skipping settings check");
     return false;
   }
-  const { baseUrl, token } = credentials;
+  if (!token) {
+    debug("JFROG_ACCESS_TOKEN/JF_ACCESS_TOKEN is not set; skipping settings check");
+    return false;
+  }
 
   const url =
       baseUrl.replace(/\/+$/, "") +
@@ -80,7 +43,7 @@ async function isAgentGuardEnabledViaSettings() {
   debug(`Fetching agent guard setting from ${url}`);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 4000);
+  const timeout = setTimeout(() => controller.abort(), 5000);
   try {
     const response = await fetch(url, {
       method: "GET",
@@ -112,33 +75,7 @@ if (forceDisabled) {
   debug("Force-disable flag is set.");
   process.stdout.write("{}");
   process.exit(0);
-}
-
-// Validate JFROG_URL early to surface misconfigurations before the MCP server
-// attempts to connect and fails with a confusing DNS or double-slash error.
-if (!process.env.JFROG_URL) {
-  const missingUrlWarning = "WARNING: JFROG_URL is not set. The JFrog MCP server will be unreachable — set JFROG_URL to your Artifactory base URL (e.g. https://mycompany.jfrog.io) and restart Cursor.";
-  log(missingUrlWarning);
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "SessionStart",
-      additionalContext: `IMPORTANT: Immediately tell the user: "${missingUrlWarning}"`,
-    },
-  }));
-  process.exit(0);
-} else if (process.env.JFROG_URL.endsWith("/")) {
-  const trailingSlashWarning = "WARNING: JFROG_URL has a trailing slash. This produces a double-slash in the MCP URL and will silently fail — remove the trailing slash and restart Cursor.";
-  log(trailingSlashWarning);
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "SessionStart",
-      additionalContext: `IMPORTANT: Immediately tell the user: "${trailingSlashWarning}"`,
-    },
-  }));
-  process.exit(0);
-}
-
-if (forceEnabled) {
+} else if (forceEnabled) {
   debug("Force-enable flag is set.");
 } else if (!(await isAgentGuardEnabledViaSettings())) {
   debug("Agent Guard not enabled; exiting without injecting instructions");
@@ -155,18 +92,13 @@ try {
     path.join(root, "templates", "jfrog-mcp-management.md"),
     "utf8",
   );
-} catch (error) {
-  debug(`Could not read instructions template: ${error.message}`);
+} catch {
   process.stdout.write("{}");
   process.exit(0);
 }
 
-// The IDE consumes hookSpecificOutput.additionalContext from a SessionStart hook.
 process.stdout.write(
   JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "SessionStart",
-      additionalContext: template,
-    },
+    additional_context: template,
   }),
 );
