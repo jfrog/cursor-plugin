@@ -23,8 +23,10 @@ lets the hook re-apply on later sessions.
 ## Scope (this skill vs session hook)
 
 **Session-start hook:** resolves repo keys per package type, injects the
-"Resolved URLs for this session" table, refreshes the global cache. Do not
-re-resolve or probe repositories.
+"Resolved URLs for this session" table, refreshes the global cache. The same
+renderer is available on demand via `modules/print-policy.mjs` (the enforce
+notice embeds the exact command), so the policy can be loaded after setup. Do
+not re-resolve or probe repositories.
 
 **This skill:** reads that output, runs `jf setup`, and persists the workspace
 binding at `.jfrog/local/package-resolution.json` when PM config is still missing.
@@ -155,3 +157,15 @@ Cap at **2 answers per PM**, then abort. User may override repo only, never serv
    ```
 
    Map PM → type via the reference table. Merge atomically.
+
+## Step 4 — Load the routing policy
+
+If this session started with the "routing NOT READY" (enforce) notice, that
+notice includes a refresh command (`node <plugin>/modules/print-policy.mjs`).
+After Step 3 succeeds, run that exact command and treat its stdout as the
+authoritative, now-current policy — it prints the resolved Artifactory URLs and
+hard rules. Continue the original request using those URLs.
+
+If the command prints nothing, routing is off by config
+(`packageResolution.enabled` is not `true`) — an admin opt-in. Report that to
+the user and let them decide whether to enable it.

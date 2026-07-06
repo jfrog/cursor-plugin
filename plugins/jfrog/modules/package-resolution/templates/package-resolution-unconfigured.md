@@ -25,8 +25,23 @@ Authoritative procedure:
    confirm with `jf config show`.
 3. Invoke **`jfrog-setup-package-managers`** to bind PMs this workspace needs.
 
-Start a **new session** after setup — concrete Artifactory URLs are injected.
-Then re-issue the install.
+## After setup — load the routing policy
+
+Once `jf` is configured and `jfrog-setup-package-managers` has bound the PMs,
+load the current routing policy by running:
+
+```bash
+{{REFRESH_COMMAND}}
+```
+
+Treat that command's stdout as the authoritative, now-current package-resolution
+policy — it **supersedes this "NOT READY" notice** and prints the resolved
+Artifactory URLs and hard rules for every configured package type. Then re-issue
+the install using those URLs.
+
+If the command prints nothing, routing is off by config
+(`packageResolution.enabled` is not `true`) — an admin opt-in (see Enablement
+below). Report that to the user and let them decide.
 
 ## Enablement
 

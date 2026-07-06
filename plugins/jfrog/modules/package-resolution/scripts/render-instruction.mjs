@@ -25,8 +25,18 @@ const log = createLogger("render-instruction");
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.join(here, "../templates");
+// modules/ root (parent of package-resolution/ and core/) — used to hand the
+// agent an absolute path to the on-demand policy printer in the enforce notice.
+const MODULES_ROOT = path.resolve(here, "../..");
 const ACTIVE_TEMPLATE = "package-resolution.md";
 const ENFORCE_TEMPLATE = "package-resolution-unconfigured.md";
+
+// Command the agent runs after configuring `jf` to load routing in the SAME
+// session (no restart). Absolute path so it works regardless of the agent's cwd
+// or where the plugin is vendored.
+function refreshCommand() {
+  return `node "${path.join(MODULES_ROOT, "print-policy.mjs")}"`;
+}
 
 // Prose fragment for the enforce-notice {{CAUSE_REMEDIATION}} placeholder.
 function causeRemediation(cause) {
@@ -110,6 +120,7 @@ export async function renderInstruction(flag, ctx = {}) {
     let notice = await readFile(path.join(TEMPLATES_DIR, ENFORCE_TEMPLATE), "utf8");
     notice = notice.replace(/\{\{CAUSE_REMEDIATION\}\}/g, causeRemediation(flag.cause));
     notice = notice.replace(/\{\{JFROG_PLATFORM_URL_HINT\}\}/g, jfrogPlatformUrlHint());
+    notice = notice.replace(/\{\{REFRESH_COMMAND\}\}/g, refreshCommand());
     // Detail line — kept at debug so the default level shows a single EVENT per
     // session (the dispatcher's "sessionStart injected"). Raise the level to see
     // the cause/byte breakdown.
