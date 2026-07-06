@@ -114,7 +114,7 @@ function main() {
   section("Format (injected payload shape)");
   let injectedContext;
   check("force-enable emits valid JSON with a SessionStart additionalContext", () => {
-    const stdout = runInjector({ JF_AGENT_GUARD_FORCE_ENABLE: "true" });
+    const stdout = runInjector({ JF_AGENT_GUARD_FORCE_ENABLE: "true", JFROG_URL: "https://example.jfrog.io" });
     if (!stdout.trim()) throw new Error("stdout was empty");
     let payload;
     try {
