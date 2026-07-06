@@ -8,7 +8,7 @@
 //   Syntax         — the injector exists and parses.
 //   Lint           — plugin.json / hooks.json / template wiring is internally
 //                    consistent (name, paths).
-//   Format         — running the injector emits a well-formed SessionStart
+//   Format         — running the injector emits a well-formed sessionStart
 //                    payload (valid JSON, correct shape).
 //   Injection logic — the payload actually carries the real template, and
 //                    fail-closed paths emit {}.
@@ -110,10 +110,10 @@ function main() {
     }
   });
 
-  // ---- Format: force-enable emits a well-formed SessionStart payload ----
+  // ---- Format: force-enable emits a well-formed sessionStart payload ----
   section("Format (injected payload shape)");
   let injectedContext;
-  check("force-enable emits valid JSON with a SessionStart additionalContext", () => {
+  check("force-enable emits valid JSON with a non-empty additional_context", () => {
     const stdout = runInjector({ JF_AGENT_GUARD_FORCE_ENABLE: "true", JFROG_URL: "https://example.jfrog.io" });
     if (!stdout.trim()) throw new Error("stdout was empty");
     let payload;
@@ -122,14 +122,10 @@ function main() {
     } catch (error) {
       throw new Error(`stdout did not parse as JSON: ${error.message}`);
     }
-    const hook = payload?.hookSpecificOutput;
-    if (hook?.hookEventName !== "SessionStart") {
-      throw new Error(`expected hookSpecificOutput.hookEventName === "SessionStart", got ${JSON.stringify(hook?.hookEventName)}`);
+    if (typeof payload?.additional_context !== "string" || payload.additional_context.trim().length === 0) {
+      throw new Error("additional_context is missing or empty");
     }
-    if (typeof hook.additionalContext !== "string" || hook.additionalContext.trim().length === 0) {
-      throw new Error("hookSpecificOutput.additionalContext is missing or empty");
-    }
-    injectedContext = hook.additionalContext;
+    injectedContext = payload.additional_context;
   });
 
   // ---- Injection logic: the payload is the real template; fail-closed works ----
