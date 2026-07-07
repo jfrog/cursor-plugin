@@ -1,7 +1,7 @@
 {
   "name": "jfrog",
   "displayName": "JFrog Platform",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "JFrog Platform integration with MCP, security skills, supply-chain best practices, and JFrog Agent Guard governance for adding, removing, and listing MCP servers.",
   "author": {
     "name": "JFrog",

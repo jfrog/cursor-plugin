@@ -1,0 +1,35 @@
+# Copyright (c) JFrog Ltd. 2026
+# Licensed under the Apache License, Version 2.0
+# https://www.apache.org/licenses/LICENSE-2.0
+
+name: Validate hook injection
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "plugins/jfrog/scripts/inject-instructions.mjs"
+      - "plugins/jfrog/templates/jfrog-mcp-management.md"
+      - "plugins/jfrog/hooks/hooks.json"
+      - "plugins/jfrog/.cursor-plugin/plugin.json"
+      - "scripts/validate-hook-injector.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate hook injection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run injector validation
+        run: node scripts/validate-hook-injector.mjs

@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0
 // https://www.apache.org/licenses/LICENSE-2.0
 
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -24,17 +25,57 @@ const forceDisabled =
 const forceEnabled =
     env("JF_AGENT_GUARD_FORCE_ENABLE") === "true";
 
-async function isAgentGuardEnabledViaSettings() {
+// Resolve {baseUrl, token}: environment variables (JFROG_URL/JFROG_ACCESS_TOKEN,
+// or legacy JF_*) are checked first; if either is missing, fall back to the
+// JFrog CLI's default configured server via `jf config export`. Returns null
+// when neither source yields usable credentials.
+function resolveCredentials() {
   const baseUrl = env("JFROG_URL", "JF_URL");
   const token = env("JFROG_ACCESS_TOKEN", "JF_ACCESS_TOKEN");
-  if (!baseUrl) {
-    debug("JFROG_URL/JF_URL is not set; skipping settings check");
+  if (baseUrl && token) {
+    debug("Resolved credentials from environment variables");
+    return { baseUrl, token };
+  }
+
+  // `jf config export` emits the default server as a base64-encoded JSON token.
+  let configToken;
+  try {
+    configToken = execFileSync("jf", ["config", "export"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2000,
+    }).trim();
+  } catch (error) {
+    debug(`'jf config export' failed (jf not on PATH or no server configured): ${error.message}`);
+    return null;
+  }
+
+  // The token is a base64-encoded JSON blob containing the server's url,
+  // accessToken, and serverId — decode and validate it before using it.
+  let cfg;
+  try {
+    cfg = JSON.parse(Buffer.from(configToken, "base64").toString("utf8"));
+  } catch (error) {
+    debug(`Could not decode the jf Config Token: ${error.message}`);
+    return null;
+  }
+
+  if (!cfg?.url || !cfg?.accessToken) {
+    debug("jf Config Token did not contain a usable url + accessToken");
+    return null;
+  }
+
+  debug(`Resolved credentials via 'jf config export' (serverId: ${cfg.serverId ?? "<unknown>"})`);
+  return { baseUrl: cfg.url, token: cfg.accessToken };
+}
+
+async function isAgentGuardEnabledViaSettings() {
+  const credentials = resolveCredentials();
+  if (!credentials) {
+    debug("No JFrog credentials resolved; skipping settings check");
     return false;
   }
-  if (!token) {
-    debug("JFROG_ACCESS_TOKEN/JF_ACCESS_TOKEN is not set; skipping settings check");
-    return false;
-  }
+  const { baseUrl, token } = credentials;
 
   const url =
       baseUrl.replace(/\/+$/, "") +
@@ -43,7 +84,7 @@ async function isAgentGuardEnabledViaSettings() {
   debug(`Fetching agent guard setting from ${url}`);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), 4000);
   try {
     const response = await fetch(url, {
       method: "GET",
