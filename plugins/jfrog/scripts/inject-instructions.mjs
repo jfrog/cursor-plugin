@@ -25,8 +25,10 @@ const forceDisabled =
 const forceEnabled =
     env("JF_AGENT_GUARD_FORCE_ENABLE") === "true";
 
-// Resolve {baseUrl, token} from env vars, falling back to the JFrog CLI's
-// default server. Returns null when nothing resolves.
+// Resolve {baseUrl, token}: environment variables (JFROG_URL/JFROG_ACCESS_TOKEN,
+// or legacy JF_*) are checked first; if either is missing, fall back to the
+// JFrog CLI's default configured server via `jf config export`. Returns null
+// when neither source yields usable credentials.
 function resolveCredentials() {
   const baseUrl = env("JFROG_URL", "JF_URL");
   const token = env("JFROG_ACCESS_TOKEN", "JF_ACCESS_TOKEN");
@@ -41,7 +43,7 @@ function resolveCredentials() {
     configToken = execFileSync("jf", ["config", "export"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-      timeout: 3000,
+      timeout: 2000,
     }).trim();
   } catch (error) {
     debug(`'jf config export' failed (jf not on PATH or no server configured): ${error.message}`);
@@ -80,7 +82,7 @@ async function isAgentGuardEnabledViaSettings() {
   debug(`Fetching agent guard setting from ${url}`);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), 4000);
   try {
     const response = await fetch(url, {
       method: "GET",

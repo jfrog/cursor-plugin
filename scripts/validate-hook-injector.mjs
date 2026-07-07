@@ -16,8 +16,9 @@
 // nothing (it catches the read error and exits 0); these checks turn that
 // silent failure into a hard error.
 
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -55,6 +56,37 @@ function runInjector(overrides) {
     encoding: "utf8",
     env: { ...env, ...overrides },
   });
+}
+
+// Same as runInjector, but also captures stderr and clears any JFrog env vars
+// so the jf-CLI fallback in resolveCredentials() is actually reachable.
+function runInjectorWithDebug(overrides) {
+  const env = { ...process.env };
+  delete env._JF_AGENT_GUARD_FORCE_DISABLE;
+  delete env.JF_AGENT_GUARD_FORCE_ENABLE;
+  delete env.JFROG_URL;
+  delete env.JF_URL;
+  delete env.JFROG_ACCESS_TOKEN;
+  delete env.JF_ACCESS_TOKEN;
+  const result = spawnSync(process.execPath, [injector], {
+    encoding: "utf8",
+    env: { ...env, JF_AGENT_GUARD_DEBUG: "true", ...overrides },
+  });
+  return { stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+}
+
+// Stubs a fake `jf` executable on PATH that emits the given config token, so
+// the CLI-fallback path can be exercised without a real JFrog CLI install.
+function withFakeJfOnPath(configToken, fn) {
+  const bin = mkdtempSync(path.join(tmpdir(), "fake-jf-"));
+  const jfPath = path.join(bin, "jf");
+  writeFileSync(jfPath, `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(configToken)});\n`);
+  chmodSync(jfPath, 0o755);
+  try {
+    return fn(`${bin}${path.delimiter}${process.env.PATH}`);
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
 }
 
 function main() {
@@ -138,6 +170,20 @@ function main() {
       throw new Error("injected additionalContext does not match the template file content");
     }
   });
+  // ---- jf CLI fallback: resolveCredentials() falls back to `jf config export` ----
+  section("jf CLI fallback");
+  check("resolves credentials via 'jf config export' when env vars are unset", () => {
+    const token = Buffer.from(
+      JSON.stringify({ url: "https://example.jfrog.io", accessToken: "fake-token", serverId: "test-server" }),
+    ).toString("base64");
+    withFakeJfOnPath(token, (fakePath) => {
+      const { stderr } = runInjectorWithDebug({ PATH: fakePath });
+      if (!stderr.includes("Resolved credentials via 'jf config export'")) {
+        throw new Error(`expected debug log confirming jf CLI fallback, got:\n${stderr}`);
+      }
+    });
+  });
+
   check("force-disable emits {} (fail-closed)", () => {
     const stdout = runInjector({ _JF_AGENT_GUARD_FORCE_DISABLE: "true" }).trim();
     if (stdout !== "{}") throw new Error(`expected "{}", got ${JSON.stringify(stdout)}`);
