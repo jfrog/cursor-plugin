@@ -167,19 +167,30 @@ For each input in Step 4:
 - **Secrets** (`isSecret=true`): use `${env:VAR_NAME}` in the config;
   tell the user to export it for the current session via
   `read -rs VAR_NAME && export VAR_NAME && echo exported`.
-  For persistence, the right startup file depends on the user's
-  **shell**, not their OS — macOS and Linux both commonly run zsh or
-  bash. Detect the shell (e.g. `echo "$SHELL"`) and add the export to
-  the file that shell loads on startup:
-  - **zsh** (the macOS default) → `~/.zshrc`
-  - **bash** → `~/.bashrc`; note macOS login shells read
-    `~/.bash_profile`, which usually sources `~/.bashrc`
-  - **fish** → `~/.config/fish/config.fish` (use `set -gx`)
+  For persistence, do NOT rely on `$SHELL` (or any other single-shell
+  guess) to pick ONE startup file — Cursor may resolve environment
+  for spawned MCP servers/hooks via a different mechanism than
+  whatever shell reported `$SHELL`, so a single-file guess can
+  silently fail to be sourced (this is exactly how it breaks: the
+  user's login shell is zsh, `~/.zshrc` gets the export, but Cursor's
+  hook/MCP-launch process runs under bash and never reads it). Add
+  the export to EVERY startup file below that exists on the machine
+  (create the one matching `$SHELL` if none exist yet) — redundant
+  entries in unused files are harmless, and covering all of them is
+  the only way to be correct without knowing Cursor's internal
+  resolution mechanism:
+  - `~/.zshrc` (zsh)
+  - `~/.bashrc` and `~/.bash_profile` (bash; macOS login shells read
+    `.bash_profile`, which usually sources `.bashrc`)
+  - `~/.config/fish/config.fish` (fish — use `set -gx VAR_NAME value`
+    instead of `export`)
   - **Windows** → use `setx VAR_NAME "<value>"` (PowerShell/CMD)
     instead of the `read`/`export` snippet
-  If unsure which file the shell sources, ask the user. Values are
-  picked up on next launch (4a). NEVER take secrets in chat, echo them
-  back, or write raw values into config.
+  Values are picked up on next launch — after the user restarts
+  Cursor, confirm the var actually reached the MCP process (4a /
+  Troubleshooting "401/403 with `${env:VAR}`") rather than assuming
+  the persisted file was sourced. NEVER take secrets in chat, echo
+  them back, or write raw values into config.
 - **Non-secrets**: literal in `env` or `${env:VAR_NAME}` — ask if
   unclear.
 
