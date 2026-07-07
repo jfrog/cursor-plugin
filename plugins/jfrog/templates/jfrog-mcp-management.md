@@ -8,7 +8,7 @@ below instead.
 
 **Registry URL**: Wherever `<REGISTRY_URL>` appears below, substitute
 the value of the `JFROG_AGENT_GUARD_REPO` environment variable if it
-is set. Otherwise use
+is set. Otherwise, use
 `https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/`.
 
 **Pre-flight (applies to every agent guard command —
@@ -30,22 +30,22 @@ is set. Otherwise use
   resolves, STOP and ask — NEVER guess, NEVER assume `default`,
   NEVER invent projects.
 
-- **`<SERVER_ID>` is auto-resolvable.** Resolve via Step 1's server
-  chain: existing `mcpServers` entries (value after `--server` in
-  `args`) → `~/.jfrog/jfrog-cli.conf.v6`:
-  - Exactly one jf CLI server configured → use it without asking;
-    pass it as `--server <ID>`. The agent guard would auto-resolve to the same
-    value if `--server` were omitted, but we pass it explicitly for
-    clarity and forward-compatibility.
-  - `JFROG_URL` + `JFROG_ACCESS_TOKEN` set → use it without asking;
-    The agent guard will pick them up from the environment variables when called.
-  - Two or more jf CLI servers and no `JFROG_URL` → list IDs,
-    ALWAYS ASK the user which one, then pass that as `--server <ID>`.
-    ALWAYS prefer environment variables when set over asking.
-    NEVER guess one server.
-  - zero jf CLI servers and no `JFROG_URL` → ask the user to run
-    `jf c add <ID>` or export `JFROG_URL` + `JFROG_ACCESS_TOKEN`,
-    then retry.
+- **`<SERVER_ID>` is auto-resolvable.** Resolve in order, stop at the
+  first match:
+  1. An existing `mcpServers` entry's `--server <ID>` (project or user
+     config) — reuse it.
+  2. `JFROG_URL` + `JFROG_ACCESS_TOKEN` set in the env — use them and do
+     NOT pass `--server` (the agent guard reads the env directly).
+  3. List configured servers with the jf CLI — `jf config show --format=json`
+     (do NOT parse `~/.jfrog/jfrog-cli.conf.v6`; the CLI masks tokens, so
+     its output is safe). Exactly one → use it; two or more → use the one
+     with `"isDefault": true`; if none is marked default → ASK the user
+     which one. Then pass `--server <ID>`.
+  4. None of the above → ask the user to run `jf c add <ID>` or export
+     `JFROG_URL` + `JFROG_ACCESS_TOKEN`, then retry.
+
+  When you resolved the ID from a jf CLI config, always pass it as
+  `--server <ID>`; when using env vars, never pass `--server`.
 - The commands need network access and MUST be run with `full_network`
   permissions when run in a sandbox. Otherwise `Forbidden` errors will 
   be thrown.
@@ -60,11 +60,11 @@ STOP — do NOT run the command with guesses.
 "add an MCP", "what can I install" — your FIRST action is to show
 them the catalog so they can pick:
 
-1. Resolve server (Server ID`<SERVER_ID>` or URL `JFROG_URL`)
+1. Resolve server (Server ID `<SERVER_ID>` or URL `JFROG_URL`)
    and `<PROJECT>` per the Pre-flight rule at the top of this document.
    Server: auto-use the single jf CLI configs serverId as the server ID
    or the `JFROG_URL` env var as the URL if unambiguous; only ask when
-   there are multiple or no jf configs and not env vars.
+   there are multiple or no jf configs and no env vars.
    Project: Ask unless `JF_PROJECT` is set, or it's already in an
    existing `mcpServers` entry.
 2. Run "Listing MCPs > Available to install" with that server +
@@ -90,22 +90,20 @@ unless absolutely necessary:
    agent guard can resolve credentials from these directly;
    DO NOT pass `--server` as that would make the agent guard try to
    parse the server details from the jf cli configuration.
-3. Else read `~/.jfrog/jfrog-cli.conf.v6`
-   (`%USERPROFILE%\.jfrog\jfrog-cli.conf.v6` on Windows) via a
-   terminal command (file-search skips hidden dirs)
-   NEVER print the full file contents as it can contain secrets.
-   Use the serverId subkeys::
+3. Else list configured servers with the jf CLI — run
+   `jf config show --format=json` (do NOT parse
+   `~/.jfrog/jfrog-cli.conf.v6` yourself; the CLI masks tokens, so its
+   output is safe to read). From the result:
    - exactly one server → use it without asking.
-   - two or more → list the `serverId`s and ASK the user which one.
+   - two or more → use the one with `"isDefault": true`; if none is
+     marked default, list the `serverId`s and ASK the user which one.
 4. Else (file missing, empty, or unreadable, and no `JFROG_URL`)
    ask the user to either run `jf c add <ID>` or export
    `JFROG_URL` + `JFROG_ACCESS_TOKEN`, then retry.
 
-NEVER try multiple servers — pick one. Once chosen, pass it
-If a server from the jf cli configuration is supposed to be used:
-Always explicitly as `--server <ID>` in every agent guard invocation.
-Otherwise, if environment variables for `JFROG_URL` and `JFROG_ACCESS_TOKEN`
-are used: Do NOT pass `--server <ID>`
+NEVER try multiple servers — pick one. When you resolved the ID from a
+jf CLI config, always pass it as `--server <ID>` in every agent guard
+invocation; when using env vars, never pass `--server`.
 
 **Project**
 
@@ -131,9 +129,8 @@ not call `--inspect` — go to "Listing MCPs > Available to install"
 instead, show the catalog, have them pick, then come back to Step 2
 with the chosen name.
 
-Once you have a name, you must fetch its live details.
-
-Run EXACTLY this command — no Fetch/WebFetch, no custom curl/Python, no direct JFrog API calls:
+Once you have a name, run a SINGLE command — no Fetch/WebFetch, no
+custom curl/Python, no direct JFrog API calls:
 
 ```
 npx --yes \
@@ -414,9 +411,9 @@ the display name.
 ## Troubleshooting
 
 - **`ready` but 0 tools (empty `mcps/<key>/tools/` after a
-  Command Palette `Developer: Reload Window`)** — agent guard proxy
-  started, upstream MCP did not. The top-level `ready` label is
-  misleading here. NEVER report success when there are 0 tools.
+  Command Palette `Developer: Reload Window`)** — agent guard proxy 
+  started, upstream MCP did not. The top-level `ready` label is 
+  misleading here. NEVER report success when there are 0 tools. 
   1. Open Cursor's MCP / Output panel for the
     agent guard stderr; diagnose by MCP type:
     - **OAuth (remote)** — re-run Step 5 (`--login`); refresh token
