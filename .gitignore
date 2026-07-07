@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# IDE settings
+.idea/
+
 # OS and editor
 .DS_Store
 *.swp
