@@ -50,6 +50,8 @@ function resolveCredentials() {
     return null;
   }
 
+  // The token is a base64-encoded JSON blob containing the server's url,
+  // accessToken, and serverId — decode and validate it before using it.
   let cfg;
   try {
     cfg = JSON.parse(Buffer.from(configToken, "base64").toString("utf8"));
