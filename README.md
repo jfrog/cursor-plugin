@@ -108,6 +108,8 @@ When an MCP server requires a sensitive configuration, the agent cannot set the 
 
 See the [JFrog MCP Registry troubleshooting guide](https://docs.jfrog.com/ai-ml/docs/mcp-registry-troubleshooting).
 
+Agent Guard not activating? Make sure you define your environment variables in the same shell your IDE launches with.
+
 ---
 
 ## Updating the vendored skills
