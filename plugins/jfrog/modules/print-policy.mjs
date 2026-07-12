@@ -6,9 +6,12 @@
 // started "unconfigured" can load the up-to-date routing policy — resolved
 // Artifactory URLs + hard rules — on demand once `jf` is configured.
 //
-// It reuses the exact feature-flag + renderer the session-start hook uses, so
-// the output is identical to what the hook would inject. Running it in active
-// mode also warms ~/.jfrog/skills-cache/package-resolution.json.
+// It delegates to the exact same `packageResolution.sessionStart(ctx)` the
+// session-start hook runs, so recovery behaves identically to opening a fresh
+// session: it warms ~/.jfrog/skills-cache/package-resolution.json AND triggers
+// eager `jf setup` (background worker + receipt + lock) for enforced types.
+// Safe to run repeatedly — the receipt/lock dedupe. print-policy is agent-invoked
+// (not the 7s hook), so the background spawn is fine.
 //
 // Usage: node print-policy.mjs [workspaceRoot ...]
 //   workspaceRoot: dirs to consider for the .jfrog/local overlay; defaults to cwd.
@@ -18,8 +21,7 @@
 
 import process from "node:process";
 
-import { isPackageResolutionEnabled } from "./package-resolution/scripts/feature-flag.mjs";
-import { renderInstruction } from "./package-resolution/scripts/render-instruction.mjs";
+import packageResolution from "./package-resolution/scripts/index.mjs";
 
 function parseWorkspaceRoots() {
   const args = process.argv.slice(2);
@@ -28,8 +30,7 @@ function parseWorkspaceRoots() {
 
 async function main() {
   const workspaceRoots = parseWorkspaceRoots();
-  const flag = await isPackageResolutionEnabled();
-  const { text } = await renderInstruction(flag, { workspaceRoots });
+  const text = await packageResolution.sessionStart({ workspaceRoots });
   process.stdout.write(text?.trim() ? text : "");
 }
 

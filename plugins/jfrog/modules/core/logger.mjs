@@ -196,7 +196,3 @@ export function createLogger(component) {
 export function logFilePath() {
   return logFile();
 }
-
-export function traceId() {
-  return TRACE_ID;
-}

@@ -24,7 +24,7 @@ const ALLOWLIST = new Set(["package-resolution"]);
  * @param {string} name — capability id
  * @returns {string} absolute path to index.mjs
  */
-export function capabilityEntryPath(name) {
+function capabilityEntryPath(name) {
   return path.join(PLUGIN_ROOT, name, "scripts", "index.mjs");
 }
 
@@ -86,5 +86,3 @@ export async function runCapability(name, ctx = {}) {
     return "";
   }
 }
-
-export { ALLOWLIST, PLUGIN_ROOT };

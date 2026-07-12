@@ -5,6 +5,7 @@
 
 import { isPackageResolutionEnabled } from "./feature-flag.mjs";
 import { renderInstruction } from "./render-instruction.mjs";
+import { orchestrateEagerSetup } from "./eager-setup.mjs";
 
 export const packageResolution = {
   name: "package-resolution",
@@ -18,10 +19,23 @@ export const packageResolution = {
   async sessionStart(ctx = {}) {
     const flag = await isPackageResolutionEnabled();
     this.mode = flag.mode;
-    const { text, meta } = await renderInstruction(flag, ctx);
+
+    // Feature 2 — enforce on startup. Only in active mode (identity + resolution
+    // available). Runs OFF the critical path: it just decides what needs setup,
+    // spawns a detached worker, and returns a note. Never blocks/breaks injection.
+    let enforceStatus = "";
+    if (flag.mode === "active") {
+      enforceStatus = await orchestrateEagerSetup(ctx);
+    }
+
+    const { text, meta } = await renderInstruction(flag, {
+      ...ctx,
+      enforceStatus,
+    });
     this.meta = {
       reason: flag.reason,
       identity: flag.identity ?? "-",
+      ...(enforceStatus ? { eagerSetup: true } : {}),
       ...meta,
     };
     return text;

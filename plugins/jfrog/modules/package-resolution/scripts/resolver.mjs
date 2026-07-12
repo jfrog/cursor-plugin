@@ -16,10 +16,17 @@ import path from "node:path";
 import process from "node:process";
 
 import { createLogger } from "../../core/logger.mjs";
-import { getAgentsConfigMtimeMs, loadAgentsConfig } from "../../core/agents-config.mjs";
+import {
+  getAgentsConfigMtimeMs,
+  loadAgentsConfig,
+  globalDeclaredTypes,
+} from "../../core/agents-config.mjs";
 import { getPlatformIdentity } from "../../core/jf-identity.mjs";
 import { PACKAGE_TYPES, repoMatchesPackageType } from "./repo-types.mjs";
-import { pickWorkspaceConfigRoot, loadWorkspaceConfig } from "./workspace-config.mjs";
+import {
+  pickWorkspaceConfigRoot,
+  loadWorkspaceConfig,
+} from "./workspace-config.mjs";
 
 const log = createLogger("resolver");
 
@@ -33,16 +40,15 @@ function cacheFile() {
 
 const CACHE_SCHEMA_VERSION = 1;
 
-/** Default cache TTL in ms (7 days) — used when agents-conf.json omits cacheTtlDays. */
-export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-export { PACKAGE_TYPES };
-
 /** In-process snapshot after first resolve pass in this hook invocation. */
 const SESSION = {
   serverId: null,
   meta: null,
   byType: null,
+  // Package types DECLARED by the workspace `.jfrog/local` overlay (keys with a
+  // repo, regardless of whether verification would pass). Union with the global
+  // declared types gives the governed set.
+  workspaceDeclaredTypes: [],
 };
 
 function identityOrNull() {
@@ -110,7 +116,8 @@ async function writeCacheFile(root) {
 }
 
 function normalizeServerEntry(entry) {
-  if (!entry?.repositories || typeof entry.repositories !== "object") return null;
+  if (!entry?.repositories || typeof entry.repositories !== "object")
+    return null;
   return {
     repositories: { ...entry.repositories },
     cached_at: entry.cached_at,
@@ -141,7 +148,9 @@ function normalizeCacheRoot(data) {
     }
     return {
       schemaVersion:
-        typeof data.schemaVersion === "number" ? data.schemaVersion : CACHE_SCHEMA_VERSION,
+        typeof data.schemaVersion === "number"
+          ? data.schemaVersion
+          : CACHE_SCHEMA_VERSION,
       servers,
     };
   }
@@ -157,10 +166,15 @@ async function fetchRepoConfig(repoKey) {
   const id = identityOrNull();
   if (!id) return null;
   const url = `${id.url}/artifactory/api/repositories/${encodeURIComponent(repoKey)}`;
-  log.debug("verifying repo", { repoKey, url });
+  // Network call on session start (cache miss + verifyRepos) — log at info so a
+  // fresh session's Artifactory calls are visible without enabling debug.
+  log.info("verifying repo via Artifactory API", { repoKey, url });
   try {
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${id.token}`, Accept: "application/json" },
+      headers: {
+        Authorization: `Bearer ${id.token}`,
+        Accept: "application/json",
+      },
     });
     if (!res.ok) {
       log.debug("repo verify miss", { repoKey, status: res.status });
@@ -168,7 +182,10 @@ async function fetchRepoConfig(repoKey) {
     }
     return await res.json();
   } catch (err) {
-    log.warn("repo verify threw", { repoKey, error: err?.message ?? String(err) });
+    log.warn("repo verify threw", {
+      repoKey,
+      error: err?.message ?? String(err),
+    });
     return null;
   }
 }
@@ -258,14 +275,20 @@ async function loadFreshCacheEntry(serverId) {
   const pr = loadAgentsConfig().packageResolution;
   const agentsConfigMtimeMs = getAgentsConfigMtimeMs();
   const { data, file } = await readCacheFile();
-  const entry = normalizeServerEntry(normalizeCacheRoot(data).servers[serverId]);
-  if (!entry || !isEntryFresh(entry, agentsConfigMtimeMs, pr.cacheTtlDays)) return null;
+  const entry = normalizeServerEntry(
+    normalizeCacheRoot(data).servers[serverId],
+  );
+  if (!entry || !isEntryFresh(entry, agentsConfigMtimeMs, pr.cacheTtlDays))
+    return null;
 
   const id = identityOrNull();
   const base = id ? `${id.url}/artifactory` : "";
   SESSION.serverId = serverId;
   SESSION.byType = entryToByType(entry, base);
-  SESSION.meta = buildResolveMeta(serverId, entry, { via: "cache", cacheFile: file });
+  SESSION.meta = buildResolveMeta(serverId, entry, {
+    via: "cache",
+    cacheFile: file,
+  });
   log.debug("cache hit", {
     serverId,
     source: entry.source,
@@ -294,23 +317,40 @@ function workspaceOverlayMetaApplied(workspaceRoots, pick, overridden) {
 }
 
 async function applyWorkspaceOverlay(workspaceRoots) {
+  SESSION.workspaceDeclaredTypes = [];
   const roots = workspaceRoots?.length ? workspaceRoots : [];
   const pick = pickWorkspaceConfigRoot(roots);
 
   if (!pick) return;
 
   const ws = await loadWorkspaceConfig(pick);
-  if (!ws) {
-    log.debug("workspace overlay skipped", { reason: "unreadable", root: pick.root });
+  if (ws.status === "invalid" || ws.status === "unreadable") {
+    // The file exists and was meant to take effect; ignoring it silently makes
+    // a typo (e.g. a trailing comma) look like a resolution failure. Warn so it
+    // surfaces regardless of log level.
+    log.warn("workspace config ignored", {
+      reason: ws.status,
+      file: pick.configFile,
+      error: ws.error?.message,
+    });
+    return;
+  }
+  if (ws.status !== "ok") {
+    log.debug("workspace overlay skipped", {
+      reason: ws.status,
+      root: pick.root,
+    });
     return;
   }
 
   const id = identityOrNull();
   const base = id ? `${id.url}/artifactory` : "";
   const overridden = [];
+  const declared = [];
 
-  for (const [type, repoKey] of Object.entries(ws.repositories)) {
+  for (const [type, repoKey] of Object.entries(ws.config.repositories)) {
     if (!repoKey || !PACKAGE_TYPES.includes(type)) continue;
+    declared.push(type);
     SESSION.byType[type] = {
       type,
       repoKey,
@@ -319,8 +359,13 @@ async function applyWorkspaceOverlay(workspaceRoots) {
     overridden.push(`${type}:${repoKey}`);
   }
 
+  SESSION.workspaceDeclaredTypes = declared;
+
   if (!overridden.length) {
-    log.debug("workspace overlay skipped", { reason: "no-repositories", root: pick.root });
+    log.debug("workspace overlay skipped", {
+      reason: "no-repositories",
+      root: pick.root,
+    });
     return;
   }
 
@@ -347,8 +392,28 @@ export async function prepareSessionResolve({ serverId, workspaceRoots } = {}) {
   await applyWorkspaceOverlay(workspaceRoots);
 }
 
+/**
+ * Governed (handled) package types for this session = admin-declared
+ * (`defaultGlobalRepos` keys) UNION workspace-declared (`.jfrog/local` keys),
+ * ordered by PACKAGE_TYPES. "Declared" — not "resolved": a governed type whose
+ * repo fails to resolve/verify stays governed (and blocks) rather than falling
+ * through to a public registry. MUST be called after prepareSessionResolve so
+ * the workspace side is populated.
+ * @returns {string[]}
+ */
+export function governedPackageTypes() {
+  const union = new Set([
+    ...globalDeclaredTypes(),
+    ...(SESSION.workspaceDeclaredTypes ?? []),
+  ]);
+  return PACKAGE_TYPES.filter((type) => union.has(type));
+}
+
 export async function resolve(type, { serverId: serverIdHint } = {}) {
-  log.debug("resolve start", { type, serverId: effectiveServerId(serverIdHint) });
+  log.debug("resolve start", {
+    type,
+    serverId: effectiveServerId(serverIdHint),
+  });
 
   await ensureSessionResolved(serverIdHint);
 
@@ -373,6 +438,7 @@ export async function invalidateResolveCache(serverIdHint) {
   SESSION.serverId = null;
   SESSION.byType = null;
   SESSION.meta = null;
+  SESSION.workspaceDeclaredTypes = [];
   const serverId = effectiveServerId(serverIdHint);
   const { data } = await readCacheFile();
   const root = normalizeCacheRoot(data);
@@ -393,7 +459,9 @@ if (isMain) {
   const result = await resolve(type);
   if (!result) {
     console.error(`No repo resolved for type=${type}.`);
-    console.error("Live mode needs a configured `jf` server with an access token (run `jf c add`).");
+    console.error(
+      "Live mode needs a configured `jf` server with an access token (run `jf c add`).",
+    );
     process.exit(2);
   }
   console.log(JSON.stringify(result, null, 2));

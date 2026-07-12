@@ -42,7 +42,7 @@ async function main() {
   const harness = detectHarness(stdinRaw);
   if (harness && harness !== HARNESS_ID) {
     setLogContext({ ide: HARNESS_ID, sessionId: parseSessionId(stdinRaw) });
-    log.debug("harness mismatch; wrong adapter invoked", {
+    log.warn("harness mismatch; wrong adapter invoked", {
       expected: HARNESS_ID,
       detected: harness,
       adapter: "cursor-session-start",

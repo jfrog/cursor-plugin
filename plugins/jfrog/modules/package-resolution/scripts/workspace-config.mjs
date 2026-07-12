@@ -19,7 +19,12 @@ export function pickWorkspaceConfigRoot(workspaceRoots) {
   if (!workspaceRoots?.length) return null;
   for (const root of workspaceRoots) {
     if (typeof root !== "string" || !root) continue;
-    const configFile = path.join(root, ".jfrog", "local", WORKSPACE_CONFIG_FILE);
+    const configFile = path.join(
+      root,
+      ".jfrog",
+      "local",
+      WORKSPACE_CONFIG_FILE,
+    );
     if (existsSync(configFile)) {
       return { root, configFile };
     }
@@ -38,15 +43,37 @@ function normalizeWorkspaceConfig(data) {
 }
 
 /**
+ * Read + validate the workspace config, reporting *why* it was rejected so
+ * callers can surface actionable diagnostics (a silently-ignored typo in this
+ * file is otherwise impossible to notice).
+ *
  * @param {{ root: string, configFile: string }} pick
- * @returns {Promise<{ repositories: Record<string, string> } | null>}
+ * @returns {Promise<
+ *   | { status: "ok", config: { repositories: Record<string, string> } }
+ *   | { status: "absent" }
+ *   | { status: "unreadable", error: Error }
+ *   | { status: "invalid", error: Error }
+ *   | { status: "empty" }
+ * >}
  */
 export async function loadWorkspaceConfig(pick) {
-  if (!pick?.configFile) return null;
+  if (!pick?.configFile) return { status: "absent" };
+
+  let raw;
   try {
-    const raw = await readFile(pick.configFile, "utf8");
-    return normalizeWorkspaceConfig(JSON.parse(raw));
-  } catch {
-    return null;
+    raw = await readFile(pick.configFile, "utf8");
+  } catch (err) {
+    return { status: "unreadable", error: err };
   }
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (err) {
+    return { status: "invalid", error: err };
+  }
+
+  const config = normalizeWorkspaceConfig(data);
+  if (!config) return { status: "empty" };
+  return { status: "ok", config };
 }

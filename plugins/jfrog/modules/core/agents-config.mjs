@@ -3,19 +3,31 @@
 // Read-only helpers — no network. Session starters call ensureAgentsConfigScaffold()
 // before capabilities run so first-time installs get a writable config file.
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** modules bundle root (parent of core/ and assets/). */
-const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PLUGIN_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 
-const TEMPLATE_PATH = path.join(PLUGIN_ROOT, "assets", "agents-default-conf.json");
+const TEMPLATE_PATH = path.join(
+  PLUGIN_ROOT,
+  "assets",
+  "agents-default-conf.json",
+);
 
 const DEFAULT_LOG_LEVEL = "info";
 const DEFAULT_CACHE_TTL_DAYS = 7;
-
 let memoizedRaw = undefined;
 let memoizedForPath = null;
 /** @type {{ source: 'missing' | 'user' | 'template', parseFailed: boolean, path: string }} */
@@ -47,10 +59,6 @@ export function ensureAgentsConfigScaffold() {
 }
 
 export { agentsConfigPath };
-
-export function agentsConfigTemplatePath() {
-  return TEMPLATE_PATH;
-}
 
 /** @returns {number | null} mtime in ms, or null when the file is absent */
 export function getAgentsConfigMtimeMs() {
@@ -97,11 +105,16 @@ function readAgentsConfigRaw() {
   try {
     memoizedRaw = parseAgentsJson(readFileSync(TEMPLATE_PATH, "utf8"));
     if (!userExists) {
-      loadMeta = { source: memoizedRaw ? "template" : "missing", parseFailed: false, path: configPath };
+      loadMeta = {
+        source: memoizedRaw ? "template" : "missing",
+        parseFailed: false,
+        path: configPath,
+      };
     }
   } catch {
     memoizedRaw = null;
-    if (!userExists) loadMeta = { source: "missing", parseFailed: false, path: configPath };
+    if (!userExists)
+      loadMeta = { source: "missing", parseFailed: false, path: configPath };
   }
   return memoizedRaw;
 }
@@ -151,12 +164,37 @@ export function loadAgentsConfig() {
       verifyRepos: pr.verifyRepos !== false,
       cacheTtlDays: normalizeCacheTtlDays(pr.cacheTtlDays),
       defaultGlobalRepos,
+      enforceOnStartup: normalizeEnforceOnStartup(pr.enforceOnStartup),
     },
   };
 }
 
 export function getGlobalLogLevel() {
   return loadAgentsConfig().logLevel;
+}
+
+/**
+ * Package types the admin declares globally (governance source). Governance is
+ * the UNION of these and any workspace `.jfrog/local` repositories; the workspace
+ * side is added by the resolver (workspace-dependent, per-session).
+ * @returns {string[]} defaultGlobalRepos keys (unordered)
+ */
+export function globalDeclaredTypes() {
+  return Object.keys(loadAgentsConfig().packageResolution.defaultGlobalRepos);
+}
+
+/**
+ * Repo-agnostic "enforce on startup" policy check for a single package type.
+ * `enforceOnStartup: true` means all governed types; an array names a subset.
+ * NOTE: this is a pure policy check — the caller still gates on the type being
+ * governed + resolved this session.
+ * @param {string} type
+ * @returns {boolean}
+ */
+export function isEnforceOnStartup(type) {
+  const e = loadAgentsConfig().packageResolution.enforceOnStartup;
+  if (e === true) return true;
+  return Array.isArray(e) && e.includes(type);
 }
 
 function normalizeLogLevel(level) {
@@ -171,6 +209,23 @@ function normalizeCacheTtlDays(days) {
     return DEFAULT_CACHE_TTL_DAYS;
   }
   return Math.floor(days);
+}
+
+/**
+ * Normalize the `enforceOnStartup` policy: `true` (all governed types) or an
+ * array of type-name strings. Anything else -> `[]` (nothing eager). Malformed
+ * array entries (non-strings / blanks) are dropped; whether a named type is
+ * actually governed is validated later (per-session, where governance is known).
+ * @returns {true | string[]}
+ */
+export function normalizeEnforceOnStartup(raw) {
+  if (raw === true) return true;
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const t of raw) {
+    if (typeof t === "string" && t.trim()) out.push(t.trim());
+  }
+  return out;
 }
 
 /** Trim string repo keys; drop empty values. */

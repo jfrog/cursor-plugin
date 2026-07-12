@@ -12,6 +12,7 @@
       "docker": "docker-virtual",
       "helm": "helm-virtual",
       "nuget": "nuget-virtual"
-    }
+    },
+    "enforceOnStartup": []
   }
 }

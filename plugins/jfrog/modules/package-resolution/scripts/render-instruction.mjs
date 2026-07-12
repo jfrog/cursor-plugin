@@ -17,9 +17,10 @@ import {
   resolve as resolveRepo,
   getResolveSessionMeta,
   prepareSessionResolve,
-  PACKAGE_TYPES,
+  governedPackageTypes,
 } from "./resolver.mjs";
 import { createLogger } from "../../core/logger.mjs";
+import { globalDeclaredTypes } from "../../core/agents-config.mjs";
 
 const log = createLogger("render-instruction");
 
@@ -70,34 +71,113 @@ function jfrogPlatformUrlHint() {
   );
 }
 
-// Rewrite "## Rewrite templates" bullets that still reference an unresolved PM
-// so the agent never sees a usable-but-wrong example URL. Operates only on that
-// section so the resolved-URLs table (which intentionally surfaces the
-// placeholder) is untouched.
-function rewriteUnresolvedBullets(markdown) {
-  const lines = markdown.split("\n");
-  let inSection = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^##\s+Rewrite templates\s*$/.test(line)) {
-      inSection = true;
-      continue;
-    }
-    if (inSection && /^##\s+/.test(line)) {
-      inSection = false;
-      continue;
-    }
-    if (!inSection) continue;
-    const m = line.match(/<no\s+(\w+)\s+repo\s+resolved>/);
-    if (!m) continue;
-    const pm = m[1].toLowerCase();
-    lines[i] =
-      `- \`${pm}\` — **unresolved** (no Artifactory repo for this PM yet). ` +
+const NO_REPO = (type) => `<no ${type} repo resolved>`;
+
+// Resolved-URLs markdown table for the governed types (one row each). Ungoverned
+// types are omitted entirely; governed-but-unresolved types keep a placeholder
+// row so hard-rule #5 can steer the agent to setup.
+function buildResolvedTable(governed, resolved) {
+  const rows = governed.map((type) => {
+    const url = resolved[type]?.baseUrl ?? NO_REPO(type);
+    return `| ${type} | \`${url}\` |`;
+  });
+  return ["| Type | Use this URL |", "|---|---|", ...rows].join("\n");
+}
+
+// Per-type "## Rewrite templates" bullet(s). Unresolved governed types get the
+// "do not invent a URL" bullet instead so the agent never sees a wrong example.
+function rewriteBulletFor(type, resolved) {
+  const r = resolved[type];
+  if (!r) {
+    return (
+      `- \`${type}\` — **unresolved** (no Artifactory repo for this PM yet). ` +
       `Per hard rule #5, do not invent a URL: invoke \`jfrog-setup-package-managers\` ` +
-      `for \`${pm}\` BEFORE any direct command. Once the binding is recorded, ` +
-      `route subsequent \`${pm}\` commands through the resolved URL yourself.`;
+      `for \`${type}\` BEFORE any direct command. Once the binding is recorded, ` +
+      `route subsequent \`${type}\` commands through the resolved URL yourself.`
+    );
   }
-  return lines.join("\n");
+  const url = r.baseUrl;
+  switch (type) {
+    case "npm":
+      return `- \`npm install <pkg>\` → \`npm install <pkg> --registry ${url}\``;
+    case "pypi":
+      return (
+        `- \`pip install <pkg>\` → \`pip install <pkg> --index-url ${url}\`\n` +
+        `- \`poetry add <pkg>\` → first \`poetry source add jfrog ${url} --priority=primary\``
+      );
+    case "go":
+      return `- \`go get <mod>\` → \`GOPROXY=${url},direct go get <mod>\``;
+    case "docker":
+      return `- \`docker pull <img>\` → \`docker pull ${url}/<img>\` (all refs — bare or explicit registry host)`;
+    case "maven":
+      return `- \`mvn ...\` / \`gradle ...\` → config-driven; run \`jfrog-setup-package-managers\` if not yet bound.`;
+    case "helm":
+      return `- \`helm ...\` → config-driven; run \`jfrog-setup-package-managers\` if not yet bound.`;
+    case "nuget":
+      return `- \`nuget\` / \`dotnet ...\` → config-driven; run \`jfrog-setup-package-managers\` if not yet bound.`;
+    default:
+      return `- \`${type} ...\` → config-driven; run \`jfrog-setup-package-managers\` if not yet bound.`;
+  }
+}
+
+function buildRewriteBullets(governed, resolved) {
+  return governed.map((type) => rewriteBulletFor(type, resolved)).join("\n");
+}
+
+// The "## Docker" section, rendered ONLY when docker is governed. Empty string
+// otherwise so ungoverned docker never appears in the policy.
+function buildDockerSection(governed, resolved) {
+  if (!governed.includes("docker")) return "";
+  const resolvedDocker = resolved.docker;
+  const body = resolvedDocker
+    ? [
+        "- **Bare refs go to Docker Hub.** `docker pull alpine:latest` (no registry host) uses",
+        "  `docker.io` — `jf setup docker` does **not** change that. You must prefix:",
+        "  `docker pull <host>/<repoKey>/<img>` using the docker row above (`host/repoKey`, not",
+        "  `https://…`).",
+        "- **Explicit hosts too.** `docker pull ghcr.io/foo/bar` (or any registry host in the ref)",
+        "  — also route through JFrog: prefix with the docker row above; do not pull from the",
+        "  upstream host directly.",
+      ].join("\n")
+    : [
+        "- **Unresolved docker ⇒ no docker commands.** The docker row shows",
+        "  `<no … repo resolved>`; do not run `docker pull/run/create` until setup completes",
+        '  and you have a prefixed ref. Do not "try first, fix later."',
+      ].join("\n");
+  return "\n## Docker (before any `docker pull`)\n\n" + body + "\n";
+}
+
+// Enforce-mode scope line — the governed PMs are known from config alone (no
+// network / no resolution needed). Notes that matching PMs will be
+// auto-configured once routing is ready. Does NOT claim any type is routed yet.
+function buildEnforceGovernedScope() {
+  const governed = globalDeclaredTypes();
+  if (!governed.length) {
+    return (
+      "No package managers are declared for routing yet (`defaultGlobalRepos` is empty). " +
+      "Ask an admin which PMs to govern."
+    );
+  }
+  return (
+    `**Governed package managers (once ready):** ${governed.join(", ")}. ` +
+    "Package managers not listed are out of scope. Matching PMs may be auto-configured " +
+    "via `jf setup` once a JFrog server is configured; nothing is routed until then."
+  );
+}
+
+// "This policy governs only: …" scope line so the agent knows which PMs are in
+// scope and treats everything else as hands-off.
+function buildGovernedScope(governed) {
+  if (!governed.length) {
+    return (
+      "**This policy governs no package managers** (none declared in `defaultGlobalRepos` " +
+      "or the workspace file). Install packages normally; no JFrog routing required."
+    );
+  }
+  return (
+    `**This policy governs only:** ${governed.join(", ")}. ` +
+    "Package managers not listed are out of scope — install them normally; no JFrog routing required."
+  );
 }
 
 /**
@@ -117,45 +197,77 @@ export async function renderInstruction(flag, ctx = {}) {
   if (!flag || flag.mode === "off") return { text: "", meta: { mode: "off" } };
 
   if (flag.mode === "enforce") {
-    let notice = await readFile(path.join(TEMPLATES_DIR, ENFORCE_TEMPLATE), "utf8");
-    notice = notice.replace(/\{\{CAUSE_REMEDIATION\}\}/g, causeRemediation(flag.cause));
-    notice = notice.replace(/\{\{JFROG_PLATFORM_URL_HINT\}\}/g, jfrogPlatformUrlHint());
+    let notice = await readFile(
+      path.join(TEMPLATES_DIR, ENFORCE_TEMPLATE),
+      "utf8",
+    );
+    notice = notice.replace(
+      /\{\{CAUSE_REMEDIATION\}\}/g,
+      causeRemediation(flag.cause),
+    );
+    notice = notice.replace(
+      /\{\{JFROG_PLATFORM_URL_HINT\}\}/g,
+      jfrogPlatformUrlHint(),
+    );
     notice = notice.replace(/\{\{REFRESH_COMMAND\}\}/g, refreshCommand());
+    notice = notice.replace(
+      /\{\{GOVERNED_SCOPE\}\}/g,
+      buildEnforceGovernedScope(),
+    );
     // Detail line — kept at debug so the default level shows a single EVENT per
     // session (the dispatcher's "sessionStart injected"). Raise the level to see
     // the cause/byte breakdown.
-    log.debug("enforce notice rendered", { cause: flag.cause, bytes: notice.length });
+    log.debug("enforce notice rendered", {
+      cause: flag.cause,
+      bytes: notice.length,
+    });
     return {
       text: notice,
       meta: { cause: flag.cause, template: ENFORCE_TEMPLATE },
     };
   }
 
-  // active: pre-resolve every package type and substitute concrete URLs.
+  // active: resolve only the GOVERNED types (admin defaultGlobalRepos keys UNION
+  // workspace-declared keys) and build the table / bullets / docker section
+  // dynamically so ungoverned types disappear entirely (not blocked).
   await prepareSessionResolve({ workspaceRoots: ctx.workspaceRoots });
+  const governed = governedPackageTypes();
   const resolved = {};
   const unresolved = [];
-  for (const t of PACKAGE_TYPES) {
+  for (const t of governed) {
     const r = await resolveRepo(t);
     if (r) resolved[t] = r;
     else unresolved.push(t);
   }
 
-  let template = await readFile(path.join(TEMPLATES_DIR, ACTIVE_TEMPLATE), "utf8");
-  template = template.replace(/\{\{(\w+)_URL\}\}/g, (_, type) => {
-    const r = resolved[type.toLowerCase()];
-    return r ? r.baseUrl : `<no ${type} repo resolved>`;
-  });
-  template = rewriteUnresolvedBullets(template);
+  let template = await readFile(
+    path.join(TEMPLATES_DIR, ACTIVE_TEMPLATE),
+    "utf8",
+  );
+  template = template
+    .replace(/\{\{GOVERNED_SCOPE\}\}/g, buildGovernedScope(governed))
+    .replace(/\{\{RESOLVED_TABLE\}\}/g, buildResolvedTable(governed, resolved))
+    .replace(
+      /\{\{REWRITE_BULLETS\}\}/g,
+      buildRewriteBullets(governed, resolved),
+    )
+    .replace(/\{\{DOCKER_SECTION\}\}/g, buildDockerSection(governed, resolved))
+    .replace(
+      /\{\{ENFORCE_STATUS\}\}/g,
+      ctx.enforceStatus ? `\n${ctx.enforceStatus}\n` : "",
+    );
 
   const resolvedCompact =
-    Object.entries(resolved).map(([t, r]) => `${t}:${r.repoKey}`).join(",") || "-";
+    Object.entries(resolved)
+      .map(([t, r]) => `${t}:${r.repoKey}`)
+      .join(",") || "-";
   const unresolvedCompact = unresolved.join(",") || "-";
 
   const rm = getResolveSessionMeta();
   // Detail line — kept at debug (see the enforce branch above) so the default
   // level shows a single EVENT per session.
   log.debug("active instruction rendered", {
+    governed: governed.join(",") || "-",
     resolved: resolvedCompact,
     unresolved: unresolvedCompact,
     source: rm?.source ?? "-",
@@ -168,6 +280,7 @@ export async function renderInstruction(flag, ctx = {}) {
     cacheFile: rm?.cacheFile ?? "-",
     cacheHit: rm?.cacheHit ?? false,
     resolveSource: rm?.resolveSource ?? "-",
+    governed: governed.join(",") || "-",
     resolved: resolvedCompact,
     unresolved: unresolvedCompact,
     template: ACTIVE_TEMPLATE,
@@ -182,5 +295,3 @@ export async function renderInstruction(flag, ctx = {}) {
 
   return { text: template, meta };
 }
-
-export { getResolveSessionMeta };
