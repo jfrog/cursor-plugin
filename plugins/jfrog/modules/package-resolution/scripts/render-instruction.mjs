@@ -26,9 +26,6 @@ const log = createLogger("render-instruction");
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.join(here, "../templates");
-// modules/ root (parent of package-resolution/ and core/) — used to hand the
-// agent an absolute path to the on-demand policy printer in the enforce notice.
-const MODULES_ROOT = path.resolve(here, "../..");
 const ACTIVE_TEMPLATE = "package-resolution.md";
 const ENFORCE_TEMPLATE = "package-resolution-unconfigured.md";
 
@@ -36,7 +33,7 @@ const ENFORCE_TEMPLATE = "package-resolution-unconfigured.md";
 // session (no restart). Absolute path so it works regardless of the agent's cwd
 // or where the plugin is vendored.
 function refreshCommand() {
-  return `node "${path.join(MODULES_ROOT, "print-policy.mjs")}"`;
+  return `node "${path.join(here, "print-policy.mjs")}"`;
 }
 
 // Prose fragment for the enforce-notice {{CAUSE_REMEDIATION}} placeholder.

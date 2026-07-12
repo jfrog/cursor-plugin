@@ -21,7 +21,7 @@
 
 import process from "node:process";
 
-import packageResolution from "./package-resolution/scripts/index.mjs";
+import packageResolution from "./index.mjs";
 
 function parseWorkspaceRoots() {
   const args = process.argv.slice(2);
