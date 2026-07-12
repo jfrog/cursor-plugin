@@ -24,12 +24,19 @@ lets the hook re-apply on later sessions.
 
 **Session-start hook:** resolves repo keys per package type, injects the
 "Resolved URLs for this session" table, refreshes the global cache. The same
-renderer is available on demand via `modules/print-policy.mjs` (the enforce
+renderer is available on demand via `modules/package-resolution/scripts/print-policy.mjs` (the enforce
 notice embeds the exact command), so the policy can be loaded after setup. Do
 not re-resolve or probe repositories.
 
 **This skill:** reads that output, runs `jf setup`, and persists the workspace
 binding at `.jfrog/local/package-resolution.json` when PM config is still missing.
+
+**Honor the injected policy's governed scope.** The session policy lists the
+package managers it governs. Do **not** *proactively* onboard a PM the policy
+doesn't govern (e.g. a stray `Dockerfile` when only `pypi`/`npm` are governed) —
+those are intentionally out of scope. An **explicit user request** to set up any
+PM still works (Step 1's user-mention signal and Step 2's AskQuestion for an
+unlisted PM apply as usual).
 
 ## Prerequisites
 
@@ -161,7 +168,7 @@ Cap at **2 answers per PM**, then abort. User may override repo only, never serv
 ## Step 4 — Load the routing policy
 
 If this session started with the "routing NOT READY" (enforce) notice, that
-notice includes a refresh command (`node <plugin>/modules/print-policy.mjs`).
+notice includes a refresh command (`node <plugin>/modules/package-resolution/scripts/print-policy.mjs`).
 After Step 3 succeeds, run that exact command and treat its stdout as the
 authoritative, now-current policy — it prints the resolved Artifactory URLs and
 hard rules. Continue the original request using those URLs.
