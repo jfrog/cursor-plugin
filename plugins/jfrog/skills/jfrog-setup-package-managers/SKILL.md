@@ -40,12 +40,10 @@ unlisted PM apply as usual).
 
 ## Prerequisites
 
-- Read [`../jfrog/SKILL.md`](../jfrog/SKILL.md) for CLI install, server config,
-  and user-agent rules. Needs `jf` + a configured server (`<SID>`). If the
-  hook reports `jf-not-installed` / `jf-not-configured`, start at Step 0.
 - `jf setup` **mutates user state** (`~/.npmrc`, `~/.docker/config.json`, …).
   Confirm before the first `jf setup` in a session unless the user explicitly
   requests silent/non-interactive setup.
+- Reading [`../jfrog/SKILL.md`](../jfrog/SKILL.md) is required — done as Step 0.1 below.
 
 **Out of scope:** CLI install/login (`../jfrog/references/…`); repo listing
 or discovery (`jf api /artifactory/api/repositories`).
@@ -70,15 +68,20 @@ or discovery (`jf api /artifactory/api/repositories`).
 | [`references/global-cache-file.md`](references/global-cache-file.md) | Global cache shape, resolution classes, jq one-liners |
 | [`references/workspace-binding.md`](references/workspace-binding.md) | Workspace binding schema, PM → type map, merge semantics |
 
-## Step 0 — Ensure `jf` is installed and a server is configured
+## Step 0 — Read the base skill, then ensure `jf` is ready
 
-Recovery when routing is enforced but not ready. Skip if `jf config show` succeeds.
-
-1. **`jf --version`** — missing → install per
-   [`../jfrog/references/jfrog-cli-install-upgrade.md`](../jfrog/references/jfrog-cli-install-upgrade.md).
-2. **`jf config show`** — empty → login per
-   [`../jfrog/references/jfrog-login-flow.md`](../jfrog/references/jfrog-login-flow.md)
-   or `jf config add` with access-token (Bearer-only).
+1. **Read [`../jfrog/SKILL.md`](../jfrog/SKILL.md) fully first — always, before any
+   `jf` command, even when `jf` is already configured.** It carries the `jf`
+   invariants this skill relies on. After reading, run that skill's
+   *Environment check* (and export `JFROG_CLI_USER_AGENT`) before the first
+   `jf` call.
+2. Ensure `jf` + a configured server (`<SID>`). If `jf config show` already
+   succeeds, skip to Step 1; otherwise:
+   - **`jf --version`** missing → install per
+     [`../jfrog/references/jfrog-cli-install-upgrade.md`](../jfrog/references/jfrog-cli-install-upgrade.md).
+   - **`jf config show`** empty → login per
+     [`../jfrog/references/jfrog-login-flow.md`](../jfrog/references/jfrog-login-flow.md)
+     or `jf config add` with access-token (Bearer-only).
 3. Do not run `jf setup` until both succeed. Confirm before install/login.
 
 ## Step 1 — Identify package managers to bind
