@@ -108,6 +108,14 @@ When an MCP server requires a sensitive configuration, the agent cannot set the 
 
 See the [JFrog MCP Registry troubleshooting guide](https://docs.jfrog.com/ai-ml/docs/mcp-registry-troubleshooting).
 
+### JFrog MCP tools don't appear after signing in
+
+The `jfrog` MCP server is proxied by Agent Guard. Until you're authenticated it exposes a single `enable_jfrog_tools` tool; calling it opens the browser for a one-time authorization and then the real JFrog tools are added to the session.
+
+- An empty or login-only tool list is expected before you authenticate — it means "call `enable_jfrog_tools`", not that the MCP is broken.
+- If the agent keeps falling back to the `jf` CLI instead of using the MCP, tell it to call `enable_jfrog_tools` first.
+- If the real JFrog tools don't appear after login, open **Cursor Settings → Tools & MCP** and make sure the `jfrog` server and its tools are enabled (newly added tools may need to be toggled on). Use the server's refresh control if one is shown, or reload the window / start a new chat so the updated tool list is picked up.
+
 ---
 
 ## Updating the vendored skills
