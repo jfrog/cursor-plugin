@@ -105,7 +105,7 @@ function rewriteBulletFor(type, resolved) {
     case "go":
       return `- \`go get <mod>\` → \`GOPROXY=${url},direct go get <mod>\``;
     case "docker":
-      return `- \`docker pull <img>\` → \`docker pull ${url}/<img>\` (all refs — bare or explicit registry host)`;
+      return `- \`docker pull [<public-registry-host>/]acme/app:1.2\` → \`docker pull ${url}/acme/app:1.2\` (drop a leading PUBLIC registry host — \`docker.io\`, \`ghcr.io\`, \`quay.io\`, \`gcr.io\`, …. Leave \`localhost\`/\`127.0.0.1\`, private/internal registries, and the JFrog host itself as-is; if unsure, resolve the host — a private/loopback IP means internal, leave it)`;
     case "maven":
       return `- \`mvn ...\` / \`gradle ...\` → config-driven; run \`jfrog-setup-package-managers\` if not yet bound.`;
     case "helm":
