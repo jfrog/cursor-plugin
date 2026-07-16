@@ -185,9 +185,10 @@ function printTroubleshooting() {
   heading("If the plugin does not show up");
 
   bullet([
-    "Dashboard → Settings → Security & Identity → Marketplace and Plugins",
-    '→ "Allow Local Plugin Imports" → ON',
+    "Cloud Dashboard (cursor.com) → Settings → Security & Identity → Marketplace and Plugins",
+    '→ "Allow Local Plugin Imports" → ON  (Enterprise Admins only; not in IDE Settings)',
     "Then quit Cursor fully and reopen.",
+    "Also enable IDE: Settings → Rules, Skills, Subagents → Include third-party Plugins…",
     "More detail: AGENT-PACKAGE-RESOLUTION-BETA.md in this repo.",
   ]);
 }

@@ -16,8 +16,32 @@ Internal dogfooding branch **`feature/package-resolution`**. Not on the public m
 
 - **Cursor** with AI features enabled
 - **Node.js** ≥ 14 on `PATH` (hooks run via `node`)
-- **`jf` CLI** configured (`jf config add`) or `JFROG_PLATFORM_URL` + `JFROG_ACCESS_TOKEN`
-- **Local plugin imports allowed** — enable **Allow Local Plugin Imports** in Cursor settings (see [Troubleshooting](#troubleshooting))
+- **`jf` CLI** configured (`jf config add`) for **active** routing — see [Identity / env vars](#identity--environment-variables)
+- Cursor settings below (two different places — easy to confuse)
+
+### Identity / environment variables
+
+Agent Package Resolution identity comes **only** from `jf config` (server URL + token in the CLI).
+
+| Source | Role |
+|--------|------|
+| `jf config add` | **Required** for active mode (resolved URLs, eager `jf setup`) |
+| `JFROG_PLATFORM_URL` | **Optional hint** in the “routing NOT READY” notice when `jf` is missing — does **not** activate routing |
+| `JFROG_ACCESS_TOKEN` | **Ignored** by Package Resolution |
+| `JFROG_URL` | **Ignored** by Package Resolution |
+
+### Two Cursor settings (do not mix these up)
+
+Local beta install puts files under `~/.cursor/plugins/local/jfrog-beta/`. Getting the plugin **and** SessionStart hooks to work involves **two unrelated toggles**:
+
+| Setting | Where it lives | Who can change it | What it does |
+|---------|----------------|-------------------|--------------|
+| **Allow Local Plugin Imports** | **Cloud Dashboard** (cursor.com) → team **Settings** → **Security & Identity** → **Marketplace and Plugins** | **Enterprise Admins only** (Members never see this in the IDE) | Org gate for loading plugins from `~/.cursor/plugins/local/`. Defaults **off** on Enterprise. Search team Settings for **“plugins”**. Not an IDE Settings page. |
+| **Include third-party Plugins, Skills, and other configs** | **IDE** → **Cursor Settings** → **Rules, Skills, Subagents** (green switch under the filter chips) | Every user | Required for **session-start hooks** to inject Package Resolution policy. Skills/MCP can work without it; hooks will not. |
+
+If the beta plugin is missing from **Settings → Plugins**, ask a Cursor Enterprise Admin to turn on **Allow Local Plugin Imports**, then **Cmd+Q** and reopen. If the plugin is installed but SessionStart has no JFrog text, turn on the IDE third-party toggle and start a **new Agent chat**.
+
+Forum context: [local plugin loading](https://forum.cursor.com/t/regression-on-local-plugin-loading-discovery/161161), [plugin hooks](https://forum.cursor.com/t/plugin-hooks-not-loading-into-cursor-ide/156702).
 
 ## Install
 
@@ -30,7 +54,15 @@ Branch: [`feature/package-resolution`](https://github.com/jfrog/cursor-plugin/tr
 
 Then **Cmd+Q** quit Cursor fully, reopen, and start a **new Agent chat**.
 
-Verify: **Settings → Plugins → Installed** shows **JFrog Platform** (or similar).
+### Verify install (SessionStart)
+
+Ask in a **new Agent chat**:
+
+> what are the jfrog instruction you received in sessionstart (show as is)
+
+With Package Resolution enabled and `jf` configured, you should see the injected **Package Resolution — Artifactory First** policy verbatim (resolved URL table). If `jf` is missing, you should see the **routing NOT READY** notice instead.
+
+Also confirm **Settings → Plugins → Installed** shows **JFrog Platform** (local name: `jfrog-beta`).
 
 If you already use the marketplace **JFrog** plugin, you can keep both — the beta installs as **`jfrog-beta`** under local plugins.
 
@@ -40,9 +72,9 @@ Work through these in order. After any `agents-conf.json` change, open a **new A
 
 ### Phase 1 — JFrog CLI and credentials
 
-Ensure `jf` works and your platform URL / token are set (`jf config add` or `JFROG_PLATFORM_URL` + `JFROG_ACCESS_TOKEN`).
+Ensure `jf` is installed and configured (`jf config add`). Active mode reads identity **only** from `jf config` — not from `JFROG_ACCESS_TOKEN` / `JFROG_URL`.
 
-Eager setup and resolved URLs both need **active** mode: a usable `jf` server (or platform env auth). If `jf` is missing/unconfigured, the hook injects a “routing NOT READY” notice instead and skips auto `jf setup`.
+Eager setup and resolved URLs both need **active** mode: a usable `jf` server. If `jf` is missing/unconfigured, the hook injects a “routing NOT READY” notice instead and skips auto `jf setup`. If `JFROG_PLATFORM_URL` is set in the IDE launch env, that URL appears in the notice as a setup hint.
 
 ### Phase 2 — Enable + choose governed package types
 
@@ -101,7 +133,7 @@ Notes:
 2. Phases 1–2 done (`enabled` + `defaultGlobalRepos`); Phase 3 optional but recommended for dogfooding eager setup.
 3. Open a **new Agent chat** in a project with a package manifest (e.g. `package.json`) or ask the agent to run package commands.
 
-Full reference: [configure-agent-package-resolution](https://github.jfrog/jfrog-agent-hooks/blob/master/docs/configure-agent-package-resolution.md).
+Full reference: [configure-agent-package-resolution](https://github.jfrog.info/JFROG/jfrog-agent-hooks/blob/master/docs/product/configure-agent-package-resolution.md).
 
 ## Try it
 
@@ -181,8 +213,14 @@ Does **not** remove `~/.jfrog/agents-conf.json` — edit or delete that file man
 
 ## Troubleshooting
 
-**Install succeeded but plugin not in Settings**
+**Plugin files exist but nothing in Settings → Plugins**
 
-The files are in `~/.cursor/plugins/local/jfrog-beta/`, but Cursor may ignore them if local imports are blocked (`userLocal=false` in **Cursor Plugins.log**).
+Files land in `~/.cursor/plugins/local/jfrog-beta/`. On Cursor **Enterprise**, loading them can be blocked until an **Admin** enables **Allow Local Plugin Imports** in the **cloud Dashboard** (not IDE Settings) — see [Two Cursor settings](#two-cursor-settings-do-not-mix-these-up). Symptom in logs: `userLocal=false` in **Cursor Plugins.log**. After the Admin flips it, **Cmd+Q** and reopen.
 
-Enable local plugin imports: **Dashboard → Settings → Security & Identity → Marketplace and Plugins → Allow Local Plugin Imports → ON**, then **Cmd+Q** and reopen Cursor.
+**Plugin listed but no JFrog SessionStart instructions**
+
+Enable **Include third-party Plugins, Skills, and other configs** under **IDE → Rules, Skills, Subagents**, then open a **new Agent chat** and re-run the [SessionStart verify](#verify-install-sessionstart) prompt.
+
+**Still on “routing NOT READY” after setting env tokens**
+
+Package Resolution does **not** use `JFROG_ACCESS_TOKEN` or `JFROG_URL`. Run `jf config add` (and ensure `jf` is on `PATH`). `JFROG_PLATFORM_URL` only affects the hint text in the notice.
