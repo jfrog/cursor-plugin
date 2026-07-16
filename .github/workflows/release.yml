@@ -1,3 +1,4 @@
+# Copyright (c) JFrog Ltd. 2026
 name: Release
 
 on:
@@ -15,10 +16,12 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Check out the repository with a token so the workflow can push tags
+      - uses: actions/checkout@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Parse the commit message for a [major], [minor], or [patch] tag
       - name: Detect release tag in commit message
         id: detect
         run: |
@@ -29,21 +32,25 @@ jobs:
             echo "triggered=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Read the current version from the VERSION file
       - name: Read version
         if: steps.detect.outputs.triggered == 'true'
         id: version
         run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
+      # Create a git tag for the version and push it to origin
       - name: Create and push tag
         if: steps.detect.outputs.triggered == 'true'
         run: |
           git tag "v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}"
 
+      # Bundle the plugin directory into a zip file for the GitHub Release
       - name: Package release artifact
         if: steps.detect.outputs.triggered == 'true'
         run: zip -r release.zip . --exclude ".git/*" --exclude ".github/*"
 
+      # Publish the GitHub Release with the zip artifact and auto-generated notes
       - name: Create GitHub Release
         if: steps.detect.outputs.triggered == 'true'
         env:
