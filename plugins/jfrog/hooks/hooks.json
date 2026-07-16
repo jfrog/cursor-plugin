@@ -5,10 +5,6 @@
       {
         "command": "node \"./modules/cursor-session-start.mjs\" package-resolution",
         "timeout": 7
-      },
-      {
-        "command": "node \"./scripts/inject-instructions.mjs\"",
-        "timeout": 7
       }
     ]
   }

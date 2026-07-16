@@ -19,7 +19,6 @@ CLI authentication options: run `jf login` for browser-based setup, or set the `
 | Component | Path | Description |
 |---|---|---|
 | **MCP** | `mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
-| **Hook** | `hooks/hooks.json` | Agent Guard — MCP server governance via JFrog AI Catalog |
 | **Hook + Skill** | `hooks/hooks.json`, `skills/jfrog-setup-package-managers/` | Agent Package Resolution (Preview) — route agent package installs through Artifactory |
 
 ### Skills

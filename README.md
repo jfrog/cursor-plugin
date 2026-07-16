@@ -27,10 +27,10 @@ Before installing, make sure you have:
 
 - **JFrog host URL and access token** — Your JFrog platform URL and a valid access token.
 - **Cursor** — Installed with AI features enabled.
-- **Node.js** (≥ 14) — with `npx` on your `PATH`.
+- **Node.js** (≥ 18) — with `npx` on your `PATH`.
 - **Skill runtime requirements** — `jf` CLI, `jq`, and `curl` on `PATH`, plus a configured JFrog instance. For the minimum versions, see the upstream skills [`Requirements`](https://github.com/jfrog/jfrog-skills/blob/v0.11.0/README.md#requirements). Configure the CLI with `jf config add` — see [Authentication](#authentication).
 - **JFrog Platform access** (optional) — If you want to use the Agent Guard feature, your JFrog subscription needs to include the AI Catalog entitlement. Contact your JFrog account team if you're unsure whether it's enabled.
-- **JFrog CLI ≥ 2.105.0** (optional) — If you want the Agent Guard hook to auto-resolve credentials/server ID from the JFrog CLI instead of `JFROG_PLATFORM_URL`/`JFROG_ACCESS_TOKEN` env vars. Older CLIs don't support the `--format` flag used by `jf config show`/`jf config export` for this.
+- **JFrog CLI ≥ 2.105.0** (optional) — If you want the Agent Guard to auto-resolve credentials/server ID from the JFrog CLI instead of `JFROG_PLATFORM_URL`/`JFROG_ACCESS_TOKEN` env vars. Older CLIs don't support the `--format` flag used by `jf config show`/`jf config export` for this.
 - **JFrog project** (optional) — If you want to use the Agent Guard feature.
 
 ---
