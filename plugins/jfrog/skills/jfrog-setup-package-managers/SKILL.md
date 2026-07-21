@@ -6,9 +6,10 @@ description: >-
   Artifactory via `jf setup` and `.jfrog/local/package-resolution.json`; when a
   workspace manifest exists with no matching binding entry; or when a session
   hook reports PM config missing. Skip when the binding already has the same
-  repo key — the session hook reapplies each start. Do NOT discover or
-  enumerate repositories; use resolver output only. On unresolved or failed
-  setup, ask for a repo key with the failure verbatim — never switch servers.
+  repo key — the session hook reapplies each start. Never pick a repo by
+  discovery; use resolver output only (unless the user explicitly names or
+  asks to browse repos). On unresolved or failed setup, ask for a repo key
+  with the failure verbatim — never switch servers.
 metadata:
   role: workflow
 ---
@@ -25,8 +26,7 @@ lets the hook re-apply on later sessions.
 **Session-start hook:** resolves repo keys per package type, injects the
 "Resolved URLs for this session" table, refreshes the global cache. The same
 renderer is available on demand via `modules/package-resolution/scripts/print-policy.mjs` (the enforce
-notice embeds the exact command), so the policy can be loaded after setup. Do
-not re-resolve or probe repositories.
+notice embeds the exact command), so the policy can be loaded after setup.
 
 **This skill:** reads that output, runs `jf setup`, and persists the workspace
 binding at `.jfrog/local/package-resolution.json` when PM config is still missing.
@@ -45,8 +45,7 @@ unlisted PM apply as usual).
   requests silent/non-interactive setup.
 - Reading [`../jfrog/SKILL.md`](../jfrog/SKILL.md) is required — done as Step 0.1 below.
 
-**Out of scope:** CLI install/login (`../jfrog/references/…`); repo listing
-or discovery (`jf api /artifactory/api/repositories`).
+**Out of scope:** CLI install/login (`../jfrog/references/…`).
 
 ## Gotchas
 
@@ -111,10 +110,10 @@ Combine four signals, in order; intersect with `jf setup --help` supported list:
    [`jf-setup-command.md`](references/jf-setup-command.md). Unsupported PM →
    report gap, skip.
 
-## Step 2 — Get the resolved repo (don't re-resolve)
+## Step 2 — Get the resolved repo
 
 For each `<pm>`, recover `<repoKey>` and `<serverId>` from the first source
-available — **no** list/discovery calls:
+available:
 
 1. **"Resolved URLs for this session"** table (default). Parse `<repoKey>`
    from URL; `<serverId>` from host.
@@ -124,12 +123,16 @@ available — **no** list/discovery calls:
 
 Cache disagreeing with (1)/(2) is not a reason to change the repo.
 
-**Must not:** list repos; enumerate candidates; iterate `--server-id`; second-guess
-the resolver.
+**Don't choose a repo yourself:** no listing, enumerating, probing, or iterating
+`--server-id` to pick one, and don't second-guess the resolver — use resolver
+output only. If the user explicitly asks to browse repos, list them via
+`jf api "/artifactory/api/repositories?type=virtual&packageType=<pm>"` (filter by
+repo type — prefer `virtual` — and package type), then let the user choose; the
+agent still never makes the choice on its own.
 
 ### Unresolved repo key
 
-Ask via AskQuestion — never enumerate:
+Ask via AskQuestion:
 
 > No default repo for `<pm>` on `<SID>`.
 > Which Artifactory repository should I use? (repo key, or `abort`.)
