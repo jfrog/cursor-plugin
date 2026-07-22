@@ -71,8 +71,8 @@ The plugin can now automatically route the packages your AI agent installs (npm,
 
 Agent Package Resolution is in preview and opt-in. To get started:
 
-- **Users:** see the [User Guide](docs/user-guide.md).
-- **Admins:** see the [Admin Guide](docs/admin-guide.md).
+- **Users:** see the [User Guide](docs/package-resolution-user-guide.md).
+- **Admins:** see the [Admin Guide](docs/package-resolution-admin-guide.md).
 
 ---
 
