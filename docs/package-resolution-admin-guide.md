@@ -79,7 +79,7 @@ This lets you **pre-deploy** your own `agents-conf.json` (via MDM, Ansible, flee
       "helm": "helm-virtual",
       "nuget": "nuget-virtual"
     },
-    "enforceOnStartup": []
+    "autoSetup": []
   }
 }
 ```
@@ -129,17 +129,17 @@ Once enablement is resolved, Agent Package Resolution runs in one of three modes
 | Mode        | When                                                                                  | What the user sees                                         |
 | ----------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | **off**     | `packageResolution.enabled` is not `true`, or the disable environment variable is set | Nothing; no Agent Package Resolution injection             |
-| **enforce** | Enabled, but `jf` is missing or not configured                                        | An advisory notice: routing is not ready, with setup steps |
-| **active**  | Enabled and `jf` is configured and usable                                             | Full routing policy with resolved Artifactory URLs         |
+| **pending** | Enabled, but `jf` is missing or not configured                                        | An advisory notice: routing is not ready, with setup steps |
+| **routing** | Enabled and `jf` is configured and usable                                             | Full routing policy with resolved Artifactory URLs         |
 
 
-`enforce` is **advisory**: it steers the agent and user toward setup. It is not a hard block. Hard enforcement comes from Curation and bound package manager configuration.
+`pending` is **advisory**: it steers the agent and user toward setup. It is not a hard block. Hard enforcement comes from Curation and bound package manager configuration.
 
 ---
 
-## Zero-touch setup: `enforceOnStartup`
+## Zero-touch setup: `autoSetup`
 
-By default, package-manager binding (`jf setup`) happens when the developer or agent runs it, typically via a one-time confirmation the first time a project uses a given package type. `enforceOnStartup` lets you skip that: the plugin runs `jf setup` **automatically, in the background, at session start** for whichever governed package types you list, so a developer's first session already has those package managers bound to Artifactory, including indirect installs like a postinstall script, `pip install -r`, or `npx`.
+By default, package-manager binding (`jf setup`) happens when the developer or agent runs it, typically via a one-time confirmation the first time a project uses a given package type. `autoSetup` lets you skip that: the plugin runs `jf setup` **automatically, in the background, at session start** for whichever governed package types you list, so a developer's first session already has those package managers bound to Artifactory, including indirect installs like a postinstall script, `pip install -r`, or `npx`.
 
 ```json
 {
@@ -149,14 +149,14 @@ By default, package-manager binding (`jf setup`) happens when the developer or a
       "npm": "npm-virtual",
       "pypi": "pypi-virtual"
     },
-    "enforceOnStartup": ["pypi"]
+    "autoSetup": ["pypi"]
   }
 }
 ```
 
-- `enforceOnStartup` takes a list of package type names, or `true` to mean "all governed types."
+- `autoSetup` takes a list of package type names, or `true` to mean "all governed types."
 - Only types that are both **governed** (declared in `defaultGlobalRepos` or a workspace override) and **resolved** are eligible; other names are ignored with a warning in the log.
-- It only runs in `active` mode (a working `jf` identity). Nothing is auto-configured in `enforce` mode.
+- It only runs in `routing` mode (a working `jf` identity). Nothing is auto-configured in `pending` mode.
 - It's off by default (`[]`) and safe to leave off: without it, setup still happens, just triggered by the developer's or agent's first use of that package type instead of automatically.
 - It's idempotent. Each result is recorded in `~/.jfrog/skills-cache/package-setup.json`, keyed by server and package type, and trusted for `cacheTtlDays`. A repo that fails to configure (for example, a missing repo key or no permission) is deferred rather than retried every session, and retries automatically once you fix it.
 
@@ -183,7 +183,7 @@ All keys are optional. Unknown keys are ignored.
 | `verifyRepos`        | `true`             | When `true`, each repo key in `defaultGlobalRepos` is verified against Artifactory before use                       |
 | `cacheTtlDays`       | `7`                | Days to reuse the verified repo snapshot per JFrog server; `0` re-resolves every session                            |
 | `defaultGlobalRepos` | See template above | Map of package type to Artifactory **repository key**. Keys also define which types are **governed**, see below     |
-| `enforceOnStartup`   | `[]`               | Governed types to auto-configure with `jf setup` at session start, or `true` for all. See Zero-touch setup below    |
+| `autoSetup`          | `[]`               | Governed types to auto-configure with `jf setup` at session start, or `true` for all. See Zero-touch setup below    |
 
 
 **Supported package types:** `npm`, `pypi`, `maven`, `go`, `docker`, `helm`, `nuget`.
@@ -314,7 +314,7 @@ Workspace values win over `agents-conf.json` for matching package types during t
 | Wrong repository URLs                   | Verify `defaultGlobalRepos` keys exist on your Platform; check `verifyRepos` and `~/.jfrog/skills-cache/package-resolution.json`                                                             |
 | Invalid config ignored                  | Malformed JSON logs a **WARN** in `~/.jfrog/logs/agent-hooks.log` and falls back to safe defaults (`enabled: false`)                                                                          |
 | Reset to shipped defaults                | Delete `~/.jfrog/agents-conf.json`; it is recopied automatically. Optionally delete `package-resolution.json` and `package-setup.json` from the cache to clear snapshots and setup receipts   |
-| `enforceOnStartup` type not configured   | Confirm the type is governed and the session was in `active` mode. Check `agent-hooks.log` and `package-setup.json` in the skills cache                                                       |
+| `autoSetup` type not configured          | Confirm the type is governed and the session was in `routing` mode. Check `agent-hooks.log` and `package-setup.json` in the skills cache                                                       |
 
 
 ---
@@ -328,7 +328,7 @@ Agent Package Resolution runs at the start of every coding-agent session. When e
 - **This is advisory steering, not a hard block.** The feature tells the agent which repository to use and nudges it to configure package managers accordingly. It does not intercept or rewrite the underlying install commands. If you need a hard guarantee that nothing reaches a public registry, that guarantee comes from the two mechanisms below, not from this session-injection layer alone.
 - **Durable enforcement is `jf setup` (package manager configuration) plus server-side Curation.** Once a package manager is bound to your Artifactory repository (via `jf setup`, which the agent will run for you when needed), that binding persists across sessions and tools, independent of this feature. Curation policies on the server are what actually block disallowed packages.
 - **All 7 package types are configurable** (npm, PyPI, Maven, Go, Docker, Helm, NuGet), but you do not have to turn them all on at once. A narrower starting scope (for example, just npm and PyPI) is a reasonable way to begin a preview rollout; see the configuration examples above. Package types you don't declare are left completely alone, see [Selective governance](#selective-governance-choose-which-package-types-to-route).
-- **Package-manager binding can happen automatically** if you turn on `enforceOnStartup` for a package type, instead of waiting for a developer's or agent's first use to trigger it. See [Zero-touch setup](#zero-touch-setup-enforceonstartup).
+- **Package-manager binding can happen automatically** if you turn on `autoSetup` for a package type, instead of waiting for a developer's or agent's first use to trigger it. See [Zero-touch setup](#zero-touch-setup-autosetup).
 - This is a **preview**. Expect rough edges, and please route feedback through the channel below.
 
 ---
