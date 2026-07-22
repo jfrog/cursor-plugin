@@ -130,7 +130,7 @@ Once enablement is resolved, Agent Package Resolution runs in one of three modes
 | ----------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | **off**     | `packageResolution.enabled` is not `true`, or the disable environment variable is set | Nothing; no Agent Package Resolution injection             |
 | **enforce** | Enabled, but `jf` is missing or not configured                                        | An advisory notice: routing is not ready, with setup steps |
-| **active**  | Enabled and `jf` (or platform environment auth) is usable                             | Full routing policy with resolved Artifactory URLs         |
+| **active**  | Enabled and `jf` is configured and usable                                             | Full routing policy with resolved Artifactory URLs         |
 
 
 `enforce` is **advisory**: it steers the agent and user toward setup. It is not a hard block. Hard enforcement comes from Curation and bound package manager configuration.
