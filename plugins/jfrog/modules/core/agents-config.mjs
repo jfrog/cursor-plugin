@@ -164,7 +164,7 @@ export function loadAgentsConfig() {
       verifyRepos: pr.verifyRepos !== false,
       cacheTtlDays: normalizeCacheTtlDays(pr.cacheTtlDays),
       defaultGlobalRepos,
-      enforceOnStartup: normalizeEnforceOnStartup(pr.enforceOnStartup),
+      autoSetup: normalizeAutoSetup(pr.autoSetup),
     },
   };
 }
@@ -184,15 +184,15 @@ export function globalDeclaredTypes() {
 }
 
 /**
- * Repo-agnostic "enforce on startup" policy check for a single package type.
- * `enforceOnStartup: true` means all governed types; an array names a subset.
+ * Repo-agnostic "auto setup" policy check for a single package type.
+ * `autoSetup: true` means all governed types; an array names a subset.
  * NOTE: this is a pure policy check — the caller still gates on the type being
  * governed + resolved this session.
  * @param {string} type
  * @returns {boolean}
  */
-export function isEnforceOnStartup(type) {
-  const e = loadAgentsConfig().packageResolution.enforceOnStartup;
+export function isAutoSetup(type) {
+  const e = loadAgentsConfig().packageResolution.autoSetup;
   if (e === true) return true;
   return Array.isArray(e) && e.includes(type);
 }
@@ -212,13 +212,13 @@ function normalizeCacheTtlDays(days) {
 }
 
 /**
- * Normalize the `enforceOnStartup` policy: `true` (all governed types) or an
+ * Normalize the `autoSetup` policy: `true` (all governed types) or an
  * array of type-name strings. Anything else -> `[]` (nothing eager). Malformed
  * array entries (non-strings / blanks) are dropped; whether a named type is
  * actually governed is validated later (per-session, where governance is known).
  * @returns {true | string[]}
  */
-export function normalizeEnforceOnStartup(raw) {
+export function normalizeAutoSetup(raw) {
   if (raw === true) return true;
   if (!Array.isArray(raw)) return [];
   const out = [];

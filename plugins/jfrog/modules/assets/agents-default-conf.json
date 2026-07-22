@@ -13,6 +13,6 @@
       "helm": "helm-virtual",
       "nuget": "nuget-virtual"
     },
-    "enforceOnStartup": []
+    "autoSetup": []
   }
 }

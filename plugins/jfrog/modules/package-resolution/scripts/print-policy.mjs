@@ -2,14 +2,14 @@
 // On-demand package-resolution policy printer.
 //
 // Unlike modules/*-session-start.mjs, this is NOT wired to a hook event. It is
-// invoked manually (by the agent, per the enforce notice) so a session that
+// invoked manually (by the agent, per the pending notice) so a session that
 // started "unconfigured" can load the up-to-date routing policy — resolved
 // Artifactory URLs + hard rules — on demand once `jf` is configured.
 //
 // It delegates to the exact same `packageResolution.sessionStart(ctx)` the
 // session-start hook runs, so recovery behaves identically to opening a fresh
 // session: it warms ~/.jfrog/skills-cache/package-resolution.json AND triggers
-// eager `jf setup` (background worker + receipt + lock) for enforced types.
+// eager `jf setup` (background worker + receipt + lock) for auto-setup types.
 // Safe to run repeatedly — the receipt/lock dedupe. print-policy is agent-invoked
 // (not the 7s hook), so the background spawn is fine.
 //
