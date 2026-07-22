@@ -2,10 +2,10 @@
 
 JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, supply-chain best practices, and Agent Guard.
 
-## What's new in v0.5.8
+## What's new
 
-- **Official skills.** The plugin now uses the official [jfrog-skills](https://github.com/jfrog/jfrog-skills) v0.19.0, replacing the previously bundled skill content. This brings structured reference files, automation scripts, and a three-tier tool selection strategy (MCP, CLI, REST/GraphQL).
-- **Package safety skill.** New `jfrog-package-safety-and-download` skill for checking whether packages are safe, curated, or allowed before downloading them through Artifactory.
+- **Agent Package Resolution (Preview).** A new opt-in hook automatically routes the packages your AI agent installs through your JFrog Artifactory instead of public registries. See [Agent Package Resolution](#agent-package-resolution-preview).
+- **AI Catalog skill.** New `jfrog-ai-catalog-skills` skill to discover, install, update, and publish agent skills hosted in the JFrog AI Catalog.
 ---
 
 ## Features
