@@ -20,6 +20,7 @@ CLI authentication options: run `jf login` for browser-based setup, or set the `
 |---|---|---|
 | **MCP** | `mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
 | **Hook** | `hooks/hooks.json` | Agent Guard — MCP server governance via JFrog AI Catalog |
+| **Hook + Skill** | `hooks/hooks.json`, `skills/jfrog-setup-package-managers/` | Agent Package Resolution (Preview) — route agent package installs through Artifactory |
 
 ### Skills
 
@@ -34,6 +35,17 @@ The **jfrog** skill (`skills/jfrog/`) provides platform-wide coverage via MCP to
 The **jfrog-ai-catalog-skills** skill (`skills/jfrog-ai-catalog-skills/`) discovers, installs, manages, and publishes agent skills hosted in the JFrog AI Catalog via `jf skills` and Agent Guard.
 
 The **jfrog-package-safety-and-download** skill (`skills/jfrog-package-safety-and-download/`) handles package safety checks — querying the JFrog Public Catalog, interpreting security signals, checking curation policies, and downloading packages through Artifactory remote caches.
+
+## Agent Package Resolution (Preview)
+
+> **Preview Notice:** This software is in preview and licensed under the Apache License 2.0. For clarity: This software is provided "as-is" without warranty of any kind. Behavior, APIs, conventions, and structure may change without notice between releases. JFrog makes no guarantees of backward compatibility during the preview release cycle. Use in production environments is at your own risk.
+
+The plugin can automatically route the packages your AI agent installs (npm, PyPI, Maven, Go, Docker, Helm, and NuGet) through your organization's JFrog Artifactory instead of public registries. This keeps agent-driven dependency installs inside your organization's governance perimeter.
+
+Agent Package Resolution is in preview and opt-in. To get started:
+
+- **Users:** see the [User Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-user-guide.md).
+- **Admins:** see the [Admin Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-admin-guide.md).
 
 ## MCP Capabilities
 

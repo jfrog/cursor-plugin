@@ -2,10 +2,10 @@
 
 JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, supply-chain best practices, and Agent Guard.
 
-## What's new in v0.5.0
+## What's new
 
-- **Official skills.** The plugin now uses the official [jfrog-skills](https://github.com/jfrog/jfrog-skills) v0.11.0, replacing the previously bundled skill content. This brings structured reference files, automation scripts, and a three-tier tool selection strategy (MCP, CLI, REST/GraphQL).
-- **Package safety skill.** New `jfrog-package-safety-and-download` skill for checking whether packages are safe, curated, or allowed before downloading them through Artifactory.
+- **Agent Package Resolution (Preview).** A new opt-in hook automatically routes the packages your AI agent installs through your JFrog Artifactory instead of public registries. See [Agent Package Resolution](#agent-package-resolution-preview).
+- **AI Catalog skill.** New `jfrog-ai-catalog-skills` skill to discover, install, update, and publish agent skills hosted in the JFrog AI Catalog.
 ---
 
 ## Features
@@ -16,6 +16,7 @@ The JFrog plugin provides the following capabilities, grouped by component:
 | --- | --- | --- |
 | **Skill** | JFrog Platform | Interact with Artifactory repositories, builds, permissions, users, access tokens, projects, release bundles, and platform administration via the JFrog CLI and REST/GraphQL APIs. Also covers security audits, CVE lookups, and Advanced Security exposure queries. |
 | **Skill** | Package safety & download | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers. |
+| **Hook + Skill** | Agent Package Resolution (Preview) | Automatically route packages installed by the AI agent through your organization's JFrog Artifactory, keeping agent-driven installs inside your Curation, Xray, and governance perimeter. |
 | **Hook** | Agent Guard | Cursor manage MCPs through the JFrog Agent Guard. Through the Agent Guard you can discover, install, configure, update, and remove MCP servers from the JFrog AI Catalog approved for your project, and authenticate to remote HTTP MCPs via OAuth, API key, or bearer token. |
 
 ---
@@ -62,6 +63,19 @@ Run `jf login` for browser-based setup, or set the `JFROG_ACCESS_TOKEN` environm
 
 ---
 
+## Agent Package Resolution (Preview)
+
+> **Preview Notice:** This software is in preview and licensed under the Apache License 2.0. For clarity: This software is provided "as-is" without warranty of any kind. Behavior, APIs, conventions, and structure may change without notice between releases. JFrog makes no guarantees of backward compatibility during the preview release cycle. Use in production environments is at your own risk.
+
+The plugin can now automatically route the packages your AI agent installs (npm, PyPI, Maven, Go, Docker, Helm, and NuGet) through your organization's JFrog Artifactory instead of public registries. This keeps agent-driven dependency installs inside your organization's governance perimeter.
+
+Agent Package Resolution is in preview and opt-in. To get started:
+
+- **Users:** see the [User Guide](docs/package-resolution-user-guide.md).
+- **Admins:** see the [Admin Guide](docs/package-resolution-admin-guide.md).
+
+---
+
 ## Usage
 
 Once configured, interact with the JFrog plugin through natural language. Examples are grouped by capability.
@@ -84,6 +98,16 @@ Once configured, interact with the JFrog plugin through natural language. Exampl
 | "Is `lodash@4.17.21` safe to install?" | Checks JFrog Public Catalog signals and curation policy for the package. |
 | "Is this Maven package approved for use?" | Checks curation entitlement and policy for the requested package. |
 | "Download `requests` via JFrog." | Resolves the package through an Artifactory remote cache or curation-aware package manager. |
+
+### Agent Package Resolution
+
+When Agent Package Resolution is enabled and configured, no special prompt syntax is required. Ask the agent to install or use a package as you normally would, and the plugin routes supported package operations through your organization's Artifactory.
+
+| Ask the agent…                         | What happens                                                             |
+| -------------------------------------- | ------------------------------------------------------------------------ |
+| "Add `lodash` to this project."        | Resolves the npm package through the configured Artifactory repository.  |
+| "Add Excel file import to this app."   | The agent selects a suitable package and resolves it through the configured Artifactory repository. |
+| "Pull the `alpine` Docker image."      | Pulls the image through the configured Artifactory Docker repository.    |
 
 ### MCP server management (Agent Guard)
 
