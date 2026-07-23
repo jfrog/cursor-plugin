@@ -1,8 +1,8 @@
-// Eager `jf setup` — "enforce on startup".
+// Eager `jf setup` — "auto setup on startup".
 //
 // Two roles in one file:
 //   1. ORCHESTRATOR (foreground, imported by index.mjs): after resolution,
-//      figure out which governed + `enforceOnStartup` + resolved types still
+//      figure out which governed + `autoSetup` + resolved types still
 //      need `jf setup` (per the receipt), spawn a DETACHED background worker for
 //      them, and return a short status note for the injected instruction. Never
 //      runs `jf setup` itself — injection must stay fast (< 7s hook budget).
@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 import { createLogger } from "../../core/logger.mjs";
 import {
   loadAgentsConfig,
-  isEnforceOnStartup,
+  isAutoSetup,
 } from "../../core/agents-config.mjs";
 import { getPlatformIdentity } from "../../core/jf-identity.mjs";
 import {
@@ -50,10 +50,10 @@ import {
 
 const log = createLogger("eager-setup");
 
-/** Actionable hint when enforceOnStartup names a type that isn't governed. */
-function ungovernedEnforceHint(type) {
+/** Actionable hint when autoSetup names a type that isn't governed. */
+function ungovernedAutoSetupHint(type) {
   return (
-    `trying to eager-configure '${type}' via enforceOnStartup but it is not ` +
+    `trying to eager-configure '${type}' via autoSetup but it is not ` +
     "governed — no repo found in defaultGlobalRepos " +
     "(~/.jfrog/agents-conf.json) or repositories in " +
     ".jfrog/local/package-resolution.json"
@@ -92,8 +92,8 @@ function workerPath() {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute eligible eager-setup jobs = governed ∩ resolved ∩ enforceOnStartup.
- * Warns when `enforceOnStartup` names an ungoverned type (ignored, not fatal).
+ * Compute eligible eager-setup jobs = governed ∩ resolved ∩ autoSetup.
+ * Warns when `autoSetup` names an ungoverned type (ignored, not fatal).
  * @param {string[]} governed
  * @param {Record<string, {repoKey:string}>} resolvedByType
  * @returns {{type:string, repoKey:string, pm:string}[]}
@@ -102,10 +102,10 @@ export function computeEligibleJobs(governed, resolvedByType) {
   const governedSet = new Set(governed);
   const jobs = [];
   for (const type of governed) {
-    if (!isEnforceOnStartup(type)) continue;
+    if (!isAutoSetup(type)) continue;
     const r = resolvedByType[type];
     if (!r) {
-      log.debug("eager skip: enforced but unresolved", { type });
+      log.debug("eager skip: auto-setup but unresolved", { type });
       continue;
     }
     const pm = TYPE_TO_PM[type];
@@ -115,12 +115,12 @@ export function computeEligibleJobs(governed, resolvedByType) {
     }
     jobs.push({ type, repoKey: r.repoKey, pm });
   }
-  // Surface admin misconfig: enforceOnStartup naming a type that isn't governed.
-  const { enforceOnStartup } = loadAgentsConfig().packageResolution;
-  if (Array.isArray(enforceOnStartup)) {
-    for (const type of enforceOnStartup) {
+  // Surface admin misconfig: autoSetup naming a type that isn't governed.
+  const { autoSetup } = loadAgentsConfig().packageResolution;
+  if (Array.isArray(autoSetup)) {
+    for (const type of autoSetup) {
       if (!governedSet.has(type)) {
-        log.warn(`eager setup skipped: ${ungovernedEnforceHint(type)}`, {
+        log.warn(`eager setup skipped: ${ungovernedAutoSetupHint(type)}`, {
           type,
         });
       }
@@ -176,8 +176,8 @@ function spawnWorker(payloadB64) {
 }
 
 /**
- * Foreground entry called from sessionStart (active mode only). Decides which
- * governed+enforced+resolved types need `jf setup`, spawns the background worker
+ * Foreground entry called from sessionStart (routing mode only). Decides which
+ * governed+auto-setup+resolved types need `jf setup`, spawns the background worker
  * if any do, and returns a status note for the injected instruction ("" if
  * nothing to say). Never throws — eager setup must never break injection.
  * @param {{ workspaceRoots?: string[] }} ctx

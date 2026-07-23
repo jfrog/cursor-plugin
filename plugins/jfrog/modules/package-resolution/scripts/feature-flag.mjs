@@ -6,15 +6,15 @@
 //   1. JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1 → mode="off" (env kill switch)
 //   2. packageResolution.enabled !== true in      → mode="off" (file-primary gate;
 //      ~/.jfrog/agents-conf.json                   default off in shipped template)
-//   3. jf config (via jf-identity)                → mode="active" when identity is
-//      usable; otherwise mode="enforce" with a `cause` (jf-not-installed /
+//   3. jf config (via jf-identity)                → mode="routing" when identity is
+//      usable; otherwise mode="pending" with a `cause` (jf-not-installed /
 //      jf-not-configured) so the session hook can inject a targeted,
 //      remediation-focused advisory notice.
 //
 // Modes:
 //   "off"     — do nothing (no injection).
-//   "active"  — inject resolved Artifactory URLs + routing policy.
-//   "enforce" — jf missing/unconfigured: inject the advisory "routing not
+//   "routing" — inject resolved Artifactory URLs + routing policy.
+//   "pending" — jf missing/unconfigured: inject the advisory "routing not
 //               ready" notice (no resolved URLs). This is advisory steering,
 //               not a hard block — real enforcement is durable PM config
 //               (jf setup) + server-side Curation.
@@ -51,13 +51,13 @@ export async function isPackageResolutionEnabled() {
 
   const { identity, cause } = getPlatformIdentity();
   if (!identity) {
-    log.debug("enforce", { reason: "missing-identity", cause });
-    return { mode: "enforce", reason: "missing-identity", identity: "none", cause };
+    log.debug("pending", { reason: "missing-identity", cause });
+    return { mode: "pending", reason: "missing-identity", identity: "none", cause };
   }
 
-  log.debug("active", { reason: "jf-config", identity: identityLabel(identity) });
+  log.debug("routing", { reason: "jf-config", identity: identityLabel(identity) });
   return {
-    mode: "active",
+    mode: "routing",
     reason: "jf-config",
     identity: identityLabel(identity),
     cause: "ok",

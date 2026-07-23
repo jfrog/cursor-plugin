@@ -5,7 +5,7 @@ Your organization mediates package fetches through JFrog Artifactory for the
 shell, sub-agent, or MCP tool — route through the resolved Artifactory repository.
 
 {{GOVERNED_SCOPE}}
-{{ENFORCE_STATUS}}
+{{AUTO_SETUP_STATUS}}
 ## Resolved URLs for this session
 
 {{RESOLVED_TABLE}}

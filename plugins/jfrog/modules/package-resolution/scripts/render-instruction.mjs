@@ -5,8 +5,8 @@
 // IDE-specific shaping) so every per-harness adapter can reuse it.
 //
 //   mode "off"      → "" (nothing to inject)
-//   mode "enforce"  → the advisory "routing not ready" notice
-//   mode "active"   → the routing policy with resolved Artifactory URLs
+//   mode "pending"  → the advisory "routing not ready" notice
+//   mode "routing"  → the routing policy with resolved Artifactory URLs
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -26,8 +26,8 @@ const log = createLogger("render-instruction");
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.join(here, "../templates");
-const ACTIVE_TEMPLATE = "package-resolution.md";
-const ENFORCE_TEMPLATE = "package-resolution-unconfigured.md";
+const ROUTING_TEMPLATE = "package-resolution.md";
+const PENDING_TEMPLATE = "package-resolution-unconfigured.md";
 
 // Command the agent runs after configuring `jf` to load routing in the SAME
 // session (no restart). Absolute path so it works regardless of the agent's cwd
@@ -36,7 +36,7 @@ function refreshCommand() {
   return `node "${path.join(here, "print-policy.mjs")}"`;
 }
 
-// Prose fragment for the enforce-notice {{CAUSE_REMEDIATION}} placeholder.
+// Prose fragment for the pending-notice {{CAUSE_REMEDIATION}} placeholder.
 function causeRemediation(cause) {
   if (cause === "jf-not-installed") {
     return (
@@ -144,10 +144,10 @@ function buildDockerSection(governed, resolved) {
   return "\n## Docker (before any `docker pull`)\n\n" + body + "\n";
 }
 
-// Enforce-mode scope line — the governed PMs are known from config alone (no
+// Pending-mode scope line — the governed PMs are known from config alone (no
 // network / no resolution needed). Notes that matching PMs will be
 // auto-configured once routing is ready. Does NOT claim any type is routed yet.
-function buildEnforceGovernedScope() {
+function buildPendingGovernedScope() {
   const governed = globalDeclaredTypes();
   if (!governed.length) {
     return (
@@ -185,7 +185,7 @@ function buildGovernedScope(governed) {
  * into its single "sessionStart injected" EVENT line so the default-level log
  * stays one line but still carries the detail the POC printed.
  *
- * @param {{ mode: "off"|"enforce"|"active", cause?: string }} flag
+ * @param {{ mode: "off"|"pending"|"routing", cause?: string }} flag
  * @param {{ workspaceRoots?: string[] }} [ctx]
  * @returns {Promise<{ text: string, meta: object }>} text is "" when there is
  *   nothing to inject.
@@ -193,9 +193,9 @@ function buildGovernedScope(governed) {
 export async function renderInstruction(flag, ctx = {}) {
   if (!flag || flag.mode === "off") return { text: "", meta: { mode: "off" } };
 
-  if (flag.mode === "enforce") {
+  if (flag.mode === "pending") {
     let notice = await readFile(
-      path.join(TEMPLATES_DIR, ENFORCE_TEMPLATE),
+      path.join(TEMPLATES_DIR, PENDING_TEMPLATE),
       "utf8",
     );
     notice = notice.replace(
@@ -209,22 +209,22 @@ export async function renderInstruction(flag, ctx = {}) {
     notice = notice.replace(/\{\{REFRESH_COMMAND\}\}/g, refreshCommand());
     notice = notice.replace(
       /\{\{GOVERNED_SCOPE\}\}/g,
-      buildEnforceGovernedScope(),
+      buildPendingGovernedScope(),
     );
     // Detail line — kept at debug so the default level shows a single EVENT per
     // session (the dispatcher's "sessionStart injected"). Raise the level to see
     // the cause/byte breakdown.
-    log.debug("enforce notice rendered", {
+    log.debug("pending notice rendered", {
       cause: flag.cause,
       bytes: notice.length,
     });
     return {
       text: notice,
-      meta: { cause: flag.cause, template: ENFORCE_TEMPLATE },
+      meta: { cause: flag.cause, template: PENDING_TEMPLATE },
     };
   }
 
-  // active: resolve only the GOVERNED types (admin defaultGlobalRepos keys UNION
+  // routing: resolve only the GOVERNED types (admin defaultGlobalRepos keys UNION
   // workspace-declared keys) and build the table / bullets / docker section
   // dynamically so ungoverned types disappear entirely (not blocked).
   await prepareSessionResolve({ workspaceRoots: ctx.workspaceRoots });
@@ -238,7 +238,7 @@ export async function renderInstruction(flag, ctx = {}) {
   }
 
   let template = await readFile(
-    path.join(TEMPLATES_DIR, ACTIVE_TEMPLATE),
+    path.join(TEMPLATES_DIR, ROUTING_TEMPLATE),
     "utf8",
   );
   template = template
@@ -250,8 +250,8 @@ export async function renderInstruction(flag, ctx = {}) {
     )
     .replace(/\{\{DOCKER_SECTION\}\}/g, buildDockerSection(governed, resolved))
     .replace(
-      /\{\{ENFORCE_STATUS\}\}/g,
-      ctx.enforceStatus ? `\n${ctx.enforceStatus}\n` : "",
+      /\{\{AUTO_SETUP_STATUS\}\}/g,
+      ctx.autoSetupStatus ? `\n${ctx.autoSetupStatus}\n` : "",
     );
 
   const resolvedCompact =
@@ -261,9 +261,9 @@ export async function renderInstruction(flag, ctx = {}) {
   const unresolvedCompact = unresolved.join(",") || "-";
 
   const rm = getResolveSessionMeta();
-  // Detail line — kept at debug (see the enforce branch above) so the default
+  // Detail line — kept at debug (see the pending branch above) so the default
   // level shows a single EVENT per session.
-  log.debug("active instruction rendered", {
+  log.debug("routing instruction rendered", {
     governed: governed.join(",") || "-",
     resolved: resolvedCompact,
     unresolved: unresolvedCompact,
@@ -280,7 +280,7 @@ export async function renderInstruction(flag, ctx = {}) {
     governed: governed.join(",") || "-",
     resolved: resolvedCompact,
     unresolved: unresolvedCompact,
-    template: ACTIVE_TEMPLATE,
+    template: ROUTING_TEMPLATE,
   };
 
   // Workspace fields only when a local file was read and applied to resolution.

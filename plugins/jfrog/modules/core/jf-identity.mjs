@@ -32,7 +32,7 @@ function normalizeUrl(u) {
 }
 
 // Resolution cause. `ok` means identity is present; the two failure causes
-// drive cause-aware remediation in the enforce path:
+// drive cause-aware remediation in the pending path:
 //   jf-not-installed   — `jf` is not on PATH / could not be executed.
 //   jf-not-configured  — `jf` ran but produced no usable server identity
 //                        (non-zero exit, empty/undecodable export, or a
