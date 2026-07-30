@@ -7,9 +7,10 @@
 //      them, and return a short status note for the injected instruction. Never
 //      runs `jf setup` itself — injection must stay fast (< 7s hook budget).
 //   2. WORKER (background, `node eager-setup.mjs --run <payload>`): take a
-//      global lock, re-check the receipt, run `jf setup <pm> --server-id --repo`
-//      one PM at a time with a per-PM timeout, and record each result. `jf setup`
-//      mutates USER-GLOBAL PM config, so this is serialized across sessions.
+//      global lock, re-check the receipt, run `jf setup <package-manager> --server-id --repo`
+//      one package manager at a time with a per-package-manager timeout, and
+//      record each result. `jf setup` mutates USER-GLOBAL package-manager
+//      config, so this is serialized across sessions.
 //
 // `jf setup` validates the repo itself (`GET /api/repositories/<key>` + non-zero
 // exit on bad repo / missing permission), so it is the authoritative check — no
@@ -47,6 +48,7 @@ import {
   evaluateSetupNeed,
   applySetupResult,
 } from "./eager-setup-receipt.mjs";
+import { packageManagersForType, packageManagerBinaryOnPath } from "./package-manager-family.mjs";
 
 const log = createLogger("eager-setup");
 
@@ -60,20 +62,7 @@ function ungovernedAutoSetupHint(type) {
   );
 }
 
-// Package type -> `jf setup` PM token. Validated at runtime against
-// `jf setup --help` (support list drifts across CLI versions); unsupported
-// mappings are skipped with a warn rather than hardcoded-trusted.
-const TYPE_TO_PM = {
-  npm: "npm",
-  pypi: "pip",
-  maven: "maven",
-  go: "go",
-  docker: "docker",
-  helm: "helm",
-  nuget: "nuget",
-};
-
-const PER_PM_TIMEOUT_MS = 60_000;
+const PER_PACKAGE_MANAGER_TIMEOUT_MS = 60_000;
 
 function cacheDir() {
   return path.join(homedir(), ".jfrog", "skills-cache");
@@ -92,11 +81,13 @@ function workerPath() {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute eligible eager-setup jobs = governed ∩ resolved ∩ autoSetup.
+ * Compute eligible eager-setup jobs = governed ∩ resolved ∩ autoSetup,
+ * expanded to one job per package manager in that type's family (Option C).
  * Warns when `autoSetup` names an ungoverned type (ignored, not fatal).
+ * Binary presence and `jf setup --help` are checked later (orchestrator/worker).
  * @param {string[]} governed
  * @param {Record<string, {repoKey:string}>} resolvedByType
- * @returns {{type:string, repoKey:string, pm:string}[]}
+ * @returns {{type:string, repoKey:string, packageManager:string}[]}
  */
 export function computeEligibleJobs(governed, resolvedByType) {
   const governedSet = new Set(governed);
@@ -108,12 +99,14 @@ export function computeEligibleJobs(governed, resolvedByType) {
       log.debug("eager skip: auto-setup but unresolved", { type });
       continue;
     }
-    const pm = TYPE_TO_PM[type];
-    if (!pm) {
-      log.warn("eager skip: no jf pm mapping", { type });
+    const packageManagers = packageManagersForType(type);
+    if (!packageManagers.length) {
+      log.warn("eager skip: no jf package-manager family mapping", { type });
       continue;
     }
-    jobs.push({ type, repoKey: r.repoKey, pm });
+    for (const packageManager of packageManagers) {
+      jobs.push({ type, repoKey: r.repoKey, packageManager });
+    }
   }
   // Surface admin misconfig: autoSetup naming a type that isn't governed.
   const { autoSetup } = loadAgentsConfig().packageResolution;
@@ -129,7 +122,17 @@ export function computeEligibleJobs(governed, resolvedByType) {
   return jobs;
 }
 
-function statusNote({ configured, pending, deferred }) {
+/**
+ * Build the injected zero-touch status note (package-manager names, not Artifactory types).
+ * @param {{
+ *   configured: string[],
+ *   pending: string[],
+ *   deferred: string[],
+ *   skippedMissing?: string[],
+ * }} parts
+ * @returns {string} markdown note or ""
+ */
+function statusNote({ configured, pending, deferred, skippedMissing }) {
   const parts = [];
   if (pending.length) {
     parts.push(
@@ -137,7 +140,9 @@ function statusNote({ configured, pending, deferred }) {
     );
   }
   if (configured.length) {
-    parts.push(`already configured this session: ${configured.join(", ")}`);
+    parts.push(
+      `already configured (cached, skipping re-setup): ${configured.join(", ")}`,
+    );
   }
   if (deferred.length) {
     parts.push(
@@ -145,11 +150,36 @@ function statusNote({ configured, pending, deferred }) {
         `expires or once the repo/permission is fixed`,
     );
   }
+  if (skippedMissing?.length) {
+    parts.push(
+      `skipped (package manager binary not on PATH): ${skippedMissing.join(", ")}`,
+    );
+  }
   if (!parts.length) return "";
   return `> **Zero-touch package-manager setup** — ${parts.join("; ")}.`;
 }
 
-function spawnWorker(payloadB64) {
+/**
+ * Sync-mode `spawnSync` timeout for the eager-setup worker.
+ * Scales with job count so Option C multi-package-manager runs are not killed mid-way.
+ * @param {number} jobCount number of `jf setup` jobs in the payload
+ * @returns {number} timeout in milliseconds
+ */
+export function syncWorkerTimeoutMs(jobCount) {
+  return Math.max(
+    120_000,
+    PER_PACKAGE_MANAGER_TIMEOUT_MS * Math.max(jobCount, 1) + 30_000,
+  );
+}
+
+/**
+ * Spawn the background eager-setup worker (detached) or run it synchronously
+ * when `JFROG_EAGER_SETUP_SYNC=1`.
+ * @param {string} payloadB64 base64 JSON `{ serverId, url, jobs }`
+ * @param {number} [jobCount=1] used to size the sync-mode timeout
+ * @returns {void}
+ */
+function spawnWorker(payloadB64, jobCount = 1) {
   // Synchronous mode: deterministic tests + a bounded fallback where detached
   // survival is unreliable. Otherwise spawn detached and unref so the child
   // outlives the hook process (runtime is irrelevant to the 7s budget).
@@ -157,7 +187,7 @@ function spawnWorker(payloadB64) {
     spawnSync(process.execPath, [workerPath(), "--run", payloadB64], {
       stdio: "ignore",
       env: process.env,
-      timeout: 120_000,
+      timeout: syncWorkerTimeoutMs(jobCount),
     });
     return;
   }
@@ -207,26 +237,38 @@ export async function orchestrateEagerSetup(ctx = {}) {
     const configured = [];
     const pending = [];
     const deferred = [];
+    const skippedMissing = [];
     const toRun = [];
     for (const job of jobs) {
+      // Binary probe in the orchestrator so the injected note can list skips
+      // before the detached worker runs (PATH walk — no spawn). Worker re-checks.
+      if (!packageManagerBinaryOnPath(job.packageManager)) {
+        skippedMissing.push(job.packageManager);
+        log.warn("eager skip: package manager binary not on PATH", {
+          type: job.type,
+          packageManager: job.packageManager,
+        });
+        continue;
+      }
       const need = evaluateSetupNeed(receipt, {
         serverId,
         url,
-        type: job.type,
+        packageManager: job.packageManager,
         repoKey: job.repoKey,
         ttlDays: cacheTtlDays,
       });
       if (need.skip) {
         // "failed-deferred" = a still-failing entry within its TTL: don't retry
         // this session (no jf setup, no WARN), but surface it in the note.
-        if (need.reason === "failed-deferred") deferred.push(job.type);
-        else configured.push(job.type);
+        if (need.reason === "failed-deferred") deferred.push(job.packageManager);
+        else configured.push(job.packageManager);
         continue;
       }
-      pending.push(job.type);
+      pending.push(job.packageManager);
       toRun.push(job);
       log.debug("eager setup needed", {
         type: job.type,
+        packageManager: job.packageManager,
         repoKey: job.repoKey,
         reason: need.reason,
       });
@@ -237,10 +279,10 @@ export async function orchestrateEagerSetup(ctx = {}) {
         JSON.stringify({ serverId, url, jobs: toRun }),
         "utf8",
       ).toString("base64");
-      spawnWorker(payload);
+      spawnWorker(payload, toRun.length);
     }
 
-    return statusNote({ configured, pending, deferred });
+    return statusNote({ configured, pending, deferred, skippedMissing });
   } catch (err) {
     log.warn("orchestrateEagerSetup failed", {
       error: err?.message ?? String(err),
@@ -253,10 +295,10 @@ export async function orchestrateEagerSetup(ctx = {}) {
 // Lock (worker-only, best-effort, one global lock)
 // ---------------------------------------------------------------------------
 
-// Stale threshold must exceed the total per-PM budget so a healthy long run is
+// Stale threshold must exceed the total per-package-manager budget so a healthy long run is
 // never reclaimed under it. Floor at 120s.
-function staleThresholdMs(pmCount) {
-  return Math.max(PER_PM_TIMEOUT_MS * Math.max(pmCount, 1), 120_000);
+function staleThresholdMs(packageManagerCount) {
+  return Math.max(PER_PACKAGE_MANAGER_TIMEOUT_MS * Math.max(packageManagerCount, 1), 120_000);
 }
 
 function pidAlive(pid) {
@@ -277,10 +319,10 @@ function readLock() {
   }
 }
 
-function isStaleLock(meta, pmCount) {
+function isStaleLock(meta, packageManagerCount) {
   if (!meta) return true;
   const ageMs = Date.now() - new Date(meta.startedAt ?? 0).getTime();
-  if (ageMs >= staleThresholdMs(pmCount)) return true;
+  if (ageMs >= staleThresholdMs(packageManagerCount)) return true;
   if (meta.hostname === hostname() && !pidAlive(meta.pid)) return true;
   return false;
 }
@@ -305,7 +347,7 @@ function tryWriteLock(serverId) {
  * Acquire the global lock. Returns true on success. On live contention → false
  * (skip, don't wait). On a stale lock → reclaim + retry once.
  */
-function acquireLock(serverId, pmCount) {
+function acquireLock(serverId, packageManagerCount) {
   mkdirSync(cacheDir(), { recursive: true });
   try {
     tryWriteLock(serverId);
@@ -318,7 +360,7 @@ function acquireLock(serverId, pmCount) {
     }
   }
   const existing = readLock();
-  if (!isStaleLock(existing, pmCount)) {
+  if (!isStaleLock(existing, packageManagerCount)) {
     log.debug("lock held by live worker; skipping", { owner: existing?.pid });
     return false;
   }
@@ -355,7 +397,7 @@ function releaseLock() {
 // ---------------------------------------------------------------------------
 
 // Parse the `Supported package managers are: a, b, c` line from `jf setup --help`.
-function supportedPms() {
+function supportedPackageManagers() {
   try {
     const res = spawnSync("jf", ["setup", "--help"], {
       encoding: "utf8",
@@ -395,11 +437,11 @@ function extractJfError(stdout, stderr) {
   return detail.slice(0, 300);
 }
 
-function runJfSetup(pm, serverId, repoKey) {
-  const args = ["setup", pm, "--server-id", serverId, "--repo", repoKey];
+function runJfSetup(packageManager, serverId, repoKey) {
+  const args = ["setup", packageManager, "--server-id", serverId, "--repo", repoKey];
   const res = spawnSync("jf", args, {
     encoding: "utf8",
-    timeout: PER_PM_TIMEOUT_MS,
+    timeout: PER_PACKAGE_MANAGER_TIMEOUT_MS,
   });
   if (res.error) {
     return { ok: false, reason: `spawn error: ${res.error.message}` };
@@ -416,7 +458,7 @@ function runJfSetup(pm, serverId, repoKey) {
 /**
  * Background worker body. Acquire lock → re-check receipt → `jf setup` per job →
  * record results → release lock. Best-effort; never throws to the caller.
- * @param {{ serverId:string, url:string, jobs:{type:string,repoKey:string,pm:string}[] }} payload
+ * @param {{ serverId:string, url:string, jobs:{type:string,repoKey:string,packageManager:string}[] }} payload
  */
 export async function runWorker(payload) {
   const { serverId, url, jobs } = payload;
@@ -428,44 +470,51 @@ export async function runWorker(payload) {
     // Re-read the receipt UNDER the lock — another worker may have finished
     // between the foreground spawn and this acquire.
     const root = await readReceipt();
-    const supported = supportedPms();
+    const supported = supportedPackageManagers();
 
     for (const job of jobs) {
+      if (!packageManagerBinaryOnPath(job.packageManager)) {
+        log.warn("worker skip: package manager binary not on PATH", {
+          type: job.type,
+          packageManager: job.packageManager,
+        });
+        continue;
+      }
       const need = evaluateSetupNeed(root, {
         serverId,
         url,
-        type: job.type,
+        packageManager: job.packageManager,
         repoKey: job.repoKey,
         ttlDays: cacheTtlDays,
       });
       if (need.skip) {
         log.debug("worker skip: receipt fresh under lock", {
-          type: job.type,
+          packageManager: job.packageManager,
           reason: need.reason,
         });
         continue;
       }
-      if (supported && !supported.has(job.pm)) {
-        log.warn("worker skip: pm unsupported by jf setup", {
+      if (supported && !supported.has(job.packageManager)) {
+        log.warn("worker skip: package manager unsupported by jf setup", {
           type: job.type,
-          pm: job.pm,
+          packageManager: job.packageManager,
         });
         continue;
       }
 
-      const result = runJfSetup(job.pm, serverId, job.repoKey);
+      const result = runJfSetup(job.packageManager, serverId, job.repoKey);
       if (result.ok) {
         applySetupResult(root, {
           serverId,
           url,
-          type: job.type,
+          packageManager: job.packageManager,
           repoKey: job.repoKey,
           status: "ok",
         });
         log.info("jf setup", {
           serverId,
           type: job.type,
-          pm: job.pm,
+          packageManager: job.packageManager,
           repoKey: job.repoKey,
           status: "ok",
         });
@@ -473,7 +522,7 @@ export async function runWorker(payload) {
         applySetupResult(root, {
           serverId,
           url,
-          type: job.type,
+          packageManager: job.packageManager,
           repoKey: job.repoKey,
           status: "failed",
           reason: result.reason,
@@ -481,13 +530,13 @@ export async function runWorker(payload) {
         log.warn("jf setup", {
           serverId,
           type: job.type,
-          pm: job.pm,
+          packageManager: job.packageManager,
           repoKey: job.repoKey,
           status: "failed",
           reason: result.reason,
         });
       }
-      // Persist progress after each PM so a crash mid-run keeps prior results.
+      // Persist progress after each package manager so a crash mid-run keeps prior results.
       await writeReceipt(root);
     }
   } finally {
