@@ -74,6 +74,7 @@ This lets you **pre-deploy** your own `agents-conf.json` (via MDM, Ansible, flee
       "npm": "npm-virtual",
       "pypi": "pypi-virtual",
       "maven": "maven-virtual",
+      "gradle": "gradle-virtual",
       "go": "go-virtual",
       "docker": "docker-virtual",
       "helm": "helm-virtual",
@@ -95,7 +96,7 @@ You do not have to turn on every package type at once. The package types Agent P
 - the keys you list in `defaultGlobalRepos` (your org default), and
 - any keys declared in a project's workspace override file (see [Workspace-level repository overrides](#workspace-level-repository-overrides) below).
 
-Any package type you don't declare anywhere is **out of scope**: the agent installs it normally, with no routing, no friction, and no "unresolved" state to explain to your developers. This makes it easy to start narrow, for example just `npm` and `pypi`, and expand later, rather than committing to all 7 types on day one. See the "npm and PyPI only" example under [Configuration examples](#configuration-examples) below.
+Any package type you don't declare anywhere is **out of scope**: the agent installs it normally, with no routing, no friction, and no "unresolved" state to explain to your developers. This makes it easy to start narrow, for example just `npm` and `pypi`, and expand later, rather than committing to all 8 types on day one. See the "npm and PyPI only" example under [Configuration examples](#configuration-examples) below.
 
 ---
 
@@ -115,6 +116,7 @@ If you're enabling this for more than a handful of users, use your standard endp
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | Enable Agent Package Resolution for the targeted users | Set `"packageResolution": { "enabled": true, ... }` in the deployed file               |
 | Map to your Artifactory repos                          | Edit `defaultGlobalRepos` with your real repo keys                                     |
+| Auto-configure package managers at session start       | Add types to `autoSetup` ([Zero-touch setup](#zero-touch-setup-autosetup)) — each type expands to its package-manager family |
 | Force a refresh of the cached repo snapshot            | Set `"cacheTtlDays": 0` (re-resolves repos every session; does **not** force autoSetup re-runs), or edit `agents-conf.json` (cache invalidates on file change) |
 | Support troubleshooting                                | Set `"logLevel": "debug"` temporarily; logs go to `~/.jfrog/logs/agent-hooks.log`      |
 
@@ -156,9 +158,10 @@ By default, package-manager binding (`jf setup`) happens when the developer or a
 
 - `autoSetup` takes a list of package type names, or `true` to mean "all governed types."
 - Only types that are both **governed** (declared in `defaultGlobalRepos` or a workspace override) and **resolved** are eligible; other names are ignored with a warning in the log.
+- For each eligible type, the plugin runs `jf setup` for **every package manager in that type's family** that the installed CLI supports and that is present on PATH (for example `pypi` → pip, pipenv, uv; `npm` → npm, pnpm). Missing binaries are skipped with a warning (no failed receipt) and listed in the zero-touch note. `pip` requires `pip3`/`pip` on PATH. `maven` and `gradle` are separate governed types and are not PATH-gated — `jf setup` only writes config files (wrapper-only projects still get setup).
 - It only runs in `routing` mode (a working `jf` identity). Nothing is auto-configured in `pending` mode.
 - It's off by default (`[]`) and safe to leave off: without it, setup still happens, just triggered by the developer's or agent's first use of that package type instead of automatically.
-- It's idempotent. Each result is recorded in `~/.jfrog/skills-cache/package-setup.json`, keyed by server and package type, and trusted for `cacheTtlDays`. A repo that fails to configure (for example, a missing repo key or no permission) is deferred rather than retried every session. It retries when the TTL expires, or immediately if you change the repo key or JFrog server URL.
+- It's idempotent. Each result is recorded in `~/.jfrog/skills-cache/package-setup.json` (schema `2`, keyed by server and **package-manager token**, for example `pip` / `uv`), and trusted for `cacheTtlDays`. A package manager that fails to configure (for example, a missing repo key or no permission) is deferred rather than retried every session. It retries when the TTL expires, or immediately if you change the repo key or JFrog server URL. Prior schema receipts are discarded on read; the next session re-fills package-manager keys via idempotent `jf setup`.
 
 ---
 
@@ -186,7 +189,7 @@ All keys are optional. Unknown keys are ignored.
 | `autoSetup`          | `[]`               | Governed types to auto-configure with `jf setup` at session start, or `true` for all. See Zero-touch setup below    |
 
 
-**Supported package types:** `npm`, `pypi`, `maven`, `go`, `docker`, `helm`, `nuget`.
+**Supported package types:** `npm`, `pypi`, `maven`, `gradle`, `go`, `docker`, `helm`, `nuget`.
 
 ---
 
@@ -213,6 +216,7 @@ Package types not listed in `defaultGlobalRepos` (and not declared in a workspac
       "npm": "corp-npm-virtual",
       "pypi": "corp-pypi-virtual",
       "maven": "corp-maven-virtual",
+      "gradle": "corp-gradle-virtual",
       "go": "corp-go-virtual",
       "docker": "art-docker",
       "helm": "corp-helm-local",
@@ -226,7 +230,7 @@ Deploy this file to `~/.jfrog/agents-conf.json` on users' machines. The change t
 
 ### npm and PyPI only (minimal preview rollout)
 
-A good way to start a preview without committing to all 7 package types at once:
+A good way to start a preview without committing to all 8 package types at once:
 
 ```json
 {
@@ -314,21 +318,22 @@ Workspace values win over `agents-conf.json` for matching package types during t
 | Wrong repository URLs                   | Verify `defaultGlobalRepos` keys exist on your Platform; check `verifyRepos` and `~/.jfrog/skills-cache/package-resolution.json`                                                             |
 | Invalid config ignored                  | Malformed JSON logs a **WARN** in `~/.jfrog/logs/agent-hooks.log` and falls back to safe defaults (`enabled: false`)                                                                          |
 | Reset to shipped defaults                | Delete `~/.jfrog/agents-conf.json`; it is recopied automatically. Optionally delete `package-resolution.json` and `package-setup.json` from the cache to clear snapshots and setup receipts   |
-| `autoSetup` type not configured          | Confirm the type is governed and the session was in `routing` mode. Check `agent-hooks.log` and `package-setup.json` in the skills cache                                                       |
+| `autoSetup` type not configured          | Confirm the type is **governed + resolved** and the session was in `routing` mode. Check `agent-hooks.log` and `package-setup.json` (per package-manager entries such as `pip` / `uv`) |
+| Re-run an eager `jf setup`               | Change the repo key (or server), delete that package manager's entry in `~/.jfrog/skills-cache/package-setup.json` (or the whole file), or wait for `cacheTtlDays` to expire |
 
 
 ---
 
 ## What this preview covers
 
-Agent Package Resolution runs at the start of every coding-agent session. When enabled, it injects routing policy and resolved Artifactory repository URLs into the session, so the agent prefers your repositories over public registries (npm, PyPI, Maven, Go, Docker, Helm, NuGet) for the rest of that session.
+Agent Package Resolution runs at the start of every coding-agent session. When enabled, it injects routing policy and resolved Artifactory repository URLs into the session, so the agent prefers your repositories over public registries (npm, PyPI, Maven, Gradle, Go, Docker, Helm, NuGet) for the rest of that session.
 
 **About this preview (please read before rolling out):**
 
 - **This is advisory steering, not a hard block.** The feature tells the agent which repository to use and nudges it to configure package managers accordingly. It does not intercept or rewrite the underlying install commands. If you need a hard guarantee that nothing reaches a public registry, that guarantee comes from the two mechanisms below, not from this session-injection layer alone.
 - **Durable enforcement is `jf setup` (package manager configuration) plus server-side Curation.** Once a package manager is bound to your Artifactory repository (via `jf setup`, which the agent will run for you when needed), that binding persists across sessions and tools, independent of this feature. Curation policies on the server are what actually block disallowed packages.
-- **All 7 package types are configurable** (npm, PyPI, Maven, Go, Docker, Helm, NuGet), but you do not have to turn them all on at once. A narrower starting scope (for example, just npm and PyPI) is a reasonable way to begin a preview rollout; see the configuration examples above. Package types you don't declare are left completely alone, see [Selective governance](#selective-governance-choose-which-package-types-to-route).
-- **Package-manager binding can happen automatically** if you turn on `autoSetup` for a package type, instead of waiting for a developer's or agent's first use to trigger it. See [Zero-touch setup](#zero-touch-setup-autosetup).
+- **All 8 package types are configurable** (npm, PyPI, Maven, Gradle, Go, Docker, Helm, NuGet), but you do not have to turn them all on at once. A narrower starting scope (for example, just npm and PyPI) is a reasonable way to begin a preview rollout; see the configuration examples above. Package types you don't declare are left completely alone, see [Selective governance](#selective-governance-choose-which-package-types-to-route).
+- **Package-manager binding can happen automatically** if you turn on `autoSetup` for a package type: the plugin expands each type to its package-manager family (for example `pypi` → pip/pipenv/uv) instead of waiting for a developer's or agent's first use. See [Zero-touch setup](#zero-touch-setup-autosetup).
 - This is a **preview**. Expect rough edges, and please route feedback through the channel below.
 
 ---
