@@ -77,6 +77,7 @@ function urlFor(type, repoKey, base) {
     case "pypi":
       return `${base}/api/pypi/${repoKey}/simple/`;
     case "maven":
+    case "gradle":
       return `${base}/${repoKey}/`;
     case "go":
       return `${base}/api/go/${repoKey}`;
