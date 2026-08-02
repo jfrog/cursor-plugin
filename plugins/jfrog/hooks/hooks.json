@@ -3,7 +3,7 @@
   "hooks": {
     "sessionStart": [
       {
-        "command": "node \"./scripts/inject-instructions.mjs\"",
+        "command": "node \"./modules/cursor-session-start.mjs\" package-resolution",
         "timeout": 7
       }
     ]

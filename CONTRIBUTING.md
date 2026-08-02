@@ -40,10 +40,12 @@ See [`VENDOR.md`](VENDOR.md) for the full picture.
 
 To cut a release:
 
-1. In your PR, bump `VERSION` and sync both `plugins/jfrog/.cursor-plugin/plugin.json` `.version` and `.cursor-plugin/marketplace.json` `.metadata.version` to match. The `validate-version` PR check enforces this.
+1. In your PR, bump `.version` in [`plugins/jfrog/.cursor-plugin/plugin.json`](plugins/jfrog/.cursor-plugin/plugin.json) and sync `.metadata.version` in [`.cursor-plugin/marketplace.json`](.cursor-plugin/marketplace.json) to match. `plugin.json` is canonical; the `validate-version` PR check enforces that the two agree.
 2. Merge to `main` with `[major]`, `[minor]`, or `[patch]` anywhere in the commit message.
 
-The release workflow reads `VERSION`, creates a `vX.Y.Z` git tag, and publishes a GitHub Release with a repo zip attached. No bot push to `main` — the version bump is part of the PR itself.
+The release workflow reads the version from `plugin.json`, creates a `vX.Y.Z` git tag, and publishes a GitHub Release with a repo zip attached. The marker only decides *whether* to release; the version comes from the manifest either way, so the bump is reviewed in the PR that makes it. There is no bot push to `main`.
+
+Merging a marker without bumping the manifests fails the release rather than re-tagging a shipped version.
 
 ## Reporting Issues
 
