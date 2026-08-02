@@ -25,7 +25,11 @@ import process from "node:process";
 
 import { createLogger } from "../../core/logger.mjs";
 import { getAgentsConfigSection } from "../../core/agents-config.mjs";
-import { getPlatformIdentity, identityLabel } from "../../core/jf-identity.mjs";
+import {
+  getPlatformIdentity,
+  identityLabel,
+  IdentityCause,
+} from "../../core/jf-identity.mjs";
 
 const log = createLogger("feature-flag");
 
@@ -41,12 +45,22 @@ function isEnabledInConfig() {
 export async function isPackageResolutionEnabled() {
   if (isEnvDisabled()) {
     log.debug("off", { reason: "DISABLE" });
-    return { mode: "off", reason: "DISABLE", identity: "none", cause: "ok" };
+    return {
+      mode: "off",
+      reason: "DISABLE",
+      identity: "none",
+      cause: IdentityCause.OK,
+    };
   }
 
   if (!isEnabledInConfig()) {
     log.debug("off", { reason: "NOT_ENABLED" });
-    return { mode: "off", reason: "NOT_ENABLED", identity: "none", cause: "ok" };
+    return {
+      mode: "off",
+      reason: "NOT_ENABLED",
+      identity: "none",
+      cause: IdentityCause.OK,
+    };
   }
 
   const { identity, cause } = getPlatformIdentity();
@@ -60,6 +74,6 @@ export async function isPackageResolutionEnabled() {
     mode: "routing",
     reason: "jf-config",
     identity: identityLabel(identity),
-    cause: "ok",
+    cause: IdentityCause.OK,
   };
 }

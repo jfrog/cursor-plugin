@@ -6,30 +6,59 @@
 
 import process from "node:process";
 
+/** A whole payload has arrived, as opposed to a prefix of one. */
+function isCompletePayload(text) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return false; // still mid-payload
+  }
+  // Objects only: a truncated object never parses, but a truncated number
+  // does, so `12` arriving out of `1234` must not look finished.
+  return typeof value === "object" && value !== null;
+}
+
+// Releasing the stream matters as much as reading it. A 'data' listener puts
+// stdin in flowing mode, which keeps the handle referenced and the process
+// alive even after the hook has written its answer. A caller that holds the
+// pipe open would otherwise hang us until the harness kills the process —
+// which, on a fail-closed hook, denies the tool call.
+//
+// The same caller costs us latency even when nothing hangs: waiting out the
+// idle window on every preToolUse call added ~60ms to each of the agent's
+// shell commands. A hook payload is one JSON object, so once it parses there
+// is nothing left to wait for and we stop reading immediately.
 export function readStdin({ idleMs = 50 } = {}) {
   return new Promise((resolve) => {
     if (process.stdin.isTTY) return resolve("");
     let data = "";
     let settled = false;
+    let idleTimer;
+
+    const onData = (chunk) => {
+      data += chunk;
+      if (isCompletePayload(data)) settle();
+      else idleTimer.refresh();
+    };
+
     const settle = () => {
       if (settled) return;
       settled = true;
+      clearTimeout(idleTimer);
+      process.stdin.off("data", onData);
+      process.stdin.off("end", settle);
+      process.stdin.off("error", settle);
+      process.stdin.pause();
+      process.stdin.unref?.();
       resolve(data);
     };
-    const idleTimer = setTimeout(settle, idleMs);
+
+    idleTimer = setTimeout(settle, idleMs);
     process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (chunk) => {
-      data += chunk;
-      idleTimer.refresh();
-    });
-    process.stdin.on("end", () => {
-      clearTimeout(idleTimer);
-      settle();
-    });
-    process.stdin.on("error", () => {
-      clearTimeout(idleTimer);
-      settle();
-    });
+    process.stdin.on("data", onData);
+    process.stdin.on("end", settle);
+    process.stdin.on("error", settle);
   });
 }
 

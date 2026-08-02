@@ -1,7 +1,7 @@
 # Package Resolution — JFrog Artifactory routing is NOT READY
 
 Your organization routes every package fetch through JFrog Artifactory, but routing
-cannot run yet — `jf` has no configured server. Package managers still point at
+cannot run yet — {{CAUSE_INTRO}}. Package managers still point at
 **public** registries until setup completes.
 
 {{GOVERNED_SCOPE}}
@@ -9,6 +9,7 @@ cannot run yet — `jf` has no configured server. Package managers still point a
 **Do not run direct package installs for the governed package managers** while routing is not ready. When asked to
 install or pull governed packages, tell the user routing is blocked and complete setup first. Package managers not
 listed above are out of scope — handle them normally.
+Do not delegate governed installs to `agent -p` or another child while routing is not ready; refuse before launching and tell the user the **JFrog Artifactory Package Resolution policy** blocks delegation until routing is ready. A child prompt cannot replace trusted Package Resolution injection.
 
 ## Read this first
 
@@ -23,14 +24,11 @@ Authoritative procedure:
 
 {{JFROG_PLATFORM_URL_HINT}}
 
-1. Confirm `jf` is installed (`jf --version`).
-2. Configure a JFrog server (login flow or `jf config add` with access token);
-   confirm with `jf config show`.
-3. Invoke **`jfrog-setup-package-managers`** to bind PMs this workspace needs.
+{{CAUSE_CHECKLIST}}
 
 ## After setup — load the routing policy
 
-Once `jf` is configured and `jfrog-setup-package-managers` has bound the PMs,
+Once `jf` is configured and `jfrog-setup-package-managers` has bound the package managers,
 load the current routing policy by running:
 
 ```bash

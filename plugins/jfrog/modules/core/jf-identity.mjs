@@ -21,6 +21,14 @@ import { createLogger } from "./logger.mjs";
 
 const log = createLogger("jf-identity");
 
+// Wire-format cause codes for getPlatformIdentity() / pending remediation.
+// Single source of truth — import this instead of repeating string literals.
+export const IdentityCause = Object.freeze({
+  OK: "ok",
+  JF_NOT_INSTALLED: "jf-not-installed",
+  JF_NOT_CONFIGURED: "jf-not-configured",
+});
+
 // Module-scope cache. Keyed by the requested serverId hint (`undefined`
 // means "whatever jf considers default"). Stores the full resolved object,
 // including null when jf config produced nothing usable.
@@ -31,12 +39,12 @@ function normalizeUrl(u) {
   return String(u).replace(/\/+$/, "");
 }
 
-// Resolution cause. `ok` means identity is present; the two failure causes
+// Resolution cause. OK means identity is present; the two failure causes
 // drive cause-aware remediation in the pending path:
-//   jf-not-installed   — `jf` is not on PATH / could not be executed.
-//   jf-not-configured  — `jf` ran but produced no usable server identity
-//                        (non-zero exit, empty/undecodable export, or a
-//                        server entry missing url/accessToken).
+//   JF_NOT_INSTALLED  — `jf` is not on PATH / could not be executed.
+//   JF_NOT_CONFIGURED — `jf` ran but produced no usable server identity
+//                       (non-zero exit, empty/undecodable export, or a
+//                       server entry missing url/accessToken).
 function jfConfigIdentity(serverId) {
   // `jf config export` writes base64(JSON) to stdout for the requested
   // server (or the default when no arg). We split the failure space into
@@ -56,27 +64,27 @@ function jfConfigIdentity(serverId) {
     });
   } catch (err) {
     log.debug("jf spawn threw", { error: err?.message ?? String(err) });
-    return { identity: null, cause: "jf-not-installed" };
+    return { identity: null, cause: IdentityCause.JF_NOT_INSTALLED };
   }
 
   if (result.error) {
     // ENOENT (and any other spawn error) means the binary could not be
     // executed — treat as not installed.
     log.debug("jf spawn error", { code: result.error.code, message: result.error.message });
-    return { identity: null, cause: "jf-not-installed" };
+    return { identity: null, cause: IdentityCause.JF_NOT_INSTALLED };
   }
   if (result.status !== 0) {
     log.debug("jf config export non-zero exit", {
       status: result.status,
       stderr: (result.stderr || "").trim().slice(0, 200),
     });
-    return { identity: null, cause: "jf-not-configured" };
+    return { identity: null, cause: IdentityCause.JF_NOT_CONFIGURED };
   }
 
   const blob = (result.stdout || "").trim();
   if (!blob) {
     log.debug("jf config export returned empty stdout");
-    return { identity: null, cause: "jf-not-configured" };
+    return { identity: null, cause: IdentityCause.JF_NOT_CONFIGURED };
   }
 
   let parsed;
@@ -85,7 +93,7 @@ function jfConfigIdentity(serverId) {
     parsed = JSON.parse(json);
   } catch (err) {
     log.warn("jf config export blob not decodable", { error: err?.message ?? String(err) });
-    return { identity: null, cause: "jf-not-configured" };
+    return { identity: null, cause: IdentityCause.JF_NOT_CONFIGURED };
   }
 
   const url = normalizeUrl(parsed?.url);
@@ -98,18 +106,18 @@ function jfConfigIdentity(serverId) {
       hasUrl: Boolean(url),
       hasToken: Boolean(token),
     });
-    return { identity: null, cause: "jf-not-configured" };
+    return { identity: null, cause: IdentityCause.JF_NOT_CONFIGURED };
   }
 
   return {
     identity: { url, token, serverId: resolvedServerId, source: "jf-config" },
-    cause: "ok",
+    cause: IdentityCause.OK,
   };
 }
 
 // Public — returns { identity, cause }:
 //   identity: { url, token, serverId, source } | null
-//   cause:    "ok" | "jf-not-installed" | "jf-not-configured"
+//   cause:    IdentityCause.OK | JF_NOT_INSTALLED | JF_NOT_CONFIGURED
 export function getPlatformIdentity() {
   const hint = undefined;
   if (CACHE.has(hint)) return CACHE.get(hint);
@@ -155,7 +163,7 @@ if (isMain) {
   }
   if (!identity) {
     const hint =
-      cause === "jf-not-installed"
+      cause === IdentityCause.JF_NOT_INSTALLED
         ? "`jf` is not installed. Install the JFrog CLI, then run `jf config add`."
         : "No configured JFrog server. Run `jf config add` (must use access-token auth).";
     console.error(`No platform identity (${cause}). ${hint}`);

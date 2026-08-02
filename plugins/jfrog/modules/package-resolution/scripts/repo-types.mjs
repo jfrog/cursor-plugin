@@ -1,11 +1,21 @@
 // Package-type constants shared by resolver and workspace overlay.
 
-export const PACKAGE_TYPES = ["npm", "pypi", "maven", "go", "docker", "helm", "nuget"];
+export const PACKAGE_TYPES = [
+  "npm",
+  "pypi",
+  "maven",
+  "gradle",
+  "go",
+  "docker",
+  "helm",
+  "nuget",
+];
 
 const TYPE_PACKAGE_TYPE = {
   npm: "npm",
   pypi: "pypi",
   maven: "maven",
+  gradle: "gradle",
   go: "go",
   docker: "docker",
   helm: "helm",
