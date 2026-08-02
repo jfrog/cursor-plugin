@@ -48,9 +48,19 @@ import {
   evaluateSetupNeed,
   applySetupResult,
 } from "./eager-setup-receipt.mjs";
-import { packageManagersForType, packageManagerBinaryOnPath } from "./package-manager-family.mjs";
+import {
+  TYPE_TO_PACKAGE_MANAGERS,
+  packageManagersForType,
+  packageManagerBinaryOnPath,
+} from "./package-manager-family.mjs";
 
 const log = createLogger("eager-setup");
+
+/** Ceiling for Option C fan-out — used when lock metadata lacks `jobCount`. */
+const MAX_PACKAGE_MANAGER_JOBS = Object.values(TYPE_TO_PACKAGE_MANAGERS).reduce(
+  (n, family) => n + family.length,
+  0,
+);
 
 /** Actionable hint when autoSetup names a type that isn't governed. */
 function ungovernedAutoSetupHint(type) {
@@ -62,16 +72,20 @@ function ungovernedAutoSetupHint(type) {
   );
 }
 
+/** Per-package-manager `jf setup` spawn timeout (ms). */
 const PER_PACKAGE_MANAGER_TIMEOUT_MS = 60_000;
 
+/** @returns {string} `~/.jfrog/skills-cache` */
 function cacheDir() {
   return path.join(homedir(), ".jfrog", "skills-cache");
 }
 
+/** @returns {string} path to the global eager-setup lock file */
 function lockFile() {
   return path.join(cacheDir(), "package-setup.lock");
 }
 
+/** @returns {string} absolute path to this module (worker entry) */
 function workerPath() {
   return fileURLToPath(new URL("./eager-setup.mjs", import.meta.url));
 }
@@ -129,12 +143,23 @@ export function computeEligibleJobs(governed, resolvedByType) {
  *   pending: string[],
  *   deferred: string[],
  *   skippedMissing?: string[],
+ *   setupBusy?: boolean,
  * }} parts
  * @returns {string} markdown note or ""
  */
-function statusNote({ configured, pending, deferred, skippedMissing }) {
+function statusNote({
+  configured,
+  pending,
+  deferred,
+  skippedMissing,
+  setupBusy,
+}) {
   const parts = [];
-  if (pending.length) {
+  if (setupBusy && pending.length) {
+    parts.push(
+      `zero-touch deferred (another jf setup is in progress) — will retry next session: ${pending.join(", ")}`,
+    );
+  } else if (pending.length) {
     parts.push(
       `configuring in the background via \`jf setup\`: ${pending.join(", ")}`,
     );
@@ -274,15 +299,30 @@ export async function orchestrateEagerSetup(ctx = {}) {
       });
     }
 
+    let setupBusy = false;
     if (toRun.length) {
-      const payload = Buffer.from(
-        JSON.stringify({ serverId, url, jobs: toRun }),
-        "utf8",
-      ).toString("base64");
-      spawnWorker(payload, toRun.length);
+      if (isLiveLockHeld()) {
+        setupBusy = true;
+        log.warn(
+          "eager-setup deferred: another jf setup worker holds the lock",
+          { pendingJobCount: toRun.length },
+        );
+      } else {
+        const payload = Buffer.from(
+          JSON.stringify({ serverId, url, jobs: toRun }),
+          "utf8",
+        ).toString("base64");
+        spawnWorker(payload, toRun.length);
+      }
     }
 
-    return statusNote({ configured, pending, deferred, skippedMissing });
+    return statusNote({
+      configured,
+      pending,
+      deferred,
+      skippedMissing,
+      setupBusy,
+    });
   } catch (err) {
     log.warn("orchestrateEagerSetup failed", {
       error: err?.message ?? String(err),
@@ -295,12 +335,39 @@ export async function orchestrateEagerSetup(ctx = {}) {
 // Lock (worker-only, best-effort, one global lock)
 // ---------------------------------------------------------------------------
 
-// Stale threshold must exceed the total per-package-manager budget so a healthy long run is
-// never reclaimed under it. Floor at 120s.
-function staleThresholdMs(packageManagerCount) {
-  return Math.max(PER_PACKAGE_MANAGER_TIMEOUT_MS * Math.max(packageManagerCount, 1), 120_000);
+/**
+ * Max age before an eager-setup lock is treated as stale and reclaimable.
+ * Scales with the owner's job count (+30s buffer, same as {@link syncWorkerTimeoutMs}).
+ * Floor at 120s.
+ * @param {number} ownerJobCount owner job count (from lock metadata)
+ * @returns {number} milliseconds
+ */
+export function staleThresholdMs(ownerJobCount) {
+  return Math.max(
+    PER_PACKAGE_MANAGER_TIMEOUT_MS * Math.max(ownerJobCount, 1) + 30_000,
+    120_000,
+  );
 }
 
+/**
+ * Job count that governs staleness for an existing lock — the **owner's** count
+ * from lock metadata, not the contender's. Missing/invalid → conservative max
+ * so a long Option C run cannot be reclaimed early by a 1-job contender.
+ * @param {{ jobCount?: unknown } | null} meta
+ * @returns {number}
+ */
+export function lockOwnerJobCount(meta) {
+  const n = meta?.jobCount;
+  if (typeof n === "number" && Number.isFinite(n) && n >= 1) {
+    return Math.min(Math.floor(n), MAX_PACKAGE_MANAGER_JOBS);
+  }
+  return MAX_PACKAGE_MANAGER_JOBS;
+}
+
+/**
+ * @param {number} pid
+ * @returns {boolean} true if the process appears to exist
+ */
 function pidAlive(pid) {
   if (!pid || typeof pid !== "number") return false;
   try {
@@ -311,6 +378,9 @@ function pidAlive(pid) {
   }
 }
 
+/**
+ * @returns {{ pid?: number, hostname?: string, serverId?: string, jobCount?: number, startedAt?: string } | null}
+ */
 function readLock() {
   try {
     return JSON.parse(readFileSync(lockFile(), "utf8"));
@@ -319,22 +389,40 @@ function readLock() {
   }
 }
 
-function isStaleLock(meta, packageManagerCount) {
+/**
+ * Whether a lock may be reclaimed. Uses the lock owner's jobCount
+ * (see {@link lockOwnerJobCount}), not the contender's.
+ * @param {{ pid?: number, hostname?: string, jobCount?: number, startedAt?: string } | null} meta
+ * @returns {boolean}
+ */
+function isStaleLock(meta) {
   if (!meta) return true;
   const ageMs = Date.now() - new Date(meta.startedAt ?? 0).getTime();
-  if (ageMs >= staleThresholdMs(packageManagerCount)) return true;
+  // Non-finite age (invalid/missing startedAt → NaN) is reclaimable — same as
+  // epoch/missing. Otherwise a corrupt startedAt would never age-stale.
+  if (
+    !Number.isFinite(ageMs) ||
+    ageMs >= staleThresholdMs(lockOwnerJobCount(meta))
+  ) {
+    return true;
+  }
   if (meta.hostname === hostname() && !pidAlive(meta.pid)) return true;
   return false;
 }
 
-// Atomic create-exclusive (O_CREAT|O_EXCL); throws EEXIST if the lock is held.
-function tryWriteLock(serverId) {
+/**
+ * Atomically create the lock file (O_CREAT|O_EXCL). Throws if held (EEXIST).
+ * @param {string} serverId
+ * @param {number} jobCount persisted for contenders' stale checks
+ */
+function tryWriteLock(serverId, jobCount) {
   const fd = openSync(lockFile(), "wx");
   try {
     const meta = {
       pid: process.pid,
       hostname: hostname(),
       serverId,
+      jobCount: Math.max(jobCount, 1),
       startedAt: new Date().toISOString(),
     };
     writeSync(fd, JSON.stringify(meta));
@@ -346,12 +434,14 @@ function tryWriteLock(serverId) {
 /**
  * Acquire the global lock. Returns true on success. On live contention → false
  * (skip, don't wait). On a stale lock → reclaim + retry once.
+ * @param {string} serverId
+ * @param {number} jobCount this worker's job count (persisted for contenders)
  */
-function acquireLock(serverId, packageManagerCount) {
+function acquireLock(serverId, jobCount) {
   mkdirSync(cacheDir(), { recursive: true });
   try {
-    tryWriteLock(serverId);
-    log.debug("lock acquired", { pid: process.pid });
+    tryWriteLock(serverId, jobCount);
+    log.debug("lock acquired", { pid: process.pid, jobCount });
     return true;
   } catch (err) {
     if (err?.code !== "EEXIST") {
@@ -360,8 +450,13 @@ function acquireLock(serverId, packageManagerCount) {
     }
   }
   const existing = readLock();
-  if (!isStaleLock(existing, packageManagerCount)) {
-    log.debug("lock held by live worker; skipping", { owner: existing?.pid });
+  if (!isStaleLock(existing)) {
+    log.warn("eager-setup skipped: another jf setup worker holds the lock", {
+      owner: existing?.pid,
+      ownerJobCount: lockOwnerJobCount(existing),
+      startedAt: existing?.startedAt,
+      hostname: existing?.hostname,
+    });
     return false;
   }
   log.debug("reclaiming stale lock", {
@@ -374,18 +469,48 @@ function acquireLock(serverId, packageManagerCount) {
     // someone else may have removed it — fall through to re-acquire
   }
   try {
-    tryWriteLock(serverId);
-    log.debug("lock acquired after reclaim", { pid: process.pid });
+    tryWriteLock(serverId, jobCount);
+    log.debug("lock acquired after reclaim", { pid: process.pid, jobCount });
     return true;
   } catch {
-    log.debug("lost race to re-acquire lock; skipping");
+    log.warn("eager-setup skipped: lost race to re-acquire lock");
     return false;
   }
 }
 
-function releaseLock() {
+/**
+ * True when a non-stale eager-setup lock file is held (best-effort probe).
+ * @returns {boolean}
+ */
+function isLiveLockHeld() {
   try {
-    if (existsSync(lockFile())) unlinkSync(lockFile());
+    if (!existsSync(lockFile())) return false;
+    return !isStaleLock(readLock());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Best-effort unlock after the worker finishes (or fails).
+ * Only unlinks when this process still owns the lock — a contender may have
+ * reclaimed an age-stale lock while we were still running; deleting theirs
+ * would drop mutual exclusion.
+ * Exported for unit tests of the ownership guard.
+ */
+export function releaseLock() {
+  try {
+    const meta = readLock();
+    if (!meta) return;
+    if (meta.pid !== process.pid || meta.hostname !== hostname()) {
+      log.debug("lock not owned; skip release", {
+        pid: process.pid,
+        owner: meta.pid,
+        ownerHostname: meta.hostname,
+      });
+      return;
+    }
+    unlinkSync(lockFile());
     log.debug("lock released", { pid: process.pid });
   } catch {
     // best-effort
@@ -396,7 +521,10 @@ function releaseLock() {
 // Worker (background)
 // ---------------------------------------------------------------------------
 
-// Parse the `Supported package managers are: a, b, c` line from `jf setup --help`.
+/**
+ * Parse the `Supported package managers are: a, b, c` line from `jf setup --help`.
+ * @returns {Set<string>|null} lowercase tokens, or null if help could not be parsed
+ */
 function supportedPackageManagers() {
   try {
     const res = spawnSync("jf", ["setup", "--help"], {
@@ -417,10 +545,13 @@ function supportedPackageManagers() {
   }
 }
 
-// Distill `jf setup` output into a concise cause. `jf` prints a full log dump
-// (version, OS, trace id, HTTP calls) around the real error; keep only the
-// `[Error]`/`[Fatal]` line(s) with their timestamp+level prefix stripped, and
-// fall back to the trimmed tail when the output has no recognizable error line.
+/**
+ * Distill `jf setup` output into a concise cause. Keeps `[Error]`/`[Fatal]`
+ * lines (prefix stripped), else the trimmed tail.
+ * @param {string|null|undefined} stdout
+ * @param {string|null|undefined} stderr
+ * @returns {string}
+ */
 function extractJfError(stdout, stderr) {
   const raw = `${stdout ?? ""}\n${stderr ?? ""}`;
   const lines = raw
@@ -437,6 +568,13 @@ function extractJfError(stdout, stderr) {
   return detail.slice(0, 300);
 }
 
+/**
+ * Run `jf setup <packageManager> --server-id --repo` with a per-PM timeout.
+ * @param {string} packageManager
+ * @param {string} serverId
+ * @param {string} repoKey
+ * @returns {{ ok: true } | { ok: false, reason: string }}
+ */
 function runJfSetup(packageManager, serverId, repoKey) {
   const args = ["setup", packageManager, "--server-id", serverId, "--repo", repoKey];
   const res = spawnSync("jf", args, {

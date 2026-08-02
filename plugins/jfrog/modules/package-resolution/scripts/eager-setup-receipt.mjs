@@ -7,16 +7,15 @@
 // pip/pipenv/uv); each gets its own receipt entry so status stays honest
 // (Option C).
 //
-// Schema 2 = package-manager-keyed entries only. Prior schema (type-keyed or
-// mixed) is discarded on read — overlapping names like `npm`/`go`/`docker`
-// were not distinguishable from package-manager keys, so a wipe + idempotent
-// `jf setup` re-run is the safe migration.
+// Schema 2 = package-manager-keyed entries only. Stored in a dedicated file
+// (`package-setup-v2.json`) so older plugin builds that still write schema-1
+// `package-setup.json` cannot downgrade or thrash this ledger. On first run
+// after upgrade the v2 file is empty — idempotent `jf setup` re-fills it once.
 //
-// This is a dedicated file — separate from the resolver cache (different key
-// granularity + invalidation; the resolver's normalizer would strip these
-// co-located fields).
+// This is separate from the resolver cache (different key granularity +
+// invalidation; the resolver's normalizer would strip these co-located fields).
 //
-// File: ~/.jfrog/skills-cache/package-setup.json
+// File: ~/.jfrog/skills-cache/package-setup-v2.json
 //   {
 //     "schemaVersion": 2,
 //     "servers": {
@@ -41,18 +40,31 @@ const RECEIPT_SCHEMA_VERSION = 2;
 // Reserved key inside a server entry (everything else is a package-manager receipt).
 const RESERVED_KEYS = new Set(["url"]);
 
+/** @returns {string} `~/.jfrog/skills-cache` */
 function cacheDir() {
   return path.join(homedir(), ".jfrog", "skills-cache");
 }
 
-function receiptFile() {
-  return path.join(cacheDir(), "package-setup.json");
+/** Schema-2 receipt path (not shared with legacy schema-1 `package-setup.json`). */
+export function receiptFilePath() {
+  return path.join(cacheDir(), "package-setup-v2.json");
 }
 
+/** @returns {string} absolute path to the schema-2 receipt file */
+function receiptFile() {
+  return receiptFilePath();
+}
+
+/** @returns {{ schemaVersion: number, servers: Record<string, object> }} */
 function emptyReceipt() {
   return { schemaVersion: RECEIPT_SCHEMA_VERSION, servers: {} };
 }
 
+/**
+ * Normalize one package-manager receipt entry, or null if invalid.
+ * @param {unknown} entry
+ * @returns {{ repoKey: string, status: string, configuredAt: string|null, reason?: string } | null}
+ */
 function normalizeTypeEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   if (typeof entry.repoKey !== "string" || !entry.repoKey) return null;
@@ -76,6 +88,13 @@ export function normalizeReceipt(data) {
     typeof data !== "object" ||
     data.schemaVersion !== RECEIPT_SCHEMA_VERSION
   ) {
+    if (data && typeof data === "object" && data.schemaVersion != null) {
+      log.warn("eager-setup receipt ignored: unexpected schemaVersion", {
+        schemaVersion: data.schemaVersion,
+        expected: RECEIPT_SCHEMA_VERSION,
+        file: path.basename(receiptFilePath()),
+      });
+    }
     return emptyReceipt();
   }
   const servers = {};
@@ -95,6 +114,10 @@ export function normalizeReceipt(data) {
   return { schemaVersion: RECEIPT_SCHEMA_VERSION, servers };
 }
 
+/**
+ * Read and normalize the schema-2 eager-setup receipt from disk.
+ * @returns {Promise<{ schemaVersion: number, servers: Record<string, object> }>}
+ */
 export async function readReceipt() {
   try {
     const raw = await readFile(receiptFile(), "utf8");
@@ -104,6 +127,11 @@ export async function readReceipt() {
   }
 }
 
+/**
+ * Persist the in-memory receipt root to `package-setup-v2.json`.
+ * @param {{ servers?: Record<string, object> }} root
+ * @returns {Promise<void>}
+ */
 export async function writeReceipt(root) {
   const file = receiptFile();
   await mkdir(cacheDir(), { recursive: true });
@@ -117,12 +145,13 @@ export async function writeReceipt(root) {
   );
 }
 
-// Receipt freshness. A recorded result (ok OR failed) is trusted for `ttlDays`.
-// `ttlDays <= 0` means "no time-based re-run" — the entry only becomes stale on
-// a repoKey/server change, never on a timer. (This differs from the resolver
-// cache, where 0 forces a cheap re-resolve every session; re-running `jf setup`
-// every session would thrash user-global package-manager config, so 0 here
-// means unbounded.)
+/**
+ * Whether `configuredAt` is still within `ttlDays`.
+ * `ttlDays <= 0` means no time-based expiry (only repo/server change invalidates).
+ * @param {string|null} configuredAt
+ * @param {number} ttlDays
+ * @returns {boolean}
+ */
 function receiptWithinTtl(configuredAt, ttlDays) {
   if (!configuredAt) return false;
   if (typeof ttlDays !== "number" || !Number.isFinite(ttlDays) || ttlDays <= 0)
