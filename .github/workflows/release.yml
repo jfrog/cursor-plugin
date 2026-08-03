@@ -16,11 +16,11 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      # Full history so the "already released" check below can see existing tags.
+      # Full history (and therefore tags) so the "already released" check below can see them.
+      # No write token needed: nothing here pushes over git, the release API creates the tag.
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       # Releasing is opt-in: only a merge whose commit *subject* carries [major], [minor] or
       # [patch] cuts one. The marker is purely a trigger — the version itself always comes from
@@ -65,7 +65,8 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # Catches the one mistake this flow allows: merging a release marker without bumping the
-      # manifests, which would otherwise try to re-tag a version that already shipped.
+      # manifests. The tag is created as part of the release below, so a tag that already exists
+      # means that version genuinely shipped.
       - name: Refuse to re-release an existing version
         if: steps.detect.outputs.triggered == 'true'
         run: |
@@ -75,17 +76,27 @@ jobs:
             exit 1
           fi
 
-      - name: Create and push tag
+      - uses: actions/setup-node@v5
         if: steps.detect.outputs.triggered == 'true'
-        run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          git tag "$TAG"
-          git push origin "$TAG"
+        with:
+          node-version: "20"
 
+      # The marketplace template check runs on this same push, but as a separate workflow — in parallel and with
+      # no relationship to this one — so on its own it cannot stop a broken marketplace template from being
+      # released. Running the same check here is what actually gates the release on it.
+      - name: Validate marketplace template before releasing
+        if: steps.detect.outputs.triggered == 'true'
+        run: node scripts/validate-template.mjs
+
+      # git archive exports tracked files at HEAD, so nothing an earlier step happened to leave on
+      # the runner can end up in the artifact. .github is excluded to match what users get.
       - name: Package release artifact
         if: steps.detect.outputs.triggered == 'true'
-        run: zip -r release.zip . --exclude ".git/*" --exclude ".github/*"
+        run: git archive --format=zip --output=release.zip HEAD -- ':(exclude).github'
 
+      # --target creates the tag as part of creating the release, in a single API call. Pushing the
+      # tag separately beforehand meant a failure in between left an orphan tag with no release, and
+      # the re-run then tripped the "already exists" check above with nothing wrong but the tag.
       - name: Create GitHub Release
         if: steps.detect.outputs.triggered == 'true'
         env:
@@ -93,5 +104,6 @@ jobs:
         run: |
           gh release create "v${{ steps.version.outputs.version }}" \
             release.zip \
+            --target "$GITHUB_SHA" \
             --title "Release v${{ steps.version.outputs.version }}" \
             --generate-notes
