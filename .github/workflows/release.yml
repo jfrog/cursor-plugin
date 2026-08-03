@@ -22,17 +22,22 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Releasing is opt-in: only a merge whose commit message carries [major], [minor] or
+      # Releasing is opt-in: only a merge whose commit *subject* carries [major], [minor] or
       # [patch] cuts one. The marker is purely a trigger — the version itself always comes from
       # the manifest, so the bump is reviewable in the PR that makes it.
+      # Subject line only, deliberately. This repo squash-merges, and GitHub pre-fills the squash
+      # message body from the branch's commit messages (or the PR description). Either one can
+      # mention a marker while merely documenting it — matching the whole message would then
+      # release by accident on a merge nobody intended as a release.
       # The message is passed through env rather than interpolated into the script, so a commit
       # subject can never inject shell.
-      - name: Detect release marker in commit message
+      - name: Detect release marker in commit subject
         id: detect
         env:
           MSG: ${{ github.event.head_commit.message }}
         run: |
-          if printf '%s' "$MSG" | grep -qE '\[(major|minor|patch)\]'; then
+          SUBJECT=$(printf '%s\n' "$MSG" | head -1)
+          if printf '%s' "$SUBJECT" | grep -qE '\[(major|minor|patch)\]'; then
             echo "triggered=true" >> "$GITHUB_OUTPUT"
           else
             echo "triggered=false" >> "$GITHUB_OUTPUT"
