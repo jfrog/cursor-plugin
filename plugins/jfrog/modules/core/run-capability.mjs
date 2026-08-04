@@ -64,8 +64,10 @@ export async function runCapability(name, ctx = {}) {
     const text = await cap.sessionStart(ctx);
     const trimmed = text?.trim() ? text : "";
 
+    // EVENT (visible at default info): one summary line per invocation so a
+    // cache-hit / quiet routing path is distinguishable from "hook never fired".
     if (trimmed) {
-      log.debug("sessionStart injected", {
+      log.event("sessionStart injected", {
         enabled: true,
         capabilities: name,
         mode: cap.mode,
@@ -74,7 +76,12 @@ export async function runCapability(name, ctx = {}) {
         durMs: hookDurMs(ctx),
       });
     } else {
-      log.debug("sessionStart no-op", { capabilities: name, durMs: hookDurMs(ctx) });
+      log.event("sessionStart no-op", {
+        capabilities: name,
+        mode: cap.mode,
+        ...(cap.meta ?? {}),
+        durMs: hookDurMs(ctx),
+      });
     }
 
     return trimmed;
