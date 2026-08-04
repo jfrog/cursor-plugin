@@ -44,6 +44,22 @@ function causeIntro(cause) {
   if (cause === IdentityCause.JF_NOT_INSTALLED) {
     return "`jf` is not installed (or not on PATH)";
   }
+  if (cause === IdentityCause.JF_UNSUPPORTED_AUTH) {
+    return (
+      "`jf` has a configured server, but its auth method is not supported " +
+      "(need an access token or username + password / API key)"
+    );
+  }
+  if (cause === IdentityCause.JF_AUTH_FAILED) {
+    return (
+      "`jf` credentials were rejected by Artifactory (expired, revoked, or wrong)"
+    );
+  }
+  if (cause === IdentityCause.JF_UNREACHABLE) {
+    return (
+      "Artifactory did not respond to a readiness probe (network / URL / outage)"
+    );
+  }
   return "`jf` has no configured server";
 }
 
@@ -54,6 +70,28 @@ function causeRemediation(cause) {
       "Begin by installing the JFrog CLI (`jf`) and adding it to PATH, then " +
       "configure a JFrog server by following the login flow in the base " +
       "`jfrog` skill."
+    );
+  }
+  if (cause === IdentityCause.JF_UNSUPPORTED_AUTH) {
+    return (
+      "The JFrog CLI is installed and a server is configured, but Agent " +
+      "Package Resolution only supports access-token or username + password " +
+      "/ API-key auth. Reconfigure with `jf config add` using one of those " +
+      "methods (SSH-key-only servers are not supported)."
+    );
+  }
+  if (cause === IdentityCause.JF_AUTH_FAILED) {
+    return (
+      "The JFrog CLI is installed and a server is configured, but Artifactory " +
+      "rejected the credentials. Refresh the access token or password / API " +
+      "key with `jf config add` / re-login, then retry."
+    );
+  }
+  if (cause === IdentityCause.JF_UNREACHABLE) {
+    return (
+      "The JFrog CLI is installed and a server is configured, but Artifactory " +
+      "did not answer a readiness probe. Confirm the platform URL, network, " +
+      "and that Artifactory is up, then retry."
     );
   }
   return (
@@ -67,8 +105,19 @@ function causeRemediation(cause) {
 // "Confirm jf is installed" step so it does not contradict remediation.
 function causeChecklist(cause) {
   const configure =
-    "Configure a JFrog server (login flow or `jf config add` with access token);\n" +
+    "Configure a JFrog server (login flow or `jf config add` with access " +
+    "token or username + password / API key);\n" +
     "   confirm with `jf config show`.";
+  const reconfigure =
+    "Reconfigure the server with a supported auth method (`jf config add` " +
+    "with access token or username + password / API key);\n" +
+    "   confirm with `jf config show`.";
+  const refreshCreds =
+    "Refresh credentials (`jf config add` / re-login) and confirm with " +
+    "`jf config show`.";
+  const checkReachable =
+    "Confirm the platform URL is reachable and Artifactory is healthy, " +
+    "then retry.";
   const setup =
     "Invoke **`jfrog-setup-package-managers`** to bind package managers this workspace needs.";
   if (cause === IdentityCause.JF_NOT_INSTALLED) {
@@ -77,6 +126,15 @@ function causeChecklist(cause) {
       `2. ${configure}\n` +
       `3. ${setup}`
     );
+  }
+  if (cause === IdentityCause.JF_UNSUPPORTED_AUTH) {
+    return `1. ${reconfigure}\n2. ${setup}`;
+  }
+  if (cause === IdentityCause.JF_AUTH_FAILED) {
+    return `1. ${refreshCreds}\n2. ${setup}`;
+  }
+  if (cause === IdentityCause.JF_UNREACHABLE) {
+    return `1. ${checkReachable}\n2. ${setup}`;
   }
   return `1. ${configure}\n2. ${setup}`;
 }
