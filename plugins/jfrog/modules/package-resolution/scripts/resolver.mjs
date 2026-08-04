@@ -21,7 +21,11 @@ import {
   loadAgentsConfig,
   globalDeclaredTypes,
 } from "../../core/agents-config.mjs";
-import { getPlatformIdentity } from "../../core/jf-identity.mjs";
+import {
+  getPlatformIdentity,
+  authHeader,
+  safeErrorMessage,
+} from "../../core/jf-identity.mjs";
 import { PACKAGE_TYPES, repoMatchesPackageType } from "./repo-types.mjs";
 import {
   pickWorkspaceConfigRoot,
@@ -170,12 +174,18 @@ async function fetchRepoConfig(repoKey) {
   // Network call on session start (cache miss + verifyRepos) — log at info so a
   // fresh session's Artifactory calls are visible without enabling debug.
   log.info("verifying repo via Artifactory API", { repoKey, url });
+  const authorization = authHeader(id);
+  if (!authorization) return null;
+  // Bound the call so a stalled Artifactory can't hang session start.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
   try {
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${id.token}`,
+        Authorization: authorization,
         Accept: "application/json",
       },
+      signal: controller.signal,
     });
     if (!res.ok) {
       log.debug("repo verify miss", { repoKey, status: res.status });
@@ -185,9 +195,11 @@ async function fetchRepoConfig(repoKey) {
   } catch (err) {
     log.warn("repo verify threw", {
       repoKey,
-      error: err?.message ?? String(err),
+      error: safeErrorMessage(err),
     });
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -223,6 +235,7 @@ async function refreshServerCache(serverId) {
   const verifyRepos = pr.verifyRepos;
   const adminRepos = pr.defaultGlobalRepos ?? {};
   const agentsConfigMtimeMs = getAgentsConfigMtimeMs();
+  let adminConfiguredCount = 0;
 
   for (const type of PACKAGE_TYPES) {
     const repoKey = adminRepos[type];
@@ -230,6 +243,7 @@ async function refreshServerCache(serverId) {
       log.debug("unconfigured type", { type });
       continue;
     }
+    adminConfiguredCount += 1;
 
     if (verifyRepos) {
       const config = await fetchRepoConfig(repoKey);
@@ -247,6 +261,71 @@ async function refreshServerCache(serverId) {
 
   const source = verifyRepos ? "verified" : "agents-config";
 
+  const { data: cacheRoot, file } = await readCacheFile();
+  const root = normalizeCacheRoot(cacheRoot);
+  const priorEntry = root.servers[serverId];
+  const priorHasRepos = Boolean(
+    priorEntry?.repositories && Object.keys(priorEntry.repositories).length,
+  );
+
+  // A total verify failure (every admin-configured type failed the repo
+  // check — e.g. Artifactory briefly unreachable) must not pin an empty
+  // `repositories: {}` with a fresh `cached_at` for the full TTL:
+  // - prior good entry → keep it (and its cached_at)
+  // - no prior → skip writeCacheFile so the next session retries verify
+  if (
+    verifyRepos &&
+    adminConfiguredCount > 0 &&
+    Object.keys(repositories).length === 0
+  ) {
+    if (priorHasRepos) {
+      log.warn(
+        "repo verify failed for every configured type — keeping prior cache " +
+          "entry instead of pinning an empty one",
+        { serverId, configuredCount: adminConfiguredCount },
+      );
+      SESSION.serverId = serverId;
+      SESSION.byType = entryToByType(priorEntry, base);
+      SESSION.meta = buildResolveMeta(serverId, priorEntry, {
+        via: "refresh-verify-failed-kept-prior",
+        cacheFile: file,
+      });
+      return;
+    }
+    log.warn(
+      "repo verify failed for every configured type — skipping empty cache " +
+        "write so the next session retries verification",
+      { serverId, configuredCount: adminConfiguredCount },
+    );
+    const empty = {
+      repositories: {},
+      cached_at: new Date().toISOString(),
+      source,
+      agentsConfigMtimeMs,
+    };
+    SESSION.serverId = serverId;
+    SESSION.byType = {};
+    SESSION.meta = buildResolveMeta(serverId, empty, {
+      via: "refresh-verify-failed-no-cache",
+      cacheFile: file,
+    });
+    return;
+  }
+
+  // Partial verify failure: keep prior keys for admin-configured types that
+  // failed this round so a transient blip on one type does not ungover that
+  // type for the full cache TTL.
+  if (verifyRepos && priorHasRepos) {
+    for (const [type, repoKey] of Object.entries(priorEntry.repositories)) {
+      if (repositories[type] || !adminRepos[type]) continue;
+      repositories[type] = repoKey;
+      log.warn(
+        "repo verify failed — keeping prior cache value for type",
+        { type, repoKey, serverId },
+      );
+    }
+  }
+
   const entry = {
     repositories,
     cached_at: new Date().toISOString(),
@@ -254,13 +333,10 @@ async function refreshServerCache(serverId) {
     agentsConfigMtimeMs,
   };
 
-  const { data: cacheRoot } = await readCacheFile();
-  const root = normalizeCacheRoot(cacheRoot);
   root.servers[serverId] = entry;
   await writeCacheFile(root);
 
   const via = verifyRepos ? "refresh-verified" : "refresh-agents-config";
-  const file = cacheFile();
   SESSION.serverId = serverId;
   SESSION.byType = entryToByType(entry, base);
   SESSION.meta = buildResolveMeta(serverId, entry, { via, cacheFile: file });
@@ -461,7 +537,7 @@ if (isMain) {
   if (!result) {
     console.error(`No repo resolved for type=${type}.`);
     console.error(
-      "Live mode needs a configured `jf` server with an access token (run `jf c add`).",
+      "Live mode needs a configured `jf` server (access token or username + password / API key; run `jf c add`).",
     );
     process.exit(2);
   }
