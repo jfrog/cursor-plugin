@@ -1,4 +1,7 @@
 # Copyright (c) JFrog Ltd. 2026
+#
+# Cuts a GitHub Release when a release marker is merged to main.
+# Full flow and rationale: CONTRIBUTING.md#releasing
 name: Release
 
 on:
@@ -16,21 +19,13 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      # Full history (and therefore tags) so the "already released" check below can see them.
-      # No write token needed: nothing here pushes over git, the release API creates the tag.
+      # Full history, so the tag check below can see existing tags.
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      # Releasing is opt-in: only a merge whose commit *subject* carries [major], [minor] or
-      # [patch] cuts one. The marker is purely a trigger — the version itself always comes from
-      # the manifest, so the bump is reviewable in the PR that makes it.
-      # Subject line only, deliberately. This repo squash-merges, and GitHub pre-fills the squash
-      # message body from the branch's commit messages (or the PR description). Either one can
-      # mention a marker while merely documenting it — matching the whole message would then
-      # release by accident on a merge nobody intended as a release.
-      # The message is passed through env rather than interpolated into the script, so a commit
-      # subject can never inject shell.
+      # Subject line only, not the whole message. MSG goes through env rather than string
+      # interpolation, so a crafted commit subject can't inject shell.
       - name: Detect release marker in commit subject
         id: detect
         env:
@@ -43,10 +38,8 @@ jobs:
             echo "triggered=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # plugins/jfrog/.cursor-plugin/plugin.json is the canonical version for the plugin itself.
-      # .cursor-plugin/marketplace.json carries its own copy that Cursor's marketplace reads, so
-      # the two are cross-checked here as well as by the validate-version PR check — a release is
-      # the last place a mismatch should get through.
+      # plugin.json is canonical; marketplace.json carries its own copy, so the two are
+      # cross-checked here as well as by the validate-version PR check.
       - name: Read version from the plugin manifest
         if: steps.detect.outputs.triggered == 'true'
         id: version
@@ -64,9 +57,8 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      # Catches the one mistake this flow allows: merging a release marker without bumping the
-      # manifests. The tag is created as part of the release below, so a tag that already exists
-      # means that version genuinely shipped.
+      # A tag exists only if that version was released, so this catches a marker that was merged
+      # without a manifest bump.
       - name: Refuse to re-release an existing version
         if: steps.detect.outputs.triggered == 'true'
         run: |
@@ -81,22 +73,18 @@ jobs:
         with:
           node-version: "20"
 
-      # The marketplace template check runs on this same push, but as a separate workflow — in parallel and with
-      # no relationship to this one — so on its own it cannot stop a broken marketplace template from being
-      # released. Running the same check here is what actually gates the release on it.
+      # validate-template.yml runs on this same push, but as an independent workflow that can't
+      # gate this one. Re-running its check here is what actually gates the release on it.
       - name: Validate marketplace template before releasing
         if: steps.detect.outputs.triggered == 'true'
         run: node scripts/validate-template.mjs
 
-      # git archive exports tracked files at HEAD, so nothing an earlier step happened to leave on
-      # the runner can end up in the artifact. .github is excluded to match what users get.
+      # Tracked files at HEAD only, so nothing left on the runner can end up in the zip.
       - name: Package release artifact
         if: steps.detect.outputs.triggered == 'true'
         run: git archive --format=zip --output=release.zip HEAD -- ':(exclude).github'
 
-      # --target creates the tag as part of creating the release, in a single API call. Pushing the
-      # tag separately beforehand meant a failure in between left an orphan tag with no release, and
-      # the re-run then tripped the "already exists" check above with nothing wrong but the tag.
+      # --target creates the tag as part of the release, so a failure can't leave an orphan tag.
       - name: Create GitHub Release
         if: steps.detect.outputs.triggered == 'true'
         env:
