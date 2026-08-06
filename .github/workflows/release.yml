@@ -1,0 +1,97 @@
+# Copyright (c) JFrog Ltd. 2026
+#
+# Cuts a GitHub Release when a release marker is merged to main.
+# Full flow and rationale: CONTRIBUTING.md#releasing
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history, so the tag check below can see existing tags.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Subject line only, not the whole message. MSG goes through env rather than string
+      # interpolation, so a crafted commit subject can't inject shell.
+      - name: Detect release marker in commit subject
+        id: detect
+        env:
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          SUBJECT=$(printf '%s\n' "$MSG" | head -1)
+          if printf '%s' "$SUBJECT" | grep -qE '\[(major|minor|patch)\]'; then
+            echo "triggered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "triggered=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # plugin.json is canonical; marketplace.json carries its own copy, so the two are
+      # cross-checked here as well as by the validate-version PR check.
+      - name: Read version from the plugin manifest
+        if: steps.detect.outputs.triggered == 'true'
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -er '.version' plugins/jfrog/.cursor-plugin/plugin.json)
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::plugin.json version '$VERSION' is not X.Y.Z — refusing to release"
+            exit 1
+          fi
+          MARKET_VERSION=$(jq -er '.metadata.version' .cursor-plugin/marketplace.json)
+          if [ "$VERSION" != "$MARKET_VERSION" ]; then
+            echo "::error::plugin.json is $VERSION but marketplace.json .metadata.version is $MARKET_VERSION — sync them before releasing"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # A tag exists only if that version was released, so this catches a marker that was merged
+      # without a manifest bump.
+      - name: Refuse to re-release an existing version
+        if: steps.detect.outputs.triggered == 'true'
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::$TAG already exists — bump the plugin manifests before merging a release marker"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v5
+        if: steps.detect.outputs.triggered == 'true'
+        with:
+          node-version: "20"
+
+      # validate-template.yml only runs on pull requests, so nothing checks the merge commit
+      # itself. Re-running its script here is what gates the release on it.
+      - name: Validate marketplace template before releasing
+        if: steps.detect.outputs.triggered == 'true'
+        run: node scripts/validate-template.mjs
+
+      # Tracked files at HEAD only, so nothing left on the runner can end up in the zip.
+      - name: Package release artifact
+        if: steps.detect.outputs.triggered == 'true'
+        run: git archive --format=zip --output=release.zip HEAD -- ':(exclude).github'
+
+      # --target creates the tag as part of the release, so a failure can't leave an orphan tag.
+      - name: Create GitHub Release
+        if: steps.detect.outputs.triggered == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" \
+            release.zip \
+            --target "$GITHUB_SHA" \
+            --title "Release v${{ steps.version.outputs.version }}" \
+            --generate-notes

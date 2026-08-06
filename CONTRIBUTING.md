@@ -36,6 +36,25 @@ The `skills/` tree is vendored from [`jfrog/jfrog-skills`](https://github.com/jf
 
 See [`VENDOR.md`](VENDOR.md) for the full picture.
 
+## Releasing
+
+To cut a release:
+
+1. In your PR, bump `.version` in [`plugins/jfrog/.cursor-plugin/plugin.json`](plugins/jfrog/.cursor-plugin/plugin.json) and sync `.metadata.version` in [`.cursor-plugin/marketplace.json`](.cursor-plugin/marketplace.json) to match. `plugin.json` is canonical; the `validate-version` PR check enforces that the two agree.
+2. Merge to `main` with `[major]`, `[minor]`, or `[patch]` in the commit **subject** - the first
+   line. A marker further down in the body is ignored on purpose: this repo squash-merges, and
+   GitHub pre-fills the squash body from the branch commits or the PR description, either of
+   which may quote a marker while only documenting it.
+
+The marker only decides *whether* to release; the version comes from the manifest either way, so the bump is reviewed in the PR that makes it. There is no bot push to `main`. Merging a marker without bumping the manifests fails the release rather than re-tagging a shipped version.
+
+The workflow reads the version from `plugin.json`, confirms `marketplace.json` agrees, refuses to continue if that version is already tagged, runs the same marketplace-template check as the `validate-template` PR workflow, packages the tracked files at `HEAD` (minus `.github/`) into `release.zip`, and creates the `vX.Y.Z` tag as part of publishing the GitHub Release.
+
+Two things to know before changing it:
+
+- Validation runs inside the release job. Both `validate-template.yml` and `validate-version.yml` only run on pull requests, so neither one sees the merge commit the release is cut from. Re-running their checks in the release job is what actually gates the release on them. Keep it that way even if either workflow gains a `push` trigger: a separate workflow is still independent of this one, and can be red while a release goes out.
+- The tag is created by the release, not before it. `gh release create --target` does both in one API call, so a failed run can't leave a tag behind with no release attached to it.
+
 ## Reporting Issues
 
 Open a [GitHub issue](https://github.com/jfrog/cursor-plugin/issues) with:
