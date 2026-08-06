@@ -73,8 +73,8 @@ jobs:
         with:
           node-version: "20"
 
-      # validate-template.yml runs on this same push, but as an independent workflow that can't
-      # gate this one. Re-running its check here is what actually gates the release on it.
+      # validate-template.yml only runs on pull requests, so nothing checks the merge commit
+      # itself. Re-running its script here is what gates the release on it.
       - name: Validate marketplace template before releasing
         if: steps.detect.outputs.triggered == 'true'
         run: node scripts/validate-template.mjs

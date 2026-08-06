@@ -52,7 +52,7 @@ The workflow reads the version from `plugin.json`, confirms `marketplace.json` a
 
 Two things to know before changing it:
 
-- Validation runs inside the release job. `validate-template.yml` triggers on the same push, but as an independent workflow, so it can be red while a release still goes out. Re-running its check in the release job is what actually gates the release on it.
+- Validation runs inside the release job. Both `validate-template.yml` and `validate-version.yml` only run on pull requests, so neither one sees the merge commit the release is cut from. Re-running their checks in the release job is what actually gates the release on them. Keep it that way even if either workflow gains a `push` trigger: a separate workflow is still independent of this one, and can be red while a release goes out.
 - The tag is created by the release, not before it. `gh release create --target` does both in one API call, so a failed run can't leave a tag behind with no release attached to it.
 
 ## Reporting Issues
