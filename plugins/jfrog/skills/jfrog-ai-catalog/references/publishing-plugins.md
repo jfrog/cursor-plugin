@@ -1,6 +1,6 @@
-# Publishing a skill
+# Publishing a plugin
 
-Publishing is mutating, so **always confirm the target repository and the skill
+Publishing is mutating, so **always confirm the target repository and the plugin
 name with the user before publishing**. Resolve the repo and read the name from
 the bundle, then show both and wait for an explicit "yes". Never publish on the
 initial request alone, and never auto-pick a repo without surfacing it first.
@@ -9,31 +9,31 @@ initial request alone, and never auto-pick a repo without surfacing it first.
 
 - Resolve the target repository
 - Validate the bundle
-- Sign the skill (evidence)
+- Sign the plugin (evidence)
 - Publish
 - Report the publish result
 
 ## Resolve the target repository
 
 Publish targets an Artifactory **repository** (`--repo`), not a JFrog project,
-and there is no `--project` flag on `jf skills publish`. Resolve `<repo>` in this
-order:
+and there is no `--project` flag on `jf agent plugins publish`. Resolve `<repo>`
+in this order:
 
 1. **User named a repo up front.** Use it directly as `<repo>` and skip
    provisioning. An explicit user-named repo always wins.
 
-2. **No repo given. Provision the project's skills repository.** Use Agent
-   Guard to create (or resolve, if it already exists) the project's local skills
+2. **No repo given. Provision the project's plugins repository.** Use Agent
+   Guard to create (or resolve, if it already exists) the project's local plugins
    repo, then publish to the returned key. This needs `<PROJECT>` (resolve it per
    *Prerequisites* in `../SKILL.md`, asking only if it is unknown):
 
 ```bash
 npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
-  --provision-skills-repository --project "<PROJECT>" [--server "<SID>"] [--format json]
+  --provision-agent-plugins-repository --project "<PROJECT>" [--server "<SID>"] [--format json]
 ```
 
    It prints the bare repo key (or `{"repoKey":"<repo>"}` with `--format json`).
-   Use that as `<repo>`, then **show the user the provisioned repo and the skill
+   Use that as `<repo>`, then **show the user the provisioned repo and the plugin
    name and wait for confirmation** before publishing (see *Confirm before
    publishing*). Do not publish to it silently.
 
@@ -41,10 +41,10 @@ npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
    retry in a loop. Publishing is mutating, so you must get an explicit repo from
    the user here. This is the one case where you do ask before publishing.
 
-   First list the existing skills repos:
+   First list the existing plugins repos:
 
 ```bash
-jf api '/artifactory/api/repositories?packageType=skills&type=local' \
+jf api '/artifactory/api/repositories?packageType=plugins&type=local' \
   --server-id "<SID>" 2>/dev/null | jq -r '.[].key'
 ```
 
@@ -52,17 +52,17 @@ jf api '/artifactory/api/repositories?packageType=skills&type=local' \
    more repos, reply in **this exact format**, sorted by name, one row per key, and
    nothing else:
 
-   Provisioning a skills repository for project `<project>` on `<SID>` failed, so
+   Provisioning a plugins repository for project `<project>` on `<SID>` failed, so
    pick an existing repository to publish `<slug>` to:
 
    | Repository |
    |------------|
    | `<repo>` |
 
-   If the command printed nothing (no skills repos on the server), reply with one
+   If the command printed nothing (no plugins repos on the server), reply with one
    line instead, filling `<reason>` with the provisioning error:
 
-   > No skills repositories on `<SID>` to publish to (provisioning failed: `<reason>`). Tell me a repository to use, or ask me to retry.
+   > No plugins repositories on `<SID>` to publish to (provisioning failed: `<reason>`). Tell me a repository to use, or ask me to retry.
 
    **Never auto-select a repo, even if one exists whose name matches the
    project.** A name match is not consent. Do not publish to any repo the user did
@@ -70,26 +70,26 @@ jf api '/artifactory/api/repositories?packageType=skills&type=local' \
 
 ## Validate the bundle
 
-The publish argument is the **path to the folder containing `SKILL.md`** (not
-the `SKILL.md` file itself). Before publishing:
+The publish argument is the **path to the folder containing `plugin.json`** (not
+the `plugin.json` file itself). Before publishing:
 
 ```bash
-test -f "<path>/SKILL.md" || echo "No SKILL.md at <path>, not a skill bundle"
+test -f "<path>/plugin.json" || echo "No plugin.json at <path>, not a plugin bundle"
 ```
 
-Confirm the `SKILL.md` has valid YAML frontmatter with at least a `name` and
-`description`. If the bundle is missing `SKILL.md` or the frontmatter is
-malformed, do not publish and reply using **this exact template** (no extra
-prose), filling `<problem>` with the specific issue found:
+Parse `plugin.json` and confirm it contains at least a `name` field with a
+non-empty value. If the bundle is missing `plugin.json` or the required fields are
+absent or malformed, do not publish and reply using **this exact template** (no
+extra prose), filling `<problem>` with the specific issue found:
 
-  > `<path>` is not a publishable skill bundle: `<problem>`. Point me at the
-  > folder that contains `SKILL.md` and I'll retry.
+  > `<path>` is not a publishable plugin bundle: `<problem>`. Point me at the
+  > folder that contains `plugin.json` and I'll retry.
 
-## Sign the skill (evidence)
+## Sign the plugin (evidence)
 
-Signing attaches a cryptographic attestation so the skill **installs without an
+Signing attaches a cryptographic attestation so the plugin **installs without an
 evidence-verification warning** (see *When evidence verification fails* in
-`installing-skills.md`). It is **opt-in**. Never generate keys or sign silently,
+`installing-plugins.md`). It is **opt-in**. Never generate keys or sign silently,
 and never echo, print, or hardcode the key path or its contents.
 
 **Ask the user how to sign before doing anything else.** Do **not** inspect, echo,
@@ -113,8 +113,8 @@ For **Read from the environment**, check both vars are set. If either is missing
 ask the user to export both and retry instead of failing the publish.
 
 Precedence: an explicit `--signing-key`/`--key-alias` wins. Without it,
-`jf skills publish` falls back to `EVD_SIGNING_KEY_PATH`/`EVD_KEY_ALIAS`. With
-neither, the publish is unsigned.
+`jf agent plugins publish` falls back to `EVD_SIGNING_KEY_PATH`/`EVD_KEY_ALIAS`.
+With neither, the publish is unsigned.
 
 To generate a key pair and register its public key in one step:
 
@@ -132,10 +132,10 @@ produces the right format.
 ## Confirm before publishing
 
 Once `<repo>` is resolved and the bundle validated, **show the user what will be
-published and wait for an explicit confirmation**. Reply using this exact
-template and do not run `jf skills publish` until the user agrees:
+published and wait for an explicit confirmation**. Reply using this exact template
+and do not run `jf agent plugins publish` until the user agrees:
 
-  > Publishing skill `<slug>` uploads it to repository `<repo>` on server `<SID>`. Do you want to publish it?
+  > Publishing plugin `<slug>` uploads it to repository `<repo>` on server `<SID>`. Do you want to publish it?
 
 Never combine this final confirmation step with the previous signing step into one prompt.
 
@@ -144,42 +144,37 @@ again. Only proceed to *Publish* after an explicit "yes".
 
 ## Publish
 
-Publish to the resolved `<repo>`. The version is optional. Only pass `--version`
-when the user gives an explicit semver, and do not ask the user for a version. Pass `--signing-key`/`--key-alias` only when signing with an
-explicit key the user provided or generated. Omit them when relying on
+Publish to the resolved `<repo>`. When `--version` is omitted, the CLI uses the
+version from `plugin.json`. Only pass `--version` to override with an explicit
+semver the user provides; `latest` is not valid. Do not ask the user for a version.
+Pass `--signing-key`/`--key-alias` only when signing with an explicit key the
+user provided or generated. Omit them when relying on
 `EVD_SIGNING_KEY_PATH`/`EVD_KEY_ALIAS` from the environment, or when publishing
 unsigned.
 
 ```bash
-jf skills publish "<path>" \
+jf agent plugins publish "<path>" \
   --server-id "<SID>" \
   --repo "<repo>" \
-  --skip-scan \
   --quiet \
   [--version "<semver>"] \
-  [--signing-key "<private-key-path>" --key-alias "<alias>"]
+  [--signing-key "<private-key-path>" --key-alias "<alias>"] \
+  [--build-name "<name>" --build-number "<number>"]
 ```
 
-**Always pass `--skip-scan`.** Without it, the CLI runs a synchronous Xray check
-immediately after upload. Because the artifact is brand-new and not yet indexed,
-the check can falsely reject a perfectly clean skill. Skipping the inline scan
-is safe. If the repo has an Xray watch, it scans asynchronously on its own.
-
-Only omit `--skip-scan` when the user explicitly asks for an inline scan.
-
-Useful flags (verify with `jf skills publish --help`):
+Useful flags (verify with `jf agent plugins publish --help`):
 
 | Flag | Purpose |
 |------|---------|
 | `--repo` | Target Artifactory repository key. **Required.** |
-| `--version` | Package version (semver, e.g. `1.2.0`) or `latest`. |
+| `--version` | Explicit semver override (e.g. `1.2.0`). Omit to use the version in `plugin.json`. |
 | `--signing-key` | Path to the PEM private key for evidence signing (overrides `EVD_SIGNING_KEY_PATH`). |
 | `--key-alias` | Alias of the signer's trusted public key (overrides `EVD_KEY_ALIAS`). |
-| `--skip-scan` | Skip the synchronous post-publish Xray scan (env `JFROG_CLI_SKIP_SKILLS_SCAN=true`). |
-| `--auto-delete-on-failure` | Auto-remove the artifact if the Xray scan flags it as malicious. |
+| `--build-name` / `--build-number` | Optional: record build info for this publish. Both must be provided together. |
+| `--module` | Optional module name for the build-info (requires `--build-name`/`--build-number`). |
 | `--quiet` | Skip interactive prompts (also defaults to `$CI`). |
 
-To release a new version, bump the bundle's `--version` and publish again. Each
+To release a new version, bump the version in `plugin.json` and publish again. Each
 publish adds a new version.
 
 **On a version conflict** (publish fails with `version <v> ... already exists`):
@@ -190,37 +185,16 @@ existing version and `<next>` with the next patch (for example `3.0.0` to `3.0.1
 
 | Option | Action |
 |--------|--------|
-| **Overwrite** | Run `jf skills delete "<slug>" --version "<v>" --repo "<repo>" --server-id "<SID>"`, then re-run the publish unchanged. |
+| **Overwrite** | Run `jf agent plugins delete "<slug>" --version "<v>" --repo "<repo>" --server-id "<SID>"`, then re-run the publish unchanged. |
 | **Publish as a new version** | Re-run the publish with `--version <new>` (the user's semver, or `<next>`). |
 | **Abort** | Stop and report that nothing was published. |
 
 ## Report the publish result
 
-- **Success.** Reply using **this exact template**. Do not mention Xray
-  scanning, async watches, or indexing:
+- **Success.** Reply using **this exact template**:
 
   > Published `<slug>@<version>` to `<repo>` on `<SID>`.
-- **Blocked by the Xray scan** (only when `--skip-scan` was omitted, shown by
-  `[VIOLATION] … identified as malicious` or `blocked by Xray security scan`).
-  Publish uploads the archive first, then scans, so on a scan block the artifact
-  may still be in the repo unless you passed `--auto-delete-on-failure`. Never
-  claim it was removed. Verify:
 
-```bash
-jf api '/artifactory/api/storage/<repo>/<slug>/<version>' --server-id "<SID>"
-# 200 = still present, 404 = already gone
-```
-
-  If it is still present, tell the user the malicious-flagged artifact remains
-  and offer to delete it (`jf skills delete "<slug>" --version "<version>"
-  --repo "<repo>" --server-id "<SID>"`). Treat the malicious flag as a real security signal. Reply
-  using **this exact template**:
-
-  > Publish of `<slug>@<version>` was **blocked by the Xray scan** (`<violation>`).
-  > The flagged artifact is still in `<repo>`. I can delete it if you'd like.
-
-  To auto-clean on a future failed publish, re-run with
-  `--auto-delete-on-failure`.
 - **Other failure.** Reply using **this exact template**, quoting the CLI error
   verbatim in `<cli-error>`:
 
