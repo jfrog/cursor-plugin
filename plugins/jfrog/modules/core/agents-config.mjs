@@ -13,6 +13,7 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isSafeRepoKey } from "../package-resolution/scripts/repo-types.mjs";
 
 /** modules bundle root (parent of core/ and assets/). */
 const PLUGIN_ROOT = path.resolve(
@@ -174,9 +175,9 @@ export function getGlobalLogLevel() {
 }
 
 /**
- * Package types the admin declares globally (governance source). Governance is
- * the UNION of these and any workspace `.jfrog/local` repositories; the workspace
- * side is added by the resolver (workspace-dependent, per-session).
+ * Package types the admin declares globally (the governance boundary).
+ * Workspace files may override repository keys for these types but cannot add
+ * new governed types.
  * @returns {string[]} defaultGlobalRepos keys (unordered)
  */
 export function globalDeclaredTypes() {
@@ -233,7 +234,7 @@ export function normalizeRepoMap(raw) {
   if (!raw || typeof raw !== "object") return {};
   const out = {};
   for (const [type, key] of Object.entries(raw)) {
-    if (typeof key === "string" && key.trim()) out[type] = key.trim();
+    if (isSafeRepoKey(key?.trim())) out[type] = key.trim();
   }
   return out;
 }
