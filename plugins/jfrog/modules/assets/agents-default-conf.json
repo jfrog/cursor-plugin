@@ -4,16 +4,7 @@
     "enabled": false,
     "verifyRepos": true,
     "cacheTtlDays": 7,
-    "defaultGlobalRepos": {
-      "npm": "npm-virtual",
-      "pypi": "pypi-virtual",
-      "maven": "maven-virtual",
-      "gradle": "gradle-virtual",
-      "go": "go-virtual",
-      "docker": "docker-virtual",
-      "helm": "helm-virtual",
-      "nuget": "nuget-virtual"
-    },
+    "defaultGlobalRepos": {},
     "autoSetup": []
   }
 }
