@@ -20,6 +20,7 @@ CLI authentication options: run `jf login` for browser-based setup, or set the `
 |---|---|---|
 | **MCP** | `mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
 | **Hook + Skill** | `hooks/hooks.json`, `skills/jfrog-setup-package-managers/` | Agent Package Resolution (Preview) — route agent package installs through Artifactory |
+| **Hook** | `hooks/hooks.json`, `modules/cursor-align-mcp-json.mjs` | On session start, align this plugin’s `mcp.json` through Agent Guard (`--align-mcp-json`) so stdio MCP entries launch via `@jfrog/agent-guard` |
 
 ### Skills
 
@@ -45,6 +46,12 @@ Agent Package Resolution is in preview and opt-in. To get started:
 
 - **Users:** see the [User Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-user-guide.md).
 - **Admins:** see the [Admin Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-admin-guide.md).
+
+## Plugin MCP alignment (Agent Guard)
+
+On every Cursor agent `sessionStart`, the plugin runs `npx @jfrog/agent-guard --align-mcp-json` against **this plugin’s own** `mcp.json` (not project/user `.cursor/mcp.json`, and not other plugins). Stdio MCP entries are rewritten to launch through Agent Guard; remote `url` / `http` / `sse` / `ws` entries are left unchanged. If the file is rewritten, use **Developer: Reload Window** so Cursor reloads MCP config.
+
+Disable with `JF_AGENT_ALIGN_MCP_JSON_DISABLE=1`. Optional: set `JFROG_AGENT_GUARD_REPO` to your private npm registry for `@jfrog/agent-guard`, and `JFROG_AGENT_GUARD_VERSION` to pin or override the package version. Pass `JF_PROJECT` / `JFROG_PROJECT` and optionally `JF_SERVER` / `JFROG_SERVER_ID` so align does not depend solely on jf CLI / setup.json resolution.
 
 ## MCP Capabilities
 
