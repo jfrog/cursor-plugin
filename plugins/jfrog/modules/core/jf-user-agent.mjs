@@ -16,7 +16,16 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
-const PKG_VERSION = String(require("../../package.json").version || "0.0.0");
+// Source tree: ../../package.json is the hooks repo root. Vendored plugin
+// layouts have no package.json at that relative path — never throw.
+function hooksPkgVersion() {
+  try {
+    return String(require("../../package.json").version || "0.0.0");
+  } catch {
+    return "0.0.0";
+  }
+}
+const PKG_VERSION = hooksPkgVersion();
 
 const MAX_TOKEN_LEN = 64;
 
