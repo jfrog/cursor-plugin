@@ -8,7 +8,7 @@
       },
       {
         "command": "node \"./modules/cursor-align-mcp-json.mjs\" session-start",
-        "timeout": 15
+        "timeout": 45
       }
     ]
   }
