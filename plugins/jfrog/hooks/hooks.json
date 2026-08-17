@@ -5,6 +5,10 @@
       {
         "command": "node \"./modules/cursor-session-start.mjs\" package-resolution",
         "timeout": 7
+      },
+      {
+        "command": "node \"./scripts/cursor-align-mcp-json.mjs\" session-start",
+        "timeout": 45
       }
     ]
   }

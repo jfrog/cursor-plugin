@@ -20,6 +20,7 @@ CLI authentication options: run `jf login` for browser-based setup, or set the `
 |---|---|---|
 | **MCP** | `mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
 | **Hook + Skill** | `hooks/hooks.json`, `skills/jfrog-setup-package-managers/` | Agent Package Resolution (Preview) — route agent package installs through Artifactory |
+| **Hook** | `hooks/hooks.json`, `scripts/cursor-align-mcp-json.mjs` (+ `cursor-mcp-json-discover.mjs`) | On session start, rewrite discovered plugin `mcp.json` / `.mcp.json` files through Agent Guard (`--rewrite-mcp-json`) so stdio MCP entries launch via `@jfrog/agent-guard` |
 
 ### Skills
 
@@ -45,6 +46,24 @@ Agent Package Resolution is in preview and opt-in. To get started:
 
 - **Users:** see the [User Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-user-guide.md).
 - **Admins:** see the [Admin Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-admin-guide.md).
+
+## Plugin MCP rewrite (Agent Guard)
+
+On every Cursor agent `sessionStart`, the plugin discovers MCP configs under `$CURSOR_CONFIG_DIR/plugins/local/*` (default `~/.cursor`; prefers `mcp.json`, else `.mcp.json`), plus this plugin's own `mcp.json`, and runs `npx @jfrog/agent-guard --rewrite-mcp-json` against those paths. Stdio MCP entries are rewritten to launch through Agent Guard; remote `url` / `http` / `sse` / `ws` entries are left unchanged. Workspace and user-level `.cursor/mcp.json` files are **not** rewritten. If a file is rewritten, use **Developer: Reload Window** so Cursor reloads MCP config.
+
+The hook soft-fails (never breaks the session): missing project key, Agent Guard gate failure, or rewrite errors log and exit 0.
+
+| Env | Purpose |
+|---|---|
+| `JF_AGENT_REWRITE_MCP_JSON_DISABLE=1` | Kill switch — skip rewrite entirely |
+| `JF_PROJECT` / `JFROG_PROJECT` | Project key (also inferred from existing `_JF_ARGS project=` in discovered mcp.json) |
+| `JF_SERVER` / `JFROG_SERVER_ID` | Optional server ID for the gate / `--server` |
+| `JFROG_AGENT_GUARD_VERSION` | Override pinned `@jfrog/agent-guard` version |
+| `JFROG_AGENT_GUARD_REPO` | Private npm registry for `@jfrog/agent-guard` |
+| `JFROG_AGENT_GUARD_BIN` | Local Agent Guard binary (skips npx) |
+| `JF_ALIGN_MCP_JSON_ROOTS` | Override discovery roots (POSIX `:`/`,`; Windows `;`/`,`) |
+| `CURSOR_CONFIG_DIR` | Cursor config root (default `~/.cursor`) |
+| `JF_ALIGN_MCP_JSON_INCLUDE_CACHE=1` | Also scan `$CURSOR_CONFIG_DIR/plugins/cache` |
 
 ## MCP Capabilities
 
