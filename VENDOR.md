@@ -40,7 +40,7 @@ The bundle contains harness runners (`core/`, `cursor-session-start.mjs`), the `
 
 Harness-specific scripts (for example `plugins/jfrog/scripts/cursor-align-mcp-json.mjs` and `cursor-mcp-json-discover.mjs`) live **outside** `modules/` so sync does not wipe them. They call shared orchestration in synced `modules/core/` (for example `rewrite-mcp-json.mjs`).
 
-Until the next `jfrog-agent-hooks` release that includes MLD-1386, `modules/core/{rewrite-mcp-json,agent-guard-check,entry}.mjs` are vendored from that branch on top of the pinned `v0.8.1` tree (see the vendor pin suffix).
+Until the next `jfrog-agent-hooks` release that includes MLD-1386, `modules/core/{rewrite-mcp-json,agent-guard-check,entry}.mjs` are vendored from that branch on top of the pinned `v0.8.1` tree (see the vendor pin suffix). Those paths are listed in `keep` in [`sync-modules-vendor.json`](.github/scripts/sync-modules-vendor.json) so a sync run restores them after replacing `modules/`. Remove the `keep` entries once upstream includes the files and the pin no longer needs the overlay.
 
 ## Refreshing modules
 
@@ -48,4 +48,4 @@ Until the next `jfrog-agent-hooks` release that includes MLD-1386, `modules/core
 JFROG_AGENT_HOOKS_PATH=/path/to/jfrog-agent-hooks node .github/scripts/sync-modules.mjs
 ```
 
-The script reads `paths` and `dest_prefix` from `sync-modules-vendor.json` (today: `paths: ["modules"]`, `dest_prefix: "plugins/jfrog"`) and replaces the whole `plugins/jfrog/modules/` tree.
+The script reads `paths`, `dest_prefix`, and optional `keep` from `sync-modules-vendor.json` (today: `paths: ["modules"]`, `dest_prefix: "plugins/jfrog"`) and replaces the whole `plugins/jfrog/modules/` tree, then restores any `keep` files that existed before the sync.

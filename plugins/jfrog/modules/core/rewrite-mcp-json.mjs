@@ -45,7 +45,7 @@ export const DEFAULT_AGENT_GUARD_NPM_REGISTRY =
  */
 export const DEFAULT_AGENT_GUARD_VERSION = "1.6.0";
 /** Shared budget for rewriting all discovered files in one hook invocation. */
-/** Must leave headroom under Cursor hooks.json timeout (45s) for gate + overhead. */
+/** Must leave headroom under Cursor hooks.json timeout (60s) for gate + overhead. */
 export const DEFAULT_REWRITE_TIMEOUT_MS = 35_000;
 /** SIGTERM → SIGKILL escalation window for a child that ignores the first signal. */
 export const DEFAULT_KILL_GRACE_MS = 2_000;

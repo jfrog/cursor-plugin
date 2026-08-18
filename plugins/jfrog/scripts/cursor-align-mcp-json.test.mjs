@@ -3,10 +3,11 @@
 // https://www.apache.org/licenses/LICENSE-2.0
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   CURSOR_CONFIG_DIR_ENV,
@@ -14,8 +15,13 @@ import {
 } from "./cursor-mcp-json-discover.mjs";
 import {
   isKnownMode,
+  RECOMMENDED_HOOK_TIMEOUT_SEC,
   runCursorAlignMcpJson,
 } from "./cursor-align-mcp-json.mjs";
+import {
+  DEFAULT_KILL_GRACE_MS,
+  DEFAULT_REWRITE_TIMEOUT_MS,
+} from "../modules/core/rewrite-mcp-json.mjs";
 
 /**
  * @param {string[]} segments
@@ -27,6 +33,29 @@ function tempDir(...segments) {
   mkdirSync(full, { recursive: true });
   return full;
 }
+
+test("hooks.json align timeout matches RECOMMENDED_HOOK_TIMEOUT_SEC with rewrite headroom", () => {
+  const hooksPath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "hooks",
+    "hooks.json",
+  );
+  const hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
+  const alignHook = hooks.hooks?.sessionStart?.find((h) =>
+    String(h.command ?? "").includes("cursor-align-mcp-json"),
+  );
+  assert.ok(alignHook, "sessionStart align hook missing from hooks.json");
+  assert.equal(alignHook.timeout, RECOMMENDED_HOOK_TIMEOUT_SEC);
+
+  // Gate (~7s) + rewrite spawn + SIGKILL grace must fit under the hook timeout.
+  const reservedOverheadMs = 7_000;
+  assert.ok(
+    DEFAULT_REWRITE_TIMEOUT_MS + DEFAULT_KILL_GRACE_MS + reservedOverheadMs <
+      RECOMMENDED_HOOK_TIMEOUT_SEC * 1000,
+    "rewrite budget + grace + gate overhead must leave margin under hooks.json timeout",
+  );
+});
 
 test("isKnownMode accepts session-start and file-changed", () => {
   assert.equal(isKnownMode("session-start"), true);

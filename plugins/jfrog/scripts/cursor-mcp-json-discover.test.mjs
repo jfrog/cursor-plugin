@@ -3,7 +3,7 @@
 // https://www.apache.org/licenses/LICENSE-2.0
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -70,13 +70,10 @@ test("resolvePluginRoot is parent of scripts/", () => {
   assert.equal(resolvePluginRoot(moduleUrl), path.join("/tmp/plugin"));
 });
 
-test("resolveMcpJsonForPluginRoot prefers mcp.json over .mcp.json", () => {
+test("resolveMcpJsonForPluginRoot finds mcp.json only", () => {
   const root = tempDir("plugin-a");
   writeFileSync(path.join(root, ".mcp.json"), "{}");
-  assert.equal(
-    resolveMcpJsonForPluginRoot(root),
-    path.join(root, ".mcp.json"),
-  );
+  assert.equal(resolveMcpJsonForPluginRoot(root), undefined);
   writeFileSync(path.join(root, "mcp.json"), "{}");
   assert.equal(resolveMcpJsonForPluginRoot(root), path.join(root, "mcp.json"));
 });
@@ -132,7 +129,7 @@ test("discoverCursorPluginRoots optionally includes cache tree", () => {
   assert.deepEqual(withCache, [versionRoot]);
 });
 
-test("discoverPluginMcpJsonPaths finds mcp.json and .mcp.json and includes self", () => {
+test("discoverPluginMcpJsonPaths finds mcp.json only and includes self", () => {
   const cursorDir = tempDir("cursor-discover");
   const pluginA = path.join(cursorDir, "plugins", "local", "a");
   const pluginB = path.join(cursorDir, "plugins", "local", "b");
@@ -155,11 +152,7 @@ test("discoverPluginMcpJsonPaths finds mcp.json and .mcp.json and includes self"
 
   assert.deepEqual(
     paths.sort(),
-    [
-      path.join(pluginA, "mcp.json"),
-      path.join(pluginB, ".mcp.json"),
-      path.join(selfRoot, "mcp.json"),
-    ].sort(),
+    [path.join(pluginA, "mcp.json"), path.join(selfRoot, "mcp.json")].sort(),
   );
 });
 
@@ -177,6 +170,33 @@ test("discoverPluginMcpJsonPaths skips self when roots env overrides", () => {
     moduleUrl,
   });
   assert.deepEqual(paths, [path.join(override, "mcp.json")]);
+});
+
+
+test("discoverCursorPluginRoots drops symlinks that escape CURSOR_CONFIG_DIR", () => {
+  const cursorDir = tempDir("cursor-symlink");
+  const outside = tempDir("outside-plugin");
+  const localDir = path.join(cursorDir, "plugins", "local");
+  mkdirSync(localDir, { recursive: true });
+  const safe = path.join(localDir, "safe");
+  mkdirSync(safe, { recursive: true });
+  const evil = path.join(localDir, "evil-link");
+  symlinkSync(outside, evil);
+
+  const roots = discoverCursorPluginRoots({
+    home: "/unused",
+    env: { [CURSOR_CONFIG_DIR_ENV]: cursorDir },
+  });
+  assert.deepEqual(roots, [safe]);
+});
+
+test("discoverCursorPluginRoots override roots are not confined to CURSOR_CONFIG_DIR", () => {
+  const override = tempDir("override-outside");
+  const roots = discoverCursorPluginRoots({
+    home: "/unused",
+    env: { [ROOTS_ENV]: override },
+  });
+  assert.deepEqual(roots, [override]);
 });
 
 test("resolveRewriteAllowRoots includes cursor dir, overrides, plugin, targets", () => {

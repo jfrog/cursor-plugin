@@ -33,7 +33,7 @@ const HARNESS_ID = "cursor";
 const log = createLogger("align-mcp-json");
 
 /** Recommended Cursor hooks.json timeout (seconds) for the align entry. */
-export const RECOMMENDED_HOOK_TIMEOUT_SEC = 45;
+export const RECOMMENDED_HOOK_TIMEOUT_SEC = 60;
 
 /** @type {ReadonlySet<string>} */
 export const MODES = Object.freeze(new Set(["session-start", "file-changed"]));
