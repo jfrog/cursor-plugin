@@ -41,14 +41,24 @@ See [`VENDOR.md`](VENDOR.md) for the full picture.
 To cut a release:
 
 1. In your PR, bump `.version` in [`plugins/jfrog/.cursor-plugin/plugin.json`](plugins/jfrog/.cursor-plugin/plugin.json) and sync `.metadata.version` in [`.cursor-plugin/marketplace.json`](.cursor-plugin/marketplace.json) to match. `plugin.json` is canonical; the `validate-version` PR check enforces that the two agree.
-2. Merge to `main` with `[major]`, `[minor]`, or `[patch]` in the commit **subject** - the first
-   line. A marker further down in the body is ignored on purpose: this repo squash-merges, and
-   GitHub pre-fills the squash body from the branch commits or the PR description, either of
-   which may quote a marker while only documenting it.
+2. Merge to `main`. If that version is not tagged yet, the Release workflow publishes it. The
+   version comes from the manifest, so the bump stays reviewable in the PR that makes it. There
+   is no bot push to `main`.
 
-The marker only decides *whether* to release; the version comes from the manifest either way, so the bump is reviewed in the PR that makes it. There is no bot push to `main`. Merging a marker without bumping the manifests fails the release rather than re-tagging a shipped version.
+A `[major]`, `[minor]`, or `[patch]` marker in the commit **subject** (first line) is optional.
+This repo squash-merges with the PR title as the subject, so requiring the marker used to skip
+the release whenever a title was rewritten — while the job stayed green. The workflow now
+publishes whenever `plugin.json` is ahead of the latest tag. A marker (or a manual
+`workflow_dispatch`) against a version that is already tagged still fails, rather than
+re-tagging a shipped release. A marker further down in the body is ignored on purpose: GitHub
+pre-fills the squash body from the branch commits or the PR description, either of which may
+quote a marker while only documenting it.
 
-The workflow reads the version from `plugin.json`, confirms `marketplace.json` agrees, refuses to continue if that version is already tagged, runs the same marketplace-template check as the `validate-template` PR workflow, packages the tracked files at `HEAD` (minus `.github/`) into `release.zip`, and creates the `vX.Y.Z` tag as part of publishing the GitHub Release.
+The workflow reads the version from `plugin.json`, confirms `marketplace.json` agrees, skips
+when that version is already tagged (or fails if a marker / dispatch asked to re-release it),
+runs the same marketplace-template check as the `validate-template` PR workflow, packages the
+tracked files at `HEAD` (minus `.github/`) into `release.zip`, and creates the `vX.Y.Z` tag as
+part of publishing the GitHub Release.
 
 Two things to know before changing it:
 
