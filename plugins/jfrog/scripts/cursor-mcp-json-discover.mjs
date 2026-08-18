@@ -2,15 +2,16 @@
 // Licensed under the Apache License, Version 2.0
 // https://www.apache.org/licenses/LICENSE-2.0
 //
-// Cursor-specific discovery of plugin mcp.json paths and Agent Guard
+// Cursor-specific discovery of plugin mcp.json / .mcp.json paths and Agent Guard
 // --allow-root directories. Harness entry lives in cursor-align-mcp-json.mjs;
 // shared rewrite orchestration lives in modules/core/rewrite-mcp-json.mjs.
 //
 // Override roots: JF_ALIGN_MCP_JSON_ROOTS=/path/a:/path/b
 //   (POSIX: colon/comma; Windows: semicolon/comma — avoids splitting C:\…)
-// Cursor config root: CURSOR_CONFIG_DIR (default ~/.cursor; used as our
-// discovery root — Cursor docs primarily document this for CLI config)
-// Include marketplace cache: JF_ALIGN_MCP_JSON_INCLUDE_CACHE=1
+// Default discovery root: $HOME/.cursor (Cursor loads plugins from here;
+// CURSOR_CONFIG_DIR is ignored — Cursor does not relocate plugins via that var)
+// Marketplace cache (~/.cursor/plugins/cache) is scanned by default;
+// skip with JF_ALIGN_MCP_JSON_SKIP_CACHE=1
 
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -24,14 +25,8 @@ import { fileURLToPath } from "node:url";
  * would split drive letters like `C:\…`).
  */
 export const ROOTS_ENV = "JF_ALIGN_MCP_JSON_ROOTS";
-/**
- * Cursor config root used for default discovery. Same default as Cursor's
- * usual layout: `${CURSOR_CONFIG_DIR:-$HOME/.cursor}` — plugins under
- * `$CURSOR_CONFIG_DIR/plugins/local` (and optionally `…/cache`).
- */
-export const CURSOR_CONFIG_DIR_ENV = "CURSOR_CONFIG_DIR";
-/** When "1", also scan $CURSOR_CONFIG_DIR/plugins/cache (marketplace installs). */
-export const INCLUDE_CACHE_ENV = "JF_ALIGN_MCP_JSON_INCLUDE_CACHE";
+/** When "1", skip ~/.cursor/plugins/cache (marketplace installs; on by default). */
+export const SKIP_CACHE_ENV = "JF_ALIGN_MCP_JSON_SKIP_CACHE";
 
 /**
  * Plugin root is the parent of `scripts/` (where this file lives).
@@ -68,21 +63,17 @@ export function parseRootsEnv(raw, platform = process.platform) {
 }
 
 /**
- * Cursor config root: `${CURSOR_CONFIG_DIR:-$HOME/.cursor}`.
+ * Cursor plugin config root: `$HOME/.cursor`.
+ * Cursor loads plugins from this path; `CURSOR_CONFIG_DIR` (CLI config) is not
+ * used for plugin discovery.
  * @param {{
  *   home?: string,
- *   env?: NodeJS.ProcessEnv,
  * }} [opts]
  * @returns {string}
  */
 export function resolveCursorConfigDir(opts = {}) {
-  const env = opts.env ?? process.env;
   const home = opts.home ?? homedir();
-  const fromEnv =
-    typeof env[CURSOR_CONFIG_DIR_ENV] === "string"
-      ? env[CURSOR_CONFIG_DIR_ENV].trim()
-      : "";
-  return fromEnv || path.join(home, ".cursor");
+  return path.join(home, ".cursor");
 }
 
 /**
@@ -120,7 +111,7 @@ export function discoverCursorPluginRoots(opts = {}) {
 
   const fromEnv = parseRootsEnv(env[ROOTS_ENV] ?? "");
   if (fromEnv.length > 0) {
-    // Override roots are trusted and not confined to CURSOR_CONFIG_DIR.
+    // Override roots are trusted and not confined to ~/.cursor.
     return fromEnv.filter((root) => {
       try {
         return existsFn(root) && statFn(root).isDirectory();
@@ -130,7 +121,7 @@ export function discoverCursorPluginRoots(opts = {}) {
     });
   }
 
-  const cursorDir = resolveCursorConfigDir({ home, env });
+  const cursorDir = resolveCursorConfigDir({ home });
   let cursorDirResolved;
   try {
     cursorDirResolved = realpathFn(cursorDir);
@@ -145,7 +136,7 @@ export function discoverCursorPluginRoots(opts = {}) {
     ...listImmediateSubdirs(localDir, { readdirFn, existsFn, statFn }),
   );
 
-  if (env[INCLUDE_CACHE_ENV] === "1") {
+  if (env[SKIP_CACHE_ENV] !== "1") {
     const cacheRoot = path.join(cursorDir, "plugins", "cache");
     for (const marketplace of listImmediateSubdirs(cacheRoot, {
       readdirFn,
@@ -208,17 +199,23 @@ function listImmediateSubdirs(dir, fs) {
 }
 
 /**
- * Resolve the MCP config path for a plugin root (Cursor plugins use mcp.json).
+ * Resolve MCP config paths for a plugin root. Cursor loads servers from both
+ * `mcp.json` and `.mcp.json` when present, so both are returned (in that order).
  * @param {string} pluginRoot
  * @param {{
  *   existsSyncFn?: typeof existsSync,
  * }} [deps]
- * @returns {string | undefined}
+ * @returns {string[]}
  */
 export function resolveMcpJsonForPluginRoot(pluginRoot, deps = {}) {
   const existsFn = deps.existsSyncFn ?? existsSync;
-  const mcpJson = path.join(pluginRoot, "mcp.json");
-  return existsFn(mcpJson) ? mcpJson : undefined;
+  /** @type {string[]} */
+  const paths = [];
+  for (const name of ["mcp.json", ".mcp.json"]) {
+    const candidate = path.join(pluginRoot, name);
+    if (existsFn(candidate)) paths.push(candidate);
+  }
+  return paths;
 }
 
 /**
@@ -257,27 +254,30 @@ export function discoverPluginMcpJsonPaths(opts = {}) {
   };
 
   for (const root of roots) {
-    add(
-      resolveMcpJsonForPluginRoot(root, {
-        existsSyncFn: existsFn,
-      }),
-    );
+    for (const p of resolveMcpJsonForPluginRoot(root, {
+      existsSyncFn: existsFn,
+    })) {
+      add(p);
+    }
   }
 
   const rootsOverridden = parseRootsEnv(env[ROOTS_ENV] ?? "").length > 0;
   if (opts.includeSelf !== false && !rootsOverridden) {
-    add(
-      resolveMcpJsonForPluginRoot(resolvePluginRoot(opts.moduleUrl), {
+    for (const p of resolveMcpJsonForPluginRoot(
+      resolvePluginRoot(opts.moduleUrl),
+      {
         existsSyncFn: existsFn,
-      }),
-    );
+      },
+    )) {
+      add(p);
+    }
   }
 
   return paths;
 }
 
 /**
- * Allow-roots for Agent Guard: Cursor config dir, override roots, plugin root,
+ * Allow-roots for Agent Guard: ~/.cursor, override roots, plugin root,
  * and parent dirs of discovered targets.
  * @param {{
  *   home?: string,
@@ -299,7 +299,7 @@ export function resolveRewriteAllowRoots(opts = {}) {
     roots.push(p);
   };
 
-  add(resolveCursorConfigDir({ home, env }));
+  add(resolveCursorConfigDir({ home }));
   for (const root of parseRootsEnv(env[ROOTS_ENV] ?? "")) {
     add(root);
   }

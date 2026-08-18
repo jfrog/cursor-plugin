@@ -9,10 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import {
-  CURSOR_CONFIG_DIR_ENV,
-  ROOTS_ENV,
-} from "./cursor-mcp-json-discover.mjs";
+import { ROOTS_ENV } from "./cursor-mcp-json-discover.mjs";
 import {
   isKnownMode,
   RECOMMENDED_HOOK_TIMEOUT_SEC,
@@ -96,7 +93,8 @@ test("runCursorAlignMcpJson no-ops when harness is not cursor", async () => {
 });
 
 test("runCursorAlignMcpJson passes discovered paths to shared pipeline", async () => {
-  const cursorDir = tempDir("cursor-pipeline");
+  const home = tempDir("home-pipeline");
+  const cursorDir = path.join(home, ".cursor");
   const pluginA = path.join(cursorDir, "plugins", "local", "a");
   mkdirSync(pluginA, { recursive: true });
   const mcpPath = path.join(pluginA, "mcp.json");
@@ -105,8 +103,8 @@ test("runCursorAlignMcpJson passes discovered paths to shared pipeline", async (
   /** @type {{ paths?: string[], allowRoots?: string[] }} */
   const captured = {};
   const code = await runCursorAlignMcpJson("session-start", {
+    home,
     env: {
-      [CURSOR_CONFIG_DIR_ENV]: cursorDir,
       // Avoid scanning the real hosting plugin tree in this unit test.
       [ROOTS_ENV]: pluginA,
     },

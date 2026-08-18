@@ -10,9 +10,8 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 import {
-  CURSOR_CONFIG_DIR_ENV,
-  INCLUDE_CACHE_ENV,
   ROOTS_ENV,
+  SKIP_CACHE_ENV,
   discoverCursorPluginRoots,
   discoverPluginMcpJsonPaths,
   parseRootsEnv,
@@ -33,6 +32,19 @@ function tempDir(...segments) {
   return full;
 }
 
+/**
+ * Fake $HOME with a `.cursor` tree for discovery tests.
+ * @param {string[]} underCursor — path segments under `.cursor`
+ * @returns {{ home: string, cursorDir: string, path: string }}
+ */
+function tempHomeCursor(...underCursor) {
+  const home = mkdtempSync(path.join(tmpdir(), "cursor-home-"));
+  const cursorDir = path.join(home, ".cursor");
+  const full = path.join(cursorDir, ...underCursor);
+  mkdirSync(full, { recursive: true });
+  return { home, cursorDir, path: full };
+}
+
 test("parseRootsEnv splits POSIX and Windows delimiters", () => {
   assert.deepEqual(parseRootsEnv("/a:/b,/c", "linux"), ["/a", "/b", "/c"]);
   assert.deepEqual(parseRootsEnv("C:\\a;D:\\b,E:\\c", "win32"), [
@@ -47,19 +59,31 @@ test("parseRootsEnv splits POSIX and Windows delimiters", () => {
   assert.deepEqual(parseRootsEnv("  ", "linux"), []);
 });
 
-test("resolveCursorConfigDir prefers CURSOR_CONFIG_DIR", () => {
+test("resolveCursorConfigDir is always $HOME/.cursor", () => {
   const home = "/home/user";
   assert.equal(
-    resolveCursorConfigDir({ home, env: {} }),
+    resolveCursorConfigDir({ home }),
     path.join(home, ".cursor"),
   );
-  assert.equal(
-    resolveCursorConfigDir({
-      home,
-      env: { [CURSOR_CONFIG_DIR_ENV]: "/custom/cursor" },
-    }),
-    "/custom/cursor",
+});
+
+test("discoverCursorPluginRoots ignores CURSOR_CONFIG_DIR", () => {
+  const { home, path: localPlugin } = tempHomeCursor(
+    "plugins",
+    "local",
+    "from-home",
   );
+  const customCursor = tempDir("custom-cursor");
+  mkdirSync(
+    path.join(customCursor, "plugins", "local", "from-env"),
+    { recursive: true },
+  );
+
+  const roots = discoverCursorPluginRoots({
+    home,
+    env: { CURSOR_CONFIG_DIR: customCursor },
+  });
+  assert.deepEqual(roots, [localPlugin]);
 });
 
 test("resolvePluginRoot is parent of scripts/", () => {
@@ -70,24 +94,29 @@ test("resolvePluginRoot is parent of scripts/", () => {
   assert.equal(resolvePluginRoot(moduleUrl), path.join("/tmp/plugin"));
 });
 
-test("resolveMcpJsonForPluginRoot finds mcp.json only", () => {
+test("resolveMcpJsonForPluginRoot finds mcp.json and .mcp.json", () => {
   const root = tempDir("plugin-a");
   writeFileSync(path.join(root, ".mcp.json"), "{}");
-  assert.equal(resolveMcpJsonForPluginRoot(root), undefined);
+  assert.deepEqual(resolveMcpJsonForPluginRoot(root), [
+    path.join(root, ".mcp.json"),
+  ]);
   writeFileSync(path.join(root, "mcp.json"), "{}");
-  assert.equal(resolveMcpJsonForPluginRoot(root), path.join(root, "mcp.json"));
+  assert.deepEqual(resolveMcpJsonForPluginRoot(root), [
+    path.join(root, "mcp.json"),
+    path.join(root, ".mcp.json"),
+  ]);
 });
 
 test("discoverCursorPluginRoots scans plugins/local", () => {
-  const cursorDir = tempDir("cursor-home");
+  const { home, cursorDir } = tempHomeCursor("plugins", "local");
   const localA = path.join(cursorDir, "plugins", "local", "alpha");
   const localB = path.join(cursorDir, "plugins", "local", "beta");
   mkdirSync(localA, { recursive: true });
   mkdirSync(localB, { recursive: true });
 
   const roots = discoverCursorPluginRoots({
-    home: "/unused",
-    env: { [CURSOR_CONFIG_DIR_ENV]: cursorDir },
+    home,
+    env: {},
   });
   assert.deepEqual(roots.sort(), [localA, localB].sort());
 });
@@ -101,8 +130,8 @@ test("discoverCursorPluginRoots honors JF_ALIGN_MCP_JSON_ROOTS override", () => 
   assert.deepEqual(roots, [override]);
 });
 
-test("discoverCursorPluginRoots optionally includes cache tree", () => {
-  const cursorDir = tempDir("cursor-cache");
+test("discoverCursorPluginRoots includes cache tree by default", () => {
+  const { home, cursorDir } = tempHomeCursor("plugins", "cache");
   const versionRoot = path.join(
     cursorDir,
     "plugins",
@@ -113,46 +142,57 @@ test("discoverCursorPluginRoots optionally includes cache tree", () => {
   );
   mkdirSync(versionRoot, { recursive: true });
 
-  const without = discoverCursorPluginRoots({
-    home: "/unused",
-    env: { [CURSOR_CONFIG_DIR_ENV]: cursorDir },
-  });
-  assert.deepEqual(without, []);
-
   const withCache = discoverCursorPluginRoots({
-    home: "/unused",
-    env: {
-      [CURSOR_CONFIG_DIR_ENV]: cursorDir,
-      [INCLUDE_CACHE_ENV]: "1",
-    },
+    home,
+    env: {},
   });
   assert.deepEqual(withCache, [versionRoot]);
+
+  const skipped = discoverCursorPluginRoots({
+    home,
+    env: {
+      [SKIP_CACHE_ENV]: "1",
+    },
+  });
+  assert.deepEqual(skipped, []);
 });
 
-test("discoverPluginMcpJsonPaths finds mcp.json only and includes self", () => {
-  const cursorDir = tempDir("cursor-discover");
+test("discoverPluginMcpJsonPaths finds mcp.json and .mcp.json and includes self", () => {
+  const { home, cursorDir } = tempHomeCursor("plugins", "local");
   const pluginA = path.join(cursorDir, "plugins", "local", "a");
   const pluginB = path.join(cursorDir, "plugins", "local", "b");
+  const pluginC = path.join(cursorDir, "plugins", "local", "c");
   mkdirSync(pluginA, { recursive: true });
   mkdirSync(pluginB, { recursive: true });
+  mkdirSync(pluginC, { recursive: true });
   writeFileSync(path.join(pluginA, "mcp.json"), "{}");
   writeFileSync(path.join(pluginB, ".mcp.json"), "{}");
+  writeFileSync(path.join(pluginC, "mcp.json"), "{}");
+  writeFileSync(path.join(pluginC, ".mcp.json"), "{}");
 
   const selfRoot = tempDir("self-plugin");
   writeFileSync(path.join(selfRoot, "mcp.json"), "{}");
+  writeFileSync(path.join(selfRoot, ".mcp.json"), "{}");
   const moduleUrl = pathToFileURL(
     path.join(selfRoot, "scripts", "cursor-mcp-json-discover.mjs"),
   ).href;
 
   const paths = discoverPluginMcpJsonPaths({
-    home: "/unused",
-    env: { [CURSOR_CONFIG_DIR_ENV]: cursorDir },
+    home,
+    env: {},
     moduleUrl,
   });
 
   assert.deepEqual(
     paths.sort(),
-    [path.join(pluginA, "mcp.json"), path.join(selfRoot, "mcp.json")].sort(),
+    [
+      path.join(pluginA, "mcp.json"),
+      path.join(pluginB, ".mcp.json"),
+      path.join(pluginC, "mcp.json"),
+      path.join(pluginC, ".mcp.json"),
+      path.join(selfRoot, "mcp.json"),
+      path.join(selfRoot, ".mcp.json"),
+    ].sort(),
   );
 });
 
@@ -172,25 +212,23 @@ test("discoverPluginMcpJsonPaths skips self when roots env overrides", () => {
   assert.deepEqual(paths, [path.join(override, "mcp.json")]);
 });
 
-
-test("discoverCursorPluginRoots drops symlinks that escape CURSOR_CONFIG_DIR", () => {
-  const cursorDir = tempDir("cursor-symlink");
+test("discoverCursorPluginRoots drops symlinks that escape ~/.cursor", () => {
+  const { home, cursorDir } = tempHomeCursor("plugins", "local");
   const outside = tempDir("outside-plugin");
   const localDir = path.join(cursorDir, "plugins", "local");
-  mkdirSync(localDir, { recursive: true });
   const safe = path.join(localDir, "safe");
   mkdirSync(safe, { recursive: true });
   const evil = path.join(localDir, "evil-link");
   symlinkSync(outside, evil);
 
   const roots = discoverCursorPluginRoots({
-    home: "/unused",
-    env: { [CURSOR_CONFIG_DIR_ENV]: cursorDir },
+    home,
+    env: {},
   });
   assert.deepEqual(roots, [safe]);
 });
 
-test("discoverCursorPluginRoots override roots are not confined to CURSOR_CONFIG_DIR", () => {
+test("discoverCursorPluginRoots override roots are not confined to ~/.cursor", () => {
   const override = tempDir("override-outside");
   const roots = discoverCursorPluginRoots({
     home: "/unused",
@@ -199,8 +237,9 @@ test("discoverCursorPluginRoots override roots are not confined to CURSOR_CONFIG
   assert.deepEqual(roots, [override]);
 });
 
-test("resolveRewriteAllowRoots includes cursor dir, overrides, plugin, targets", () => {
-  const cursorDir = "/tmp/cursor-cfg";
+test("resolveRewriteAllowRoots includes ~/.cursor, overrides, plugin, targets", () => {
+  const home = "/tmp/fake-home";
+  const cursorDir = path.join(home, ".cursor");
   const override = "/tmp/override";
   const selfRoot = "/tmp/self-plugin";
   const moduleUrl = pathToFileURL(
@@ -209,8 +248,9 @@ test("resolveRewriteAllowRoots includes cursor dir, overrides, plugin, targets",
   const target = "/tmp/other-plugin/mcp.json";
 
   const roots = resolveRewriteAllowRoots({
+    home,
     env: {
-      [CURSOR_CONFIG_DIR_ENV]: cursorDir,
+      CURSOR_CONFIG_DIR: "/tmp/ignored-cursor-cfg",
       [ROOTS_ENV]: override,
     },
     moduleUrl,
