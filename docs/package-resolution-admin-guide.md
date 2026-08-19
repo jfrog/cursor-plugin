@@ -19,7 +19,7 @@ This guide is for **platform administrators** and **developers** onboarding the 
 | 3    | Confirm `~/.jfrog/agents-conf.json` (shipped template enables APR with empty bindings; or deploy your own) |
 | 4    | Start a **new agent session** — policy and URLs are injected once per session                              |
 
-The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty `defaultGlobalRepos`. Nothing is routed until Consent Enable or an administrator adds bindings. Set `enabled: false` or `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` to keep it off.
+The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty `defaultGlobalRepos`. Nothing is routed until Consent Enable or an administrator adds bindings. To keep it **off**, see [Turning Agent Package Resolution off](#turning-agent-package-resolution-off-admins) — a bare `enabled: false` on an untouched scaffold is not durable.
 
 ---
 
@@ -71,11 +71,13 @@ This lets organizations **pre-deploy** their own `agents-conf.json` (via MDM, An
 
 | `onboardingPrompt` | Behavior                                                                                               |
 | ------------------ | ------------------------------------------------------------------------------------------------------ |
-| `"off"`            | Never offer — global silence (bare `dismiss`, or admin)                                                |
-| `"auto"`           | Explicit opt-in — keep the relevance-gated offer while any type is still offerable                     |
+| `"off"`            | Never offer — global silence (bare `dismiss`, or admin). Also **blocks** scaffold migration that would flip `enabled: false` → `true` |
+| `"auto"`           | Keep the relevance-gated offer while any type is still offerable                                       |
 | absent             | Offer only when the file still matches a shipped scaffold fingerprint; a hand-edited file stays silent |
 
 Per-type durable declines live in `~/.jfrog/skills-cache/apr-onboarding-v1.json` (not in `agents-conf.json`).
+
+`onboardingPrompt: "off"` alone does **not** turn APR off when `enabled` is still `true` — it only silences offers (and protects scaffolds from re-enable migration).
 
 ### Consent Enable (developer chat flow)
 
@@ -126,6 +128,31 @@ the `jfrog` skill + `verify-repo`, or manually — see
 With default `verifyRepos: true`, Consent Enable / `configure.mjs enable` accepts
 keys Artifactory confirms as virtual repositories of the requested package type.
 
+### Turning Agent Package Resolution off (admins)
+
+Two different controls are easy to confuse:
+
+| Control | What it does | What it does **not** do |
+| ------- | ------------ | ----------------------- |
+| `packageResolution.enabled: false` | Feature gate — no policy injection (`mode=off`) | Stick on a **never-configured scaffold**: SessionStart migrates matching fingerprints back to `enabled: true` unless `onboardingPrompt` is `"off"` |
+| `onboardingPrompt: "off"` | Silences Consent Enable offers **and** skips scaffold `enabled` migration | Turn APR off by itself while `enabled` remains `true` |
+| `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` | Process kill switch — forces `mode=off` even if the file says `enabled: true` | Persist across machines (env only) |
+
+**Durable ways to keep APR off for a user/fleet:**
+
+1. **Preferred (MDM / golden image)** — deploy a hand-edited `agents-conf.json` that is **not** a shipped scaffold fingerprint, with `"enabled": false` (optionally also `"onboardingPrompt": "off"`). Pre-deployed / hand-edited files are never clobbered and are not migrated.
+2. **Scaffold / legacy default file** — set **both**:
+   ```json
+   {
+     "packageResolution": {
+       "enabled": false,
+       "onboardingPrompt": "off"
+     }
+   }
+   ```
+   Without `"onboardingPrompt": "off"`, SessionStart can flip `enabled` back to `true` on the next session.
+3. **Break-glass / CI** — set `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` in the IDE or process environment ([emergency disable](#environment-variable-emergency-disable)).
+
 ---
 
 ## Admin control: deploy `agents-conf.json` across your organization
@@ -144,11 +171,14 @@ Use standard endpoint management to place a consistent `agents-conf.json` on eve
 | Goal                                             | Approach                                                                                                                                                     |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Enable Agent Package Resolution org-wide         | Set `"packageResolution": { "enabled": true, ... }` in the deployed file                                                                                     |
+| Keep APR **off** (durable)                       | Deploy `"enabled": false` on a non-scaffold MDM file, **or** `"enabled": false` **and** `"onboardingPrompt": "off"` on a scaffold — see [Turning off](#turning-agent-package-resolution-off-admins) |
+| Silence Consent Enable offers only               | Set `"onboardingPrompt": "off"` (does not disable APR while `enabled` is `true`)                                                                             |
 | Map to your Artifactory repos                    | Edit `defaultGlobalRepos` with your real repo keys                                                                                                           |
 | Govern only some package types                   | List only those types in `defaultGlobalRepos` — others stay out of scope ([Selective governance](#selective-governance-choose-which-package-types-to-route)) |
 | Auto-configure package managers at first session | Add types to `autoSetup` ([Zero-touch setup](#zero-touch-setup-autosetup))                                                                                   |
 | Force all cached state to refresh                | Set `"cacheTtlDays": 0` (this also re-runs eligible zero-touch `jf setup` each session), or edit `agents-conf.json`                                          |
 | Support troubleshooting                          | Set `"logLevel": "debug"` temporarily; logs go to `~/.jfrog/logs/agent-hooks.log`                                                                            |
+| Break-glass / process off                        | `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` ([emergency disable](#environment-variable-emergency-disable))                                                       |
 
 ---
 
