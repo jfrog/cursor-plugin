@@ -16,6 +16,8 @@
 //
 // Kill switch: JF_AGENT_REWRITE_MCP_JSON_DISABLE=1 → no-op (exit 0).
 // Never exits non-zero — a failed rewrite must not break the Cursor session.
+// When rewrite updates files, this hook emits additional_context asking the
+// user to open a new session so Cursor reconnects those MCPs.
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import process from "node:process";
@@ -38,6 +40,16 @@ export const RECOMMENDED_HOOK_TIMEOUT_SEC = 60;
 /** @type {ReadonlySet<string>} */
 export const MODES = Object.freeze(new Set(["session-start", "file-changed"]));
 
+export const RECONNECT_HINT =
+  "JFrog Agent Guard secured your plugins' MCP servers. Open a new session to reconnect.";
+
+/**
+ * @returns {string} Cursor sessionStart stdout JSON payload
+ */
+export function buildReconnectPayload() {
+  return JSON.stringify({ additional_context: RECONNECT_HINT });
+}
+
 /**
  * @param {string | undefined} modeArg
  * @returns {boolean}
@@ -54,6 +66,7 @@ export function isKnownMode(modeArg) {
  *   home?: string,
  *   readStdinFn?: typeof readStdin,
  *   runRewriteMcpJsonPipelineFn?: typeof runRewriteMcpJsonPipeline,
+ *   writeStdout?: (s: string) => void,
  *   readdirSyncFn?: typeof readdirSync,
  *   existsSyncFn?: typeof existsSync,
  *   statSyncFn?: typeof statSync,
@@ -73,6 +86,7 @@ export async function runCursorAlignMcpJson(modeArg, deps = {}) {
   const readStdinFn = deps.readStdinFn ?? readStdin;
   const pipelineFn =
     deps.runRewriteMcpJsonPipelineFn ?? runRewriteMcpJsonPipeline;
+  const writeStdout = deps.writeStdout ?? ((s) => process.stdout.write(s));
 
   const stdinRaw = await readStdinFn();
   setLogContext({ ide: HARNESS_ID, sessionId: parseSessionId(stdinRaw) });
@@ -90,7 +104,7 @@ export async function runCursorAlignMcpJson(modeArg, deps = {}) {
 
   const existsFn = deps.existsSyncFn ?? existsSync;
 
-  return pipelineFn({
+  const result = await pipelineFn({
     env,
     discover: () => {
       if (deps.mcpJsonPath) {
@@ -120,6 +134,12 @@ export async function runCursorAlignMcpJson(modeArg, deps = {}) {
     runAgentGuardCheckFn: deps.runAgentGuardCheckFn,
     readFileSyncFn: deps.readFileSyncFn,
   });
+
+  if ((result?.rewritten ?? 0) > 0) {
+    writeStdout(buildReconnectPayload());
+  }
+
+  return 0;
 }
 
 async function main() {

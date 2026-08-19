@@ -11,6 +11,8 @@ import { fileURLToPath } from "node:url";
 
 import { ROOTS_ENV } from "./cursor-mcp-json-discover.mjs";
 import {
+  RECONNECT_HINT,
+  buildReconnectPayload,
   isKnownMode,
   RECOMMENDED_HOOK_TIMEOUT_SEC,
   runCursorAlignMcpJson,
@@ -61,21 +63,38 @@ test("isKnownMode accepts session-start and file-changed", () => {
   assert.equal(isKnownMode(undefined), false);
 });
 
+test("buildReconnectPayload uses additional_context with approved wording", () => {
+  const payload = JSON.parse(buildReconnectPayload());
+  assert.equal(payload.additional_context, RECONNECT_HINT);
+  assert.match(
+    payload.additional_context,
+    /JFrog Agent Guard secured your plugins' MCP servers/,
+  );
+  assert.match(payload.additional_context, /Open a new session to reconnect/);
+  assert.equal(payload.hookSpecificOutput, undefined);
+});
+
 test("runCursorAlignMcpJson no-ops on unknown mode", async () => {
   let called = false;
+  let stdout = "";
   const code = await runCursorAlignMcpJson("nope", {
     readStdinFn: async () => "",
     runRewriteMcpJsonPipelineFn: async () => {
       called = true;
-      return 0;
+      return { code: 0, rewritten: 0 };
+    },
+    writeStdout: (s) => {
+      stdout += s;
     },
   });
   assert.equal(code, 0);
   assert.equal(called, false);
+  assert.equal(stdout, "");
 });
 
 test("runCursorAlignMcpJson no-ops when harness is not cursor", async () => {
   let called = false;
+  let stdout = "";
   const code = await runCursorAlignMcpJson("session-start", {
     readStdinFn: async () =>
       JSON.stringify({
@@ -85,11 +104,15 @@ test("runCursorAlignMcpJson no-ops when harness is not cursor", async () => {
       }),
     runRewriteMcpJsonPipelineFn: async () => {
       called = true;
-      return 0;
+      return { code: 0, rewritten: 0 };
+    },
+    writeStdout: (s) => {
+      stdout += s;
     },
   });
   assert.equal(code, 0);
   assert.equal(called, false);
+  assert.equal(stdout, "");
 });
 
 test("runCursorAlignMcpJson passes discovered paths to shared pipeline", async () => {
@@ -102,6 +125,7 @@ test("runCursorAlignMcpJson passes discovered paths to shared pipeline", async (
 
   /** @type {{ paths?: string[], allowRoots?: string[] }} */
   const captured = {};
+  let stdout = "";
   const code = await runCursorAlignMcpJson("session-start", {
     home,
     env: {
@@ -117,7 +141,10 @@ test("runCursorAlignMcpJson passes discovered paths to shared pipeline", async (
         typeof opts.allowRoots === "function"
           ? opts.allowRoots(paths)
           : opts.allowRoots;
-      return 0;
+      return { code: 0, rewritten: 0 };
+    },
+    writeStdout: (s) => {
+      stdout += s;
     },
   });
 
@@ -125,6 +152,7 @@ test("runCursorAlignMcpJson passes discovered paths to shared pipeline", async (
   assert.deepEqual(captured.paths, [mcpPath]);
   assert.ok(captured.allowRoots?.includes(cursorDir));
   assert.ok(captured.allowRoots?.includes(pluginA));
+  assert.equal(stdout, "");
 });
 
 test("runCursorAlignMcpJson respects mcpJsonPath override", async () => {
@@ -138,9 +166,45 @@ test("runCursorAlignMcpJson respects mcpJsonPath override", async () => {
     readStdinFn: async () => "",
     runRewriteMcpJsonPipelineFn: async (opts) => {
       paths = await opts.discover();
-      return 0;
+      return { code: 0, rewritten: 0 };
     },
+    writeStdout: () => {},
   });
   assert.equal(code, 0);
   assert.deepEqual(paths, [file]);
+});
+
+test("runCursorAlignMcpJson emits reconnect hint when rewritten > 0", async () => {
+  let stdout = "";
+  const code = await runCursorAlignMcpJson("session-start", {
+    readStdinFn: async () =>
+      JSON.stringify({ session_id: "s1", cursor_version: "1.0.0" }),
+    runRewriteMcpJsonPipelineFn: async () => ({ code: 0, rewritten: 1 }),
+    writeStdout: (s) => {
+      stdout += s;
+    },
+  });
+  assert.equal(code, 0);
+  const payload = JSON.parse(stdout);
+  assert.equal(payload.additional_context, RECONNECT_HINT);
+  assert.match(
+    payload.additional_context,
+    /JFrog Agent Guard secured your plugins' MCP servers/,
+  );
+  assert.match(payload.additional_context, /Open a new session to reconnect/);
+  assert.doesNotMatch(payload.additional_context, /\/reload-plugins/);
+});
+
+test("runCursorAlignMcpJson does not emit when rewritten is 0", async () => {
+  let stdout = "";
+  const code = await runCursorAlignMcpJson("session-start", {
+    readStdinFn: async () =>
+      JSON.stringify({ session_id: "s1", cursor_version: "1.0.0" }),
+    runRewriteMcpJsonPipelineFn: async () => ({ code: 0, rewritten: 0 }),
+    writeStdout: (s) => {
+      stdout += s;
+    },
+  });
+  assert.equal(code, 0);
+  assert.equal(stdout, "");
 });

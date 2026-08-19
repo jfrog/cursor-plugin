@@ -6,10 +6,11 @@
 //
 // Usage (from a thin Cursor/Claude script next to synced modules/):
 //   import { runRewriteMcpJsonPipeline } from "./modules/core/rewrite-mcp-json.mjs";
-//   await runRewriteMcpJsonPipeline({
+//   const { code, rewritten } = await runRewriteMcpJsonPipeline({
 //     discover: () => [...absoluteMcpJsonPaths],
 //     allowRoots: [...],
 //   });
+//   // code is always 0 (soft-fail); rewritten > 0 when Agent Guard updated files.
 //
 // Kill switch: JF_AGENT_REWRITE_MCP_JSON_DISABLE=1 → soft no-op (exit 0).
 // Local binary: JFROG_AGENT_GUARD_BIN=/path/to/agent-guard (skips npx).
@@ -609,9 +610,20 @@ export function redactUrlCredentials(text) {
 }
 
 /**
+ * Soft-fail pipeline result. `code` is always 0 so harness hooks never break
+ * the session; `rewritten` is the Agent Guard summary count (0 on skips).
+ * @typedef {{ code: 0, rewritten: number }} RewritePipelineResult
+ */
+
+/** @returns {RewritePipelineResult} */
+function pipelineOk(rewritten = 0) {
+  return { code: 0, rewritten: Number(rewritten) > 0 ? Number(rewritten) : 0 };
+}
+
+/**
  * Orchestration: kill switch → discover → project/server → Step 0 gate →
  * rewrite. Server id is resolved once and reused for both the gate and AG
- * `--server`. Always returns 0 (soft-fail). Harness adapters supply discovery
+ * `--server`. Always soft-fails (`code: 0`). Harness adapters supply discovery
  * + allow-roots.
  *
  * @param {{
@@ -627,7 +639,7 @@ export function redactUrlCredentials(text) {
  *   readFileSyncFn?: typeof readFileSync,
  *   serverIdHint?: string,
  * }} opts
- * @returns {Promise<number>} always 0
+ * @returns {Promise<RewritePipelineResult>}
  */
 export async function runRewriteMcpJsonPipeline(opts) {
   const env = opts.env ?? process.env;
@@ -635,7 +647,7 @@ export async function runRewriteMcpJsonPipeline(opts) {
 
   if (isRewriteDisabled(env)) {
     log.info("rewrite disabled via env", { env: DISABLE_ENV });
-    return 0;
+    return pipelineOk();
   }
 
   let paths;
@@ -645,12 +657,12 @@ export async function runRewriteMcpJsonPipeline(opts) {
     log.error("discover failed; soft no-op", {
       error: err?.message ?? String(err),
     });
-    return 0;
+    return pipelineOk();
   }
 
   if (!Array.isArray(paths) || paths.length === 0) {
     log.info("no mcp.json files found; skip rewrite");
-    return 0;
+    return pipelineOk();
   }
 
   const project = resolveRewriteProject(env, {
@@ -659,7 +671,7 @@ export async function runRewriteMcpJsonPipeline(opts) {
   });
   if (!project) {
     log.info("rewrite skipped; missing JF_PROJECT", {});
-    return 0;
+    return pipelineOk();
   }
 
   const serverId = resolveRewriteServerId(env, {
@@ -677,7 +689,7 @@ export async function runRewriteMcpJsonPipeline(opts) {
       code: gate.code,
       reason: gate.reason,
     });
-    return 0;
+    return pipelineOk();
   }
 
   const allowRoots =
@@ -713,7 +725,7 @@ export async function runRewriteMcpJsonPipeline(opts) {
       stderr: redactUrlCredentials((result.stderr || "").trim()).slice(0, 500),
       durMs,
     });
-    return 0;
+    return pipelineOk();
   }
 
   const summary = parseRewriteMcpJsonResult(result.stdout);
@@ -728,5 +740,5 @@ export async function runRewriteMcpJsonPipeline(opts) {
     log.info("rewrite-mcp-json ok; no JSON summary", { durMs });
   }
 
-  return 0;
+  return pipelineOk(summary?.rewritten);
 }
