@@ -19,7 +19,13 @@ This guide is for **platform administrators** and **developers** onboarding the 
 | 3    | Confirm `~/.jfrog/agents-conf.json` (shipped template enables APR with empty bindings; or deploy your own) |
 | 4    | Start a **new agent session** — policy and URLs are injected once per session                              |
 
-The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty `defaultGlobalRepos`. Nothing is routed until Consent Enable or an administrator adds bindings. To keep it **off**, see [Turning Agent Package Resolution off](#turning-agent-package-resolution-off-admins) — a bare `enabled: false` on an untouched scaffold is not durable.
+The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty `defaultGlobalRepos`. Nothing is routed until Consent Enable or an administrator adds bindings.
+
+**At a glance:**
+
+- **Default:** on, but routes nothing until you add repositories.
+- **To route installs:** add repository keys under `defaultGlobalRepos` (org config or Consent Enable).
+- **To turn it off org-wide:** deploy your own `agents-conf.json` with `"enabled": false` (see [Turning Agent Package Resolution off](#turning-agent-package-resolution-off-admins)). Setting `"enabled": false` on the plugin's **default file without also deploying your own** is not durable — the plugin re-enables it on the next session.
 
 ---
 
@@ -130,28 +136,28 @@ keys Artifactory confirms as virtual repositories of the requested package type.
 
 ### Turning Agent Package Resolution off (admins)
 
-Two different controls are easy to confuse:
+> **Why `enabled: false` alone may not stick.** Because the feature now ships **on**, the plugin re-enables its **own default file** if it finds it still turned off. "Default file" means the `agents-conf.json` the plugin auto-created and that no one has changed except (at most) the `enabled` flag. As soon as you deploy your **own** config, or add any other setting (like `onboardingPrompt`), the plugin treats it as yours and never re-enables it.
 
-| Control | What it does | What it does **not** do |
-| ------- | ------------ | ----------------------- |
-| `packageResolution.enabled: false` | Feature gate — no policy injection (`mode=off`) | Stick on a **never-configured scaffold**: SessionStart migrates matching fingerprints back to `enabled: true` unless `onboardingPrompt` is `"off"` |
-| `onboardingPrompt: "off"` | Silences Consent Enable offers **and** skips scaffold `enabled` migration | Turn APR off by itself while `enabled` remains `true` |
-| `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` | Process kill switch — forces `mode=off` even if the file says `enabled: true` | Persist across machines (env only) |
+**Pick the option that matches how you manage machines:**
 
-**Durable ways to keep APR off for a user/fleet:**
+| Your situation | Do this | Result |
+| -------------- | ------- | ------ |
+| You push config with MDM / a golden image | Deploy your own `agents-conf.json` with `"enabled": false` | Durable off — your file is never overwritten or re-enabled |
+| You only edited the plugin's auto-created file | Set **both** `"enabled": false` **and** `"onboardingPrompt": "off"` | Durable off — `onboardingPrompt` marks the file as yours, so it is not re-enabled |
+| You need an immediate, per-machine kill switch (CI, break-glass) | Set env var `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` | Off for that process, even if the file says `enabled: true` |
 
-1. **Preferred (MDM / golden image)** — deploy a hand-edited `agents-conf.json` that is **not** a shipped scaffold fingerprint, with `"enabled": false` (optionally also `"onboardingPrompt": "off"`). Pre-deployed / hand-edited files are never clobbered and are not migrated.
-2. **Scaffold / legacy default file** — set **both**:
-   ```json
-   {
-     "packageResolution": {
-       "enabled": false,
-       "onboardingPrompt": "off"
-     }
-   }
-   ```
-   Without `"onboardingPrompt": "off"`, SessionStart can flip `enabled` back to `true` on the next session.
-3. **Break-glass / CI** — set `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` in the IDE or process environment ([emergency disable](#environment-variable-emergency-disable)).
+**Recommended config for a durable off (works in every case):**
+
+```json
+{
+  "packageResolution": {
+    "enabled": false,
+    "onboardingPrompt": "off"
+  }
+}
+```
+
+Setting **only** `"onboardingPrompt": "off"` stops the Consent Enable prompts but does **not** turn the feature off — leave `enabled: false` in place for that. See also [emergency disable](#environment-variable-emergency-disable) for the environment variable.
 
 ---
 
@@ -171,7 +177,7 @@ Use standard endpoint management to place a consistent `agents-conf.json` on eve
 | Goal                                             | Approach                                                                                                                                                     |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Enable Agent Package Resolution org-wide         | Set `"packageResolution": { "enabled": true, ... }` in the deployed file                                                                                     |
-| Keep APR **off** (durable)                       | Deploy `"enabled": false` on a non-scaffold MDM file, **or** `"enabled": false` **and** `"onboardingPrompt": "off"` on a scaffold — see [Turning off](#turning-agent-package-resolution-off-admins) |
+| Keep APR **off** (durable)                       | Deploy your own file with `"enabled": false`, **or** set `"enabled": false` **and** `"onboardingPrompt": "off"` on the plugin's default file — see [Turning off](#turning-agent-package-resolution-off-admins) |
 | Silence Consent Enable offers only               | Set `"onboardingPrompt": "off"` (does not disable APR while `enabled` is `true`)                                                                             |
 | Map to your Artifactory repos                    | Edit `defaultGlobalRepos` with your real repo keys                                                                                                           |
 | Govern only some package types                   | List only those types in `defaultGlobalRepos` — others stay out of scope ([Selective governance](#selective-governance-choose-which-package-types-to-route)) |
