@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// Claude Code SessionStart hook runner.
+// GitHub Copilot Chat SessionStart hook runner (installed via the VS Code
+// Copilot plugin — see jfrog/vscode-plugin).
 //
-// Usage: node claude-session-start.mjs <capability>
-// Example: node claude-session-start.mjs package-resolution
+// Usage: node copilot-session-start.mjs <capability>
+// Example: node copilot-session-start.mjs package-resolution
 //
-// stdout: JSON with hookSpecificOutput.additionalContext. No stdout is a no-op.
+// stdout: JSON with hookSpecificOutput.additionalContext. "{}" is a no-op.
 
 import process from "node:process";
 
@@ -21,7 +22,7 @@ import {
 } from "./core/io.mjs";
 import { setLogContext, createLogger } from "./core/logger.mjs";
 
-const HARNESS_ID = "claude_code";
+const HARNESS_ID = "copilot";
 const log = createLogger("session-start");
 
 /** @returns {string | null} JSON stdout payload, or null when there is nothing to inject. */
@@ -36,11 +37,15 @@ function formatSessionStartStdout(text) {
 }
 
 function writeStdout(payload) {
-  if (payload !== null) process.stdout.write(payload);
+  if (payload === null) {
+    writeNoOp();
+    return;
+  }
+  process.stdout.write(payload);
 }
 
 function writeNoOp() {
-  // Claude SessionStart: no stdout on no-op.
+  process.stdout.write("{}");
 }
 
 async function main() {
@@ -58,7 +63,7 @@ async function main() {
     log.warn("harness mismatch; wrong adapter invoked", {
       expected: HARNESS_ID,
       detected: harness,
-      adapter: "claude-session-start",
+      adapter: "copilot-session-start",
     });
     writeNoOp();
     return;

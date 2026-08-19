@@ -38,7 +38,14 @@ function logFile() {
 }
 
 // `silent` is a sentinel above every numeric level — nothing matches it.
-const LEVELS = { debug: 10, info: 20, event: 25, warn: 30, error: 40, silent: 1000 };
+const LEVELS = {
+  debug: 10,
+  info: 20,
+  event: 25,
+  warn: 30,
+  error: 40,
+  silent: 1000,
+};
 
 let minLevelResolved = false;
 let minLevel = LEVELS.info;
@@ -100,7 +107,7 @@ const COL_LEVEL = 5;
 const COL_COMPONENT = 20;
 const COL_IDE = 12;
 const COL_SESSION = 13; // "sess:" (5) + 8-char shortId
-const COL_TRACE = 14;   // "trace:" (6) + 8-char shortId
+const COL_TRACE = 14; // "trace:" (6) + 8-char shortId
 
 function fitCol(s, width) {
   if (s.length === width) return s;
@@ -159,7 +166,12 @@ function write(level, component, message, kv) {
   const lvl = fitCol(level.toUpperCase(), COL_LEVEL);
   const comp = fitCol(`[${component}]`, COL_COMPONENT);
 
-  const allKv = { trace: TRACE_ID, ide: CONTEXT.ide, sessionId: CONTEXT.sessionId, ...kv };
+  const allKv = {
+    trace: TRACE_ID,
+    ide: CONTEXT.ide,
+    sessionId: CONTEXT.sessionId,
+    ...kv,
+  };
   const prefix = bracketPrefixes(allKv);
 
   // Strip promoted tags from the kv tail so we don't print them twice.
