@@ -1,47 +1,60 @@
-# Agent Package Resolution: Admin Guide (Preview)
+# Configure Agent Package Resolution for Coding Agents
 
-> **Preview Notice:** This feature is in preview and licensed under the Apache License 2.0. For clarity: This software is provided "as-is" without warranty of any kind, and without support obligations or service level commitments. Behavior, APIs, conventions, and structure may change without notice between releases. JFrog makes no guarantees of backward compatibility during the preview release cycle. Use in production environments is at your own risk.
+Route AI-assisted package installs through your JFrog Artifactory repositories when developers use the **JFrog plugin** for Cursor, Claude Code, or VS Code.
 
-**Audience:** Artifactory administrators / DevOps teams rolling this out to users.
+Agent Package Resolution runs at the start of each agent session. When enabled, it injects routing policy and resolved Artifactory URLs into the session so the agent prefers your repositories over public registries. Durable enforcement still comes from **package manager configuration** (`jf setup`) and **JFrog Curation** on the server.
 
-Thank you for testing **Agent Package Resolution**, a feature in the JFrog plugin that routes AI coding-agent package installs (Cursor, Claude Code) through your organization's Artifactory instead of public registries, automatically and without relying on the person prompting the agent to know or follow your org's package-routing practices. That matters more now that coding agents let people beyond traditional developers write code and pull dependencies too. This guide covers everything an admin needs to turn it on and configure it for your organization during this preview.
+This guide is for **platform administrators** and **developers** onboarding the JFrog coding-agent plugins. For installing the plugin itself, see the JFrog documentation for your IDE ([Cursor](https://docs.jfrog.com/ai-ml/docs/cursor), [Claude Code](https://docs.jfrog.com/ai-ml/docs/claude-code/), [VS Code](https://docs.jfrog.com/ai-ml/docs/vs-code)).
 
----
-
-## Prerequisites
-
-The only hard prerequisites are the plugin and a JFrog Platform account for each user. Everything else below adapts automatically per user, rather than being something you need to arrange in advance:
-
-- **The JFrog plugin installed** in your users' coding assistant (Cursor and/or Claude Code), whether users install it themselves or your org distributes it centrally.
-- **A JFrog Platform account for each user.** Whether their local environment is already set up to use it is not something you need to arrange; the feature detects and handles that itself, see [Operating modes](#operating-modes) below.
+> **Related:** [Use the MCP Registry with Agent Guard](https://docs.jfrog.com/ai-ml/docs/configure-coding-agents) covers MCP governance. Agent Package Resolution is a separate capability in the same JFrog plugin family and uses the same local configuration file for admin settings.
 
 ---
 
 ## Setup summary
 
-Only two things are actually required from you as the admin:
+| Step | Action                                                                                                     |
+| ---- | ---------------------------------------------------------------------------------------------------------- |
+| 1    | Install the JFrog plugin in your coding assistant                                                          |
+| 2    | Install and configure the JFrog CLI (`jf config add`) — required for **routing** mode                      |
+| 3    | Confirm `~/.jfrog/agents-conf.json` (shipped template enables APR with empty bindings; or deploy your own) |
+| 4    | Start a **new agent session** — policy and URLs are injected once per session                              |
 
+The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty `defaultGlobalRepos`. Nothing is routed until Consent Enable or an administrator adds bindings.
 
-| Step | Action                                                                                                                    |
-| ---- | ------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Confirm the JFrog plugin is installed in your users' coding assistant                                                     |
-| 2    | Enable Agent Package Resolution and set default repositories in `~/.jfrog/agents-conf.json`, for whichever users you want |
+**At a glance:**
 
+- **Default:** on, but routes nothing until you add repositories.
+- **To route installs:** add repository keys under `defaultGlobalRepos` (org config or Consent Enable).
+- **To turn it off org-wide:** deploy your own `agents-conf.json` with `"enabled": false` (see [Turning Agent Package Resolution off](#turning-agent-package-resolution-off-admins)). Setting `"enabled": false` on the plugin's **default file without also deploying your own** is not durable — the plugin re-enables it on the next session.
 
-Everything else adapts on its own, per user, without you needing to arrange it (see [Prerequisites](#prerequisites) above). Once a user's `agents-conf.json` is enabled or changed, it takes effect automatically; there is no need to start a new agent session to pick up the change.
+---
 
-Agent Package Resolution is **opt-in**, and enablement is per user, not global by default. You decide which users to enable it for: deploy or edit `agents-conf.json` centrally (MDM, golden image) for all or a chosen subset of machines, or have specific users edit their own file locally. For a preview, enabling it for a handful of users directly is often simpler than a full rollout. See "Configuration file" below.
+## Prerequisites
+
+- **JFrog Platform access** with Artifactory repositories for the package types you use (npm, PyPI, Maven, Go, Docker, Helm, NuGet). The developer environment must be able to reach your JFrog Platform URL — Agent Package Resolution resolves routing from live platform identity and repository metadata.
+- **JFrog plugin** installed for your coding assistant.
+- **JFrog CLI (`jf`) configured** with `jf config add` (or equivalent). Platform identity for **routing** mode comes **only** from `jf config` (server URL + access token **or** username + password / API key stored by the CLI).
+
+### Identity and environment variables
+
+| Variable / source        | Used by Agent Package Resolution?   | Purpose                                                                                                                                                                                                                |
+| ------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jf config` (CLI server) | **Yes — required for routing mode** | URL + token used to resolve repos and run eager `jf setup`                                                                                                                                                             |
+| `JFROG_PLATFORM_URL`     | **Hint only**                       | Optional. When set in the IDE launch environment, the “routing not ready” notice can show this hostname so the developer knows which platform to configure. It does **not** authenticate or activate routing by itself |
+| `JFROG_URL`              | **No**                              | Not read by Agent Package Resolution (may be used by other JFrog products / Agent Guard docs — do not rely on it here)                                                                                                 |
+| `JFROG_ACCESS_TOKEN`     | **No**                              | Not read by Agent Package Resolution. Setting a token in the environment does **not** put the hook into routing mode                                                                                                   |
+
+If `jf` is missing or has no usable configured server, the feature stays in **pending** mode (advisory “routing not ready” notice) even when `packageResolution.enabled` is `true`.
 
 ---
 
 ## Configuration file: `~/.jfrog/agents-conf.json`
 
-All Agent Package Resolution admin settings live in a single JSON file on each user's machine:
+All Agent Package Resolution admin settings live in a single JSON file on the developer machine:
 
 ```
 ~/.jfrog/agents-conf.json
 ```
-
 
 | Property              | Description                                                                      |
 | --------------------- | -------------------------------------------------------------------------------- |
@@ -50,118 +63,190 @@ All Agent Package Resolution admin settings live in a single JSON file on each u
 | **Read by**           | JFrog plugin session hooks on every agent session start                          |
 | **Never overwritten** | If the file already exists, the plugin does not replace it                       |
 
-
 ### First session behavior
 
-When a user opens their first agent session after installing the plugin:
+When a developer opens their first agent session after installing the plugin:
 
-1. If `~/.jfrog/agents-conf.json` **does not exist**, the plugin copies the shipped default template into that path.
-2. The template ships with Agent Package Resolution **disabled** (`packageResolution.enabled: false`).
-3. No routing policy is injected until an administrator or user sets `packageResolution.enabled` to `true`.
+1. If `~/.jfrog/agents-conf.json` **does not exist**, the plugin copies the **shipped default template** into that path.
+2. The template ships with Agent Package Resolution **enabled** (`packageResolution.enabled: true`), empty `defaultGlobalRepos`, and `onboardingPrompt: "auto"`. Never-configured legacy scaffolds (`enabled: false` that still match a shipped fingerprint) are migrated to `enabled: true` on SessionStart (hand-edited / MDM configs and `onboardingPrompt: "off"` are left alone).
+3. When the offer gate is open (`onboardingPrompt: "auto"` or an untouched scaffold fingerprint) **and** at least one APR package type is missing from `defaultGlobalRepos` and not declined in `~/.jfrog/skills-cache/apr-onboarding-v1.json`, SessionStart writes a short **onboarding offer rule**. Cursor: `~/.cursor/rules/jfrog-apr-onboarding.mdc` (`alwaysApply: true`). Claude Code: `~/.claude/rules/jfrog-apr-onboarding.md`. **VS Code Copilot does not get this Yes/No offer** (policy inject + admin / `configure.mjs` only). Cursor↔Claude rule writes are all-or-nothing — one failure rolls back both. The rule asks only when install intent hits an unbound, undeclined type — not on every unrelated chat. Rules stay while any type remains offerable (including after a partial `enable`); they are deleted when nothing is left to offer or the global gate closes. `onboardingPrompt: "off"` stays fully silent.
+4. **No** for one type runs `dismiss --type <t>` (per-type decline cache). Bare `dismiss` sets `onboardingPrompt: "off"` (global silence). **Yes** runs Consent Enable / `enable` for binding; it does **not** force global `onboardingPrompt: "off"`.
+5. Routing policy is injected when `packageResolution.enabled` is `true` **and** `jf` identity is usable (`routing`); otherwise `pending` when enabled but `jf` is missing — including when `defaultGlobalRepos` is still empty.
 
-This lets you **pre-deploy** your own `agents-conf.json` (via MDM, Ansible, fleet policy, etc.) **before** users ever run the plugin. A pre-deployed file is never clobbered.
+This lets organizations **pre-deploy** their own `agents-conf.json` (via MDM, Ansible, fleet policy, etc.) **before** developers run the plugin. A pre-deployed file is never clobbered. The `onboardingPrompt` field is the **global** offer gate:
+
+| `onboardingPrompt` | Behavior                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------ |
+| `"off"`            | Never offer — global silence (bare `dismiss`, or admin). Also **blocks** scaffold migration that would flip `enabled: false` → `true` |
+| `"auto"`           | Keep the relevance-gated offer while any type is still offerable                                       |
+| absent             | Offer only when the file still matches a shipped scaffold fingerprint; a hand-edited file stays silent |
+
+Per-type durable declines live in `~/.jfrog/skills-cache/apr-onboarding-v1.json` (not in `agents-conf.json`).
+
+`onboardingPrompt: "off"` alone does **not** turn APR off when `enabled` is still `true` — it only silences offers (and protects scaffolds from re-enable migration).
+
+### Consent Enable (developer chat flow)
+
+When the nudge fires, the agent walks the developer through enabling APR **in chat** (no hand-editing JSON):
+
+1. Confirm `jf` is installed and has a usable server.
+2. Ask **which package types** to govern (free text; default is not “all”).
+3. Configure **one type at a time**. For each type, ask for an Artifactory **project key** or **repository** key/name (either is enough). Resolve with the base **`jfrog` skill** only through a bounded path — never list the catalog, all virtuals, or wildcards (`*-virtual`, `*<type>*`):
+   - Repository given → `configure.mjs verify-repo` on that key only (ignore a project if also given).
+   - Project given, no repository → one filtered call: that project + `type=virtual` + this `packageType`. 0 → ask again; 1 → bind; 2–10 → show name+key and ask; more than 10 → discard the payload and ask for the exact repository name.
+   - Neither given → point-lookup `<type>-virtual`, `<type>-default`, then `<type>-release`. 0 hits → ask again; 1 → bind; 2–3 → ask among those keys only.
+   - Query/auth errors are not “none found” — fix and retry the same bounded call. If the type never binds, leave it off and say so (suggest contacting an Artifactory admin). Verify every key with `configure.mjs verify-repo`. There is no discovery skill and no `configure.mjs discover`.
+4. Enable and turn on zero-touch `autoSetup` for the bound types (no second auto-setup ask). `enable` **replaces** `defaultGlobalRepos` (it does not merge) — re-include already-bound types. `auto-setup` **replaces** `autoSetup` the same way. `enable` re-verifies keys fail-closed and **re-syncs** offer rules (they stay while other types remain offerable):
+   ```bash
+   node <plugin>/modules/package-resolution/scripts/configure.mjs enable --repos '{"pypi":"pypi-virtual","go":"go-virtual"}'
+   node <plugin>/modules/package-resolution/scripts/configure.mjs auto-setup --types '["pypi","go"]'
+   ```
+5. Load the in-session routing table and wait for setup: `JFROG_EAGER_SETUP_SYNC=1 node …/print-policy.mjs`. That stdout is the Package Resolution table for this chat. Do not install while the note says `setting up in the background`. Types that show as already set up must use the normal package-manager command (**no** `--registry` / `--index-url` / `GOPROXY=…`). Report pending/failed/conflict types as not ready; do not claim overall success unless every bound type set up.
+6. Suggest starting a **new chat/session** so SessionStart injects the full routing table into context.
+
+Other `configure.mjs` commands: `status [--json]`, `onboarding-procedure` (prints the full Consent Enable steps — the offer rule only carries the short ask and points here), `verify-repo --type <t> --repo <k>`, `dismiss --type <t>` (per-type decline in `apr-onboarding-v1.json`), and bare `dismiss` (global silence via `onboardingPrompt: "off"`).
 
 ### Shipped default template
+
+The plugin bundles a read-only template equivalent to:
 
 ```json
 {
   "logLevel": "info",
   "packageResolution": {
-    "enabled": false,
+    "enabled": true,
     "verifyRepos": true,
     "cacheTtlDays": 7,
-    "defaultGlobalRepos": {
-      "npm": "npm-virtual",
-      "pypi": "pypi-virtual",
-      "maven": "maven-virtual",
-      "gradle": "gradle-virtual",
-      "go": "go-virtual",
-      "docker": "docker-virtual",
-      "helm": "helm-virtual",
-      "nuget": "nuget-virtual"
-    },
+    "onboardingPrompt": "auto",
+    "defaultGlobalRepos": {},
     "autoSetup": []
   }
 }
 ```
 
-Replace the repository keys with the **repo keys that actually exist on your JFrog Platform**. The names above are examples only. To govern only some package types, list only those types in `defaultGlobalRepos`, see [Selective governance](#selective-governance-choose-which-package-types-to-route) below.
+The empty map means no package types are governed yet — installs are not
+rewritten to Artifactory until you add bindings. With `enabled: true`, SessionStart
+can still inject a pending-mode advisory until `jf` is usable, and soft-bridge
+offer rules may ask to bind types on install intent. Add only the package types
+and repository keys that exist on your JFrog Platform (via Consent Enable with
+the `jfrog` skill + `verify-repo`, or manually — see
+[Selective governance](#selective-governance-choose-which-package-types-to-route)).
+With default `verifyRepos: true`, Consent Enable / `configure.mjs enable` accepts
+keys Artifactory confirms as virtual repositories of the requested package type.
+
+### Turning Agent Package Resolution off (admins)
+
+> **Why `enabled: false` alone may not stick.** Because the feature now ships **on**, the plugin re-enables its **own default file** if it finds it still turned off. "Default file" means the `agents-conf.json` the plugin auto-created and that no one has changed except (at most) the `enabled` flag. As soon as you deploy your **own** config, or add any other setting (like `onboardingPrompt`), the plugin treats it as yours and never re-enables it.
+
+**Pick the option that matches how you manage machines:**
+
+| Your situation | Do this | Result |
+| -------------- | ------- | ------ |
+| You push config with MDM / a golden image | Deploy your own `agents-conf.json` with `"enabled": false` | Durable off — your file is never overwritten or re-enabled |
+| You only edited the plugin's auto-created file | Set **both** `"enabled": false` **and** `"onboardingPrompt": "off"` | Durable off — `onboardingPrompt` marks the file as yours, so it is not re-enabled |
+| You need an immediate, per-machine kill switch (CI, break-glass) | Set env var `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` | Off for that process, even if the file says `enabled: true` |
+
+**Recommended config for a durable off (works in every case):**
+
+```json
+{
+  "packageResolution": {
+    "enabled": false,
+    "onboardingPrompt": "off"
+  }
+}
+```
+
+Setting **only** `"onboardingPrompt": "off"` stops the Consent Enable prompts but does **not** turn the feature off — leave `enabled: false` in place for that. See also [emergency disable](#environment-variable-emergency-disable) for the environment variable.
 
 ---
 
-## Selective governance: choose which package types to route
+## Admin control: deploy `agents-conf.json` across your organization
 
-You do not have to turn on every package type at once. The package types Agent Package Resolution actually routes for a session, the **governed** types, are the union of:
-
-- the keys you list in `defaultGlobalRepos` (your org default), and
-- any keys declared in a project's workspace override file (see [Workspace-level repository overrides](#workspace-level-repository-overrides) below).
-
-Any package type you don't declare anywhere is **out of scope**: the agent installs it normally, with no routing, no friction, and no "unresolved" state to explain to your developers. This makes it easy to start narrow, for example just `npm` and `pypi`, and expand later, rather than committing to all 8 types on day one. See the "npm and PyPI only" example under [Configuration examples](#configuration-examples) below.
-
----
-
-## Rolling this out to multiple users at once
-
-If you're enabling this for more than a handful of users, use your standard endpoint management to push a consistent `agents-conf.json`, rather than editing each one by hand. This applies equally to a small preview group or a full org-wide rollout, it's the same file either way, just targeted at whichever machines you choose.
+Use standard endpoint management to place a consistent `agents-conf.json` on every developer machine.
 
 **Typical rollout pattern:**
 
-1. Build a golden `agents-conf.json` for the users you're targeting (see the examples below).
-2. Deploy it to `~/.jfrog/agents-conf.json` on their machines with your MDM or configuration management tool. That's it, the change takes effect automatically, no per-user auth check and no session restart needed (see [Prerequisites](#prerequisites)).
+1. Build a golden `agents-conf.json` for your org (see [examples](#configuration-examples) below).
+2. Deploy to `~/.jfrog/agents-conf.json` with your MDM or configuration management tool.
+3. Ensure developers have a configured `jf` CLI (`jf config add`).
+4. Ask developers to **start a new chat/session** after deployment (hooks run once per session).
 
 **Tips for administrators**
 
-
-| Goal                                                   | Approach                                                                               |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| Enable Agent Package Resolution for the targeted users | Set `"packageResolution": { "enabled": true, ... }` in the deployed file               |
-| Map to your Artifactory repos                          | Edit `defaultGlobalRepos` with your real repo keys                                     |
-| Auto-configure package managers at session start       | Add types to `autoSetup` ([Zero-touch setup](#zero-touch-setup-autosetup)) — each type expands to its package-manager family |
-| Force a refresh of the cached repo snapshot            | Set `"cacheTtlDays": 0` (re-resolves repos every session; does **not** force autoSetup re-runs), or edit `agents-conf.json` (cache invalidates on file change) |
-| Support troubleshooting                                | Set `"logLevel": "debug"` temporarily; logs go to `~/.jfrog/logs/agent-hooks.log`      |
-
+| Goal                                             | Approach                                                                                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Enable Agent Package Resolution org-wide         | Set `"packageResolution": { "enabled": true, ... }` in the deployed file                                                                                     |
+| Keep APR **off** (durable)                       | Deploy your own file with `"enabled": false`, **or** set `"enabled": false` **and** `"onboardingPrompt": "off"` on the plugin's default file — see [Turning off](#turning-agent-package-resolution-off-admins) |
+| Silence Consent Enable offers only               | Set `"onboardingPrompt": "off"` (does not disable APR while `enabled` is `true`)                                                                             |
+| Map to your Artifactory repos                    | Edit `defaultGlobalRepos` with your real repo keys                                                                                                           |
+| Govern only some package types                   | List only those types in `defaultGlobalRepos` — others stay out of scope ([Selective governance](#selective-governance-choose-which-package-types-to-route)) |
+| Auto-configure package managers at first session | Add types to `autoSetup` ([Zero-touch setup](#zero-touch-setup-autosetup))                                                                                   |
+| Force all cached state to refresh                | Set `"cacheTtlDays": 0` (this also re-runs eligible zero-touch `jf setup` each session), or edit `agents-conf.json`                                          |
+| Support troubleshooting                          | Set `"logLevel": "debug"` temporarily; logs go to `~/.jfrog/logs/agent-hooks.log`                                                                            |
+| Break-glass / process off                        | `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` ([emergency disable](#environment-variable-emergency-disable))                                                       |
 
 ---
 
 ## Operating modes
 
-Once enablement is resolved, Agent Package Resolution runs in one of three modes each session:
+After enablement is resolved, Agent Package Resolution runs in one of three modes each session:
 
+| Mode        | When                                                                 | What the developer sees                                                                                                                     |
+| ----------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **off**     | `packageResolution.enabled` is not `true`, or disable env var is set | Nothing — no Agent Package Resolution injection                                                                                             |
+| **pending** | Enabled, but `jf` is missing or not configured                       | Advisory notice: routing is not ready, with setup steps and the governed package types                                                      |
+| **routing** | Enabled and `jf` is installed with a usable configured server        | Full routing policy for the **governed** package types + resolved Artifactory URLs; optional zero-touch `jf setup` for types in `autoSetup` |
 
-| Mode        | When                                                                                  | What the user sees                                         |
-| ----------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **off**     | `packageResolution.enabled` is not `true`, or the disable environment variable is set | Nothing; no Agent Package Resolution injection             |
-| **pending** | Enabled, but `jf` is missing or not configured                                        | An advisory notice: routing is not ready, with setup steps |
-| **routing** | Enabled and `jf` is configured and usable                                             | Full routing policy with resolved Artifactory URLs         |
+`pending` steers the agent and the developer toward setup (no governed installs
+until `jf` is ready). Kernel-level blocks still come from Curation and durable
+package-manager config; the injected **Decision order** is what the agent must
+follow in every session.
 
+In `routing` mode the injected policy covers **only the governed package types** (see [Selective governance](#selective-governance-choose-which-package-types-to-route)); package managers you do not govern are left untouched. If `autoSetup` lists governed **and resolved** types, the plugin also runs `jf setup` for them in the background so their durable PM config is ready without manual steps (see [Zero-touch setup](#zero-touch-setup-autosetup)).
 
-`pending` is **advisory**: it steers the agent and user toward setup. It is not a hard block. Hard enforcement comes from Curation and bound package manager configuration.
+### Agent decision flow (routing mode)
 
----
+Canonical matrix (terms, mermaid, per-case table, closed fallbacks):
+[apr-agent-decision-flow.md](../design/apr-agent-decision-flow.md).
 
-## Zero-touch setup: `autoSetup`
+**Do not conflate these three signals:**
 
-By default, package-manager binding (`jf setup`) happens when the developer or agent runs it, typically via a one-time confirmation the first time a project uses a given package type. `autoSetup` lets you skip that confirmation: the plugin runs `jf setup` **automatically, in the background, at session start** for whichever governed package types you list. Binding usually finishes before the developer asks for anything, including indirect installs like a postinstall script, `pip install -r`, or `npx`. Because setup is asynchronous, a very early first install in the same session can still race it.
+| Signal | Meaning | Written by |
+| --- | --- | --- |
+| Resolved URL in the session table | Knows *where* to route | Hook resolver |
+| Workspace binding (`.jfrog/local/package-resolution.json`) | Project recorded the repo decision | Setup skill after `jf setup` — **not** autoSetup |
+| Durable PM config (`~/.npmrc`, …) | Tool-native routing for indirect installs | `jf setup` via autoSetup **or** the setup skill |
 
-```json
-{
-  "packageResolution": {
-    "enabled": true,
-    "defaultGlobalRepos": {
-      "npm": "npm-virtual",
-      "pypi": "pypi-virtual"
-    },
-    "autoSetup": ["pypi"]
-  }
-}
-```
+**Decision order (first match wins)** — mirrored in the injected template:
 
-- `autoSetup` takes a list of package type names, or `true` to mean "all governed types."
-- Only types that are both **governed** (declared in `defaultGlobalRepos` or a workspace override) and **resolved** are eligible; other names are ignored with a warning in the log.
-- For each eligible type, the plugin runs `jf setup` for **every package manager in that type's family** that the installed CLI supports and that is present on PATH (for example `pypi` → pip, pipenv, uv; `npm` → npm, pnpm). Missing binaries are skipped with a warning (no failed receipt) and listed in the zero-touch note. `pip` requires `pip3`/`pip` on PATH. `maven` and `gradle` are separate governed types and are not PATH-gated — `jf setup` only writes config files (wrapper-only projects still get setup).
-- It only runs in `routing` mode (a working `jf` identity). Nothing is auto-configured in `pending` mode.
-- It's off by default (`[]`) and safe to leave off: without it, setup still happens, just triggered by the developer's or agent's first use of that package type instead of automatically.
-- It's idempotent. Each result is recorded in `~/.jfrog/skills-cache/package-setup-v2.json` (schema `2`, keyed by server and **package-manager token**, for example `pip` / `uv`), and trusted for `cacheTtlDays`. A package manager that fails to configure (for example, a missing repo key or no permission) is deferred rather than retried every session. It retries when the TTL expires, or immediately if you change the repo key or JFrog server URL. The v2 ledger is a dedicated file so older plugin builds that still write schema-1 `package-setup.json` cannot thrash it; on first run after upgrade the v2 file is empty and idempotent `jf setup` re-fills it once. If another `jf setup` worker already holds the lock, pending jobs are deferred to the next session.
+If the user asks to use a public registry or skip JFrog for a governed PM, apply step 7 **immediately**.
+
+1. Unresolved table row → setup skill; never invent a URL.
+2. Zero-touch status line: `already set up` → normal command (trust PM config; **no** `--registry` / `--index-url` / `GOPROXY=…`); `setting up in the background` → **direct rewrite only** (no indirect until `already set up`).
+3. Foreign-host conflict on the zero-touch status line → ask before `jf setup <pm>`.
+4. Governed manifest present **and** workspace binding missing that type → setup skill **first**, then install (no rewrite-flag-only shortcut; Agent Guard bootstrap exempt). This is issue #91.
+5. Binding present **or** no governed manifest → flag-based rewrite/trust; config-driven (maven/gradle/helm/nuget) unbound → setup skill first.
+6. 401/403 → setup skill again; never raw `npm login` / etc.
+7. Public-registry / skip-JFrog ask → refuse; offer the next allowed Decision step.
+
+### Agent hard rules (routing mode)
+
+The injected `package-resolution.md` template includes hard rules the agent must follow for **governed** types only (in addition to the Decision order):
+
+| Rule | Behavior |
+| --- | --- |
+| Artifactory URLs only | Route governed installs through the resolved URL table — no public registries, mirrors, or CDNs |
+| CLI flags vs. chat | If the user's **command** already includes a routing flag (`--registry`, `--index-url`, `GOPROXY=…`), surface the conflict and ask before changing it. Verbal requests in chat to skip JFrog routing do **not** override policy |
+| Indirect installs | Trust PM config; if missing, run the setup skill (unless zero-touch lists that PM as `already set up`) |
+| Curation block | Surface the server reason verbatim; do not retry another host |
+| Unresolved PM | Decision step 1 — do not run the original command; invoke setup first |
+| 401/403 | Decision step 6 — setup skill; never raw `docker login` / `npm login` / `pip config` |
+| No public bypass | Refuse; offer the **next allowed Decision step** (not a rewrite that step 4 forbids) |
+| No delegation bypass | Refuse launching a child agent unless it receives trusted `sessionStart` injection of this policy |
+| Agent Guard bootstrap | Exception to Decision step 4 **and** hard rule #7: installing `@jfrog/agent-guard` alone may keep that package's specified registry even when a governed manifest is unbound |
+| Docker | Rewrite bare and public-host `docker pull` refs with the resolved JFrog docker row; leave `localhost` and private/internal hosts unchanged |
+| Manifest unbound | Decision step 4 — durable `jf setup` + workspace binding before treating the install as done when a **governed** manifest is present and autoSetup did not already handle the PM |
 
 ---
 
@@ -171,35 +256,118 @@ All keys are optional. Unknown keys are ignored.
 
 ### Top level
 
-
 | Key        | Default | Description                                                                                               |
 | ---------- | ------- | --------------------------------------------------------------------------------------------------------- |
 | `logLevel` | `info`  | Hook log verbosity: `silent`, `debug`, `info`, `warn`, `error`. Log file: `~/.jfrog/logs/agent-hooks.log` |
 
-
 ### `packageResolution`
 
-
-| Key                  | Default            | Description                                                                                                         |
-| -------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `enabled`            | `false`            | `true` turns Agent Package Resolution on for the user (subject to `jf` / auth and the disable environment variable) |
-| `verifyRepos`        | `true`             | When `true`, each repo key in `defaultGlobalRepos` is verified against Artifactory before use                       |
-| `cacheTtlDays`       | `7`                | Days to reuse the verified repo snapshot **and** autoSetup receipts per JFrog server. For repo resolve, `0` re-resolves every session; for autoSetup receipts, `0` means no timer expiry (retry only on repo key / server URL change) |
-| `defaultGlobalRepos` | See template above | Map of package type to Artifactory **repository key**. Keys also define which types are **governed**, see below     |
-| `autoSetup`          | `[]`               | Governed types to auto-configure with `jf setup` at session start, or `true` for all. See Zero-touch setup below    |
-
+| Key                  | Default      | Description                                                                                                                                                                                                    |
+| -------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`            | `true`       | Shipped scaffold default. `true` turns Agent Package Resolution on for the user (subject to a usable `jf` config and the disable env var). Empty `defaultGlobalRepos` means no governed routing yet. |
+| `verifyRepos`        | `true`       | When `true`, each repo key in `defaultGlobalRepos` is verified against Artifactory before use                                                                                                                  |
+| `cacheTtlDays`       | `7`          | Days to reuse a per-server result before re-checking. Governs **both** the verified repo snapshot and eager `jf setup` receipt. `0` always re-checks; use it only when deliberately avoiding all cached state. |
+| `defaultGlobalRepos` | See template | Map of package type → Artifactory **repository key**. Org-wide governed types. A verified workspace overlay can add further governed types for that checkout. `configure.mjs enable --repos` **replaces** this map (it does not merge)                                                                                          |
+| `autoSetup`          | `[]`         | Governed types to auto-configure with `jf setup` at session start. Array of type names, or `true` for all governed types. `configure.mjs auto-setup --types` **replaces** this list. See [Zero-touch setup](#zero-touch-setup-autosetup)                                  |
 
 **Supported package types:** `npm`, `pypi`, `maven`, `gradle`, `go`, `docker`, `helm`, `nuget`.
 
----
+**Governed vs. ungoverned.** A package type is **governed** when it is in
+`defaultGlobalRepos` **or** a workspace overlay (`.jfrog/local/package-resolution.json`)
+that actually resolved. Only governed types appear in the injected policy:
 
-Package types not listed in `defaultGlobalRepos` (and not declared in a workspace override) are **out of scope** for that session — the agent installs them normally, with no routing and no unresolved/setup flow, until you add the mapping.
+- **Governed + resolved** — routed: a table row + rewrite rule, and (if listed in `autoSetup`) an eager `jf setup`.
+- **Admin-declared + unresolved** (in `defaultGlobalRepos` but the repo is missing or fails verification) — shown as `<no … repo resolved>` and blocked until setup, so a misconfiguration is never silently sent to a public registry.
+- **Workspace-only + unresolved** — dropped: not governed, not blocked, not autoSetup-eligible.
+- **Ungoverned** (not in `defaultGlobalRepos` and not a verified workspace key) — **out of scope**: omitted from the policy entirely and left for the agent to handle normally. This is how you route, for example, `pypi` without touching `docker`.
 
 ### Repo resolution order (per package type)
 
-1. **Workspace overlay:** `.jfrog/local/package-resolution.json` in the project (if present). Lets a team override the org default for a specific repo checkout.
-2. **Cached snapshot:** `~/.jfrog/skills-cache/package-resolution.json` (per JFrog server, respects `cacheTtlDays`).
-3. **Admin defaults:** `defaultGlobalRepos` in `agents-conf.json` (on cache miss or stale cache).
+1. **Workspace overlay** — `.jfrog/local/package-resolution.json` in the project (if present)
+2. **Cached snapshot** — `~/.jfrog/skills-cache/package-resolution.json` (per JFrog server, respects TTL)
+3. **Admin defaults** — `defaultGlobalRepos` in `agents-conf.json` (on cache miss or stale cache)
+
+---
+
+## Selective governance: choose which package types to route
+
+Agent Package Resolution governs **only the package types you declare**. This lets you onboard incrementally — start with, say, `pypi` and `npm`, and leave `docker`, `go`, and everything else untouched until you are ready.
+
+- **To govern a type org-wide**, add it to `defaultGlobalRepos`.
+- **To govern a type in one checkout**, add a verified key in `.jfrog/local/package-resolution.json` (Consent Enable / the setup skill does this).
+- **To leave a type alone**, don't declare it in either place. Ungoverned types never appear in the injected policy and the agent installs them normally, with no JFrog routing and no "unresolved" blocking.
+
+Example — govern only PyPI, leave Docker (and the rest) alone:
+
+```json
+{
+  "packageResolution": {
+    "enabled": true,
+    "defaultGlobalRepos": {
+      "pypi": "corp-pypi-virtual"
+    }
+  }
+}
+```
+
+A workspace can override an administrator-approved repository key, or add a
+type that is not in `defaultGlobalRepos`. Overlay keys are verified when
+`verifyRepos` is enabled:
+
+```json
+{
+  "repositories": {
+    "pypi": "team-pypi-virtual"
+  }
+}
+```
+
+With the two files above, that project still governs only `pypi`, but resolves it
+through `team-pypi-virtual`. Adding another verified key in the workspace file
+(for example `"npm": "team-npm-virtual"`) would also govern `npm` in that
+checkout only.
+
+---
+
+## Zero-touch setup: `autoSetup`
+
+Without `autoSetup`, the injected Decision order still applies: when a governed
+project manifest is present and there is no workspace binding, the agent must
+run `jfrog-setup-package-managers` (durable `jf setup`) **before** treating a
+direct install as done — a rewrite-flag install alone is not enough. With
+`autoSetup`, the plugin performs that `jf setup` **automatically at session
+start** for the types you choose (and the session note marks them as already
+set up / setting up), so a developer's first session already resolves indirect
+installs (`npx`, `pip install -r`, postinstall scripts) through Artifactory
+without forcing the skill again.
+
+```json
+{
+  "packageResolution": {
+    "enabled": true,
+    "defaultGlobalRepos": {
+      "npm": "corp-npm-virtual",
+      "pypi": "corp-pypi-virtual"
+    },
+    "autoSetup": ["pypi"]
+  }
+}
+```
+
+- `autoSetup` is a **list of type names**, or `true` to mean "all governed types".
+- It is **repo-agnostic**: setup targets whatever repo actually resolves for that type this session (a workspace override wins over the org default).
+- Only types that are **governed and resolved** are eligible. Names that aren't governed are ignored (logged as a warning).
+- For each eligible type, the plugin runs `jf setup` for **every client tool in that type's family** that the installed CLI supports and that is present on PATH (e.g. `pypi` → pip, pipenv, uv; `npm` → npm, pnpm). Missing binaries are skipped with a warning (no failed receipt) and listed in the zero-touch note. `pip` requires `pip3`/`pip` on PATH (`jf setup pip` runs `pip config set`). `maven` and `gradle` are separate governed types and are not PATH-gated — `jf setup` only writes `~/.m2/settings.xml` / a Gradle init script (wrapper-only projects still get config). On Windows, PATH lookup also honors `PATHEXT` (`.cmd`, `.exe`, …).
+- `jf setup` mutates **user-global** PM config (`~/.npmrc`, `~/.docker/config.json`, …). It runs **off the critical path** in a background worker, so the session's instructions are still injected immediately — the 7-second session-start budget is never at risk.
+- Runs are **idempotent**: a receipt at `~/.jfrog/skills-cache/package-setup-v2.json` (schema `2`, keyed by server + **package-manager token**, e.g. `pip` / `uv`) records each result — success **or** failure — and it is trusted for `cacheTtlDays`. A re-run is triggered by a changed repo key, a different server, or an expired TTL; a fresh result (within the TTL) is skipped. The v2 file is separate from legacy `package-setup.json` (schema 1) so older plugin builds cannot thrash the ledger; first run after upgrade starts empty and re-fills via idempotent `jf setup`.
+- `jf setup` validates the repo itself; a bad repo or missing permission is recorded as a **failure** for that PM and, crucially, is **not** retried every session — it is deferred until the `cacheTtlDays` window elapses (self-heals if you create/fix the repo server-side) or retried immediately when you correct the repo key or switch servers. The failure is surfaced in the next session's note, and advisory routing always still applies.
+- **Foreign-host conflict:** when an existing PM config already points at a **different** Artifactory (or public registry) host, zero-touch **skips** that package manager — it is left unchanged (no silent overwrite). The session note lists each skipped tool with `existingHost → targetHost` and instructs the agent to ask _"Switch to this JFrog instance?"_ before running explicit `jf setup <package-manager>` (with `--server-id` / `--repo` as needed) **only** for the tools the user approves — not bare `jf setup`. Explicit `jf setup` from the user or skill can still overwrite after confirmation.
+
+**Prerequisite:** eager setup only runs in `routing` mode (a configured `jf` server). In `pending` mode nothing is auto-configured; once `jf` is configured, running the refresh command (`node <plugin>/modules/package-resolution/scripts/print-policy.mjs`) triggers eager setup exactly as a fresh session would — no restart needed.
+
+During **Consent Enable**, the agent sets `autoSetup` for the types just configured via `configure.mjs auto-setup --types '[…]'` (no separate second ask), then runs `JFROG_EAGER_SETUP_SYNC=1 node …/print-policy.mjs` so setup finishes in that turn. Types that show as already set up must later install without rewrite flags. Admins can also pre-deploy `autoSetup` in `agents-conf.json` as shown above.
+
+---
 
 ## Configuration examples
 
@@ -226,11 +394,9 @@ Package types not listed in `defaultGlobalRepos` (and not declared in a workspac
 }
 ```
 
-Deploy this file to `~/.jfrog/agents-conf.json` on users' machines. The change takes effect automatically, no restart needed.
+Deploy this file to `~/.jfrog/agents-conf.json` on developer machines, then have users start a **new agent session**.
 
-### npm and PyPI only (minimal preview rollout)
-
-A good way to start a preview without committing to all 8 package types at once:
+### npm and Docker only (minimal rollout)
 
 ```json
 {
@@ -238,13 +404,13 @@ A good way to start a preview without committing to all 8 package types at once:
     "enabled": true,
     "defaultGlobalRepos": {
       "npm": "npm-virtual",
-      "pypi": "pypi-virtual"
+      "docker": "docker-virtual"
     }
   }
 }
 ```
 
-Other package types stay out of scope until you expand the map.
+Only `npm` and `docker` are governed here. All other package types are **out of scope** — the agent installs them normally with no JFrog routing until you add them to the map. See [Selective governance](#selective-governance-choose-which-package-types-to-route).
 
 ### Debug logging for support
 
@@ -257,27 +423,27 @@ Other package types stay out of scope until you expand the map.
 }
 ```
 
-Inspect `~/.jfrog/logs/agent-hooks.log` on the user's machine. Return to `"logLevel": "info"` after troubleshooting.
+Inspect `~/.jfrog/logs/agent-hooks.log` on the developer machine. Return to `"logLevel": "info"` after troubleshooting.
 
 ---
 
-## Emergency disable
+## Environment variable: emergency disable
 
-You can force Agent Package Resolution **off** for a process without editing `agents-conf.json`. Useful for CI images, break-glass support, or a temporary rollback during the preview.
-
+Organizations can force Agent Package Resolution **off** for a process without editing `agents-conf.json`. This is useful for CI images, break-glass support, or temporary rollback.
 
 | Variable                              | Value | Effect                                                                                                               |
 | ------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------- |
 | `JF_AGENT_PACKAGE_RESOLUTION_DISABLE` | `1`   | Agent Package Resolution stays **off** for that IDE/terminal process, even if `agents-conf.json` has `enabled: true` |
 
-
 **Precedence (enablement):**
 
 1. `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` → **off**
 2. `packageResolution.enabled: true` in `agents-conf.json` → **on** (if `jf` / auth allows)
-3. Otherwise → **off** (shipped default)
+3. Otherwise → **off** (explicit `enabled: false`, or a hand-edited file that is not the shipped scaffold)
 
-To set it:
+### macOS / Linux (Zsh or Bash)
+
+Add to the IDE launch environment or shell profile:
 
 ```bash
 export JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1
@@ -285,13 +451,27 @@ export JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1
 
 Restart the coding assistant after changing environment variables.
 
-> Removing the variable (or setting it to anything other than `1`) restores file-based enablement from `agents-conf.json`.
+### Windows (PowerShell — user scope)
+
+```powershell
+[Environment]::SetEnvironmentVariable("JF_AGENT_PACKAGE_RESOLUTION_DISABLE", "1", "User")
+```
+
+Restart the IDE completely so it inherits the new value.
+
+> **Note:** Removing the variable (or setting it to anything other than `1`) restores file-based enablement from `agents-conf.json`.
+
+### Optional: platform URL hint (`JFROG_PLATFORM_URL`)
+
+When `jf` is missing or unconfigured, the hook injects a “routing not ready” notice. If `JFROG_PLATFORM_URL` is set in the **IDE launch environment**, that value is included in the notice as a setup hint (which hostname to use with `jf config add`).
+
+This variable is **not** a substitute for `jf config`. It does not supply credentials and does not move the session into **routing** mode. `JFROG_ACCESS_TOKEN` and `JFROG_URL` are likewise **not** used for Agent Package Resolution identity.
 
 ---
 
 ## Workspace-level repository overrides
 
-Users (or project templates) can override your org-wide defaults for a specific repository checkout: useful for mono-repos or team-specific repo keys, without touching the org-wide `agents-conf.json`.
+Developers (or project templates) can override global defaults for a specific repository checkout:
 
 **File:** `<workspace>/.jfrog/local/package-resolution.json`
 
@@ -304,48 +484,31 @@ Users (or project templates) can override your org-wide defaults for a specific 
 }
 ```
 
-Workspace values win over `agents-conf.json` for matching package types during that session.
+Workspace values win over `agents-conf.json` for matching types during that session. Use this for mono-repo or team-specific repo keys without changing the org-wide `agents-conf.json`.
 
 ---
 
 ## Troubleshooting
 
-
-| Symptom                                 | What to check                                                                                                                                                                                  |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No routing policy in the agent          | `packageResolution.enabled` is `true` in `~/.jfrog/agents-conf.json`                                                                                                                          |
-| Policy still off despite enabled config | `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` is set in the IDE environment                                                                                                                         |
-| Wrong repository URLs                   | Verify `defaultGlobalRepos` keys exist on your Platform; check `verifyRepos` and `~/.jfrog/skills-cache/package-resolution.json`                                                             |
-| Invalid config ignored                  | Malformed JSON logs a **WARN** in `~/.jfrog/logs/agent-hooks.log` and falls back to safe defaults (`enabled: false`)                                                                          |
-| Reset to shipped defaults                | Delete `~/.jfrog/agents-conf.json`; it is recopied automatically. Optionally delete `package-resolution.json` and `package-setup-v2.json` from the cache to clear snapshots and setup receipts   |
-| `autoSetup` type not configured          | Confirm the type is **governed + resolved** and the session was in `routing` mode. Check `agent-hooks.log` and `package-setup-v2.json` (per package-manager entries such as `pip` / `uv`) |
-| Re-run an eager `jf setup`               | Change the repo key (or server), delete that package manager's entry in `~/.jfrog/skills-cache/package-setup-v2.json` (or the whole file), or wait for `cacheTtlDays` to expire |
-
-
----
-
-## What this preview covers
-
-Agent Package Resolution runs at the start of every coding-agent session. When enabled, it injects routing policy and resolved Artifactory repository URLs into the session, so the agent prefers your repositories over public registries (npm, PyPI, Maven, Gradle, Go, Docker, Helm, NuGet) for the rest of that session.
-
-**About this preview (please read before rolling out):**
-
-- **This is advisory steering, not a hard block.** The feature tells the agent which repository to use and nudges it to configure package managers accordingly. It does not intercept or rewrite the underlying install commands. If you need a hard guarantee that nothing reaches a public registry, that guarantee comes from the two mechanisms below, not from this session-injection layer alone.
-- **Durable enforcement is `jf setup` (package manager configuration) plus server-side Curation.** Once a package manager is bound to your Artifactory repository (via `jf setup`, which the agent will run for you when needed), that binding persists across sessions and tools, independent of this feature. Curation policies on the server are what actually block disallowed packages.
-- **All 8 package types are configurable** (npm, PyPI, Maven, Gradle, Go, Docker, Helm, NuGet), but you do not have to turn them all on at once. A narrower starting scope (for example, just npm and PyPI) is a reasonable way to begin a preview rollout; see the configuration examples above. Package types you don't declare are left completely alone, see [Selective governance](#selective-governance-choose-which-package-types-to-route).
-- **Package-manager binding can happen automatically** if you turn on `autoSetup` for a package type: the plugin expands each type to its package-manager family (for example `pypi` → pip/pipenv/uv) instead of waiting for a developer's or agent's first use. See [Zero-touch setup](#zero-touch-setup-autosetup).
-- This is a **preview**. Expect rough edges, and please route feedback through the channel below.
+| Symptom                                 | What to check                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No routing policy in the agent          | `packageResolution.enabled` is `true` in `~/.jfrog/agents-conf.json`, then run `node <plugin>/modules/package-resolution/scripts/print-policy.mjs` to load the policy                                                                                                                                                                                          |
+| “Routing not ready” notice              | Install and configure `jf` (`jf config add`). Env vars alone (`JFROG_ACCESS_TOKEN`, `JFROG_URL`) will **not** clear this. Optional: set `JFROG_PLATFORM_URL` so the notice shows your platform hostname. After configuring `jf`, run the notice's refresh command (`node <plugin>/modules/package-resolution/scripts/print-policy.mjs`) or start a new session |
+| Policy still off despite enabled config | `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` in the IDE environment                                                                                                                                                                                                                                                                                                 |
+| Wrong repository URLs                   | Verify `defaultGlobalRepos` keys exist on your Platform; check `verifyRepos` and `~/.jfrog/skills-cache/package-resolution.json`                                                                                                                                                                                                                               |
+| Invalid config ignored                  | Malformed JSON logs a **WARN** in `~/.jfrog/logs/agent-hooks.log` and falls back to the shipped template defaults (`enabled: true`, empty bindings)                                                                                                                                                                                                             |
+| A governed type isn't in the policy     | Confirm it's in `defaultGlobalRepos` or a verified workspace overlay (`.jfrog/local/package-resolution.json`). Admin-declared types that fail verify stay in the policy as unresolved; workspace-only keys that fail verify are dropped. Ungoverned types are intentionally omitted                                                                                                                                            |
+| `autoSetup` type not auto-configured    | Must be **governed + resolved** and in `routing` mode; check `~/.jfrog/logs/agent-hooks.log` for the `jf setup` result and `~/.jfrog/skills-cache/package-setup-v2.json` for the recorded status. If another session holds the setup lock, the note says setup is deferred until the next session                                                              |
+| Re-run an eager `jf setup`              | Change the repo key (or server), delete the PM's entry (e.g. `pip`, `uv`) in `~/.jfrog/skills-cache/package-setup-v2.json` (or the whole file), or wait for `cacheTtlDays` to expire                                                                                                                                                                           |
+| A bad repo keeps retrying every session | Fixed in current behavior — a failed `jf setup` is deferred for `cacheTtlDays` instead of retried each session. Correct the repo key to retry immediately, or fix the repo/permission in Artifactory (it self-heals after the TTL)                                                                                                                             |
+| Reset to shipped defaults               | Delete `~/.jfrog/agents-conf.json` and start a new session (template is recopied). Optionally delete `~/.jfrog/skills-cache/package-resolution.json` and `~/.jfrog/skills-cache/package-setup-v2.json` to clear cached snapshots + setup receipts                                                                                                              |
 
 ---
 
-## Feedback and support
+## Related documentation
 
-This is a preview. Please report issues, confusion, or surprises.
-
-File an issue on GitHub, in whichever plugin repo you use:
-
-- Cursor: [github.com/jfrog/cursor-plugin/issues](https://github.com/jfrog/cursor-plugin/issues)
-- Claude Code: [github.com/jfrog/claude-plugin/issues](https://github.com/jfrog/claude-plugin/issues)
-- Email: plugins-feedback@jfrog.com
-
-We're especially interested in: whether the enablement steps above were clear, whether routing behaved as expected once enabled, and anything that felt broken or surprising during rollout.
+- [JFrog Plugins overview](https://docs.jfrog.com/ai-ml/docs/jfrog-plugins)
+- [Install JFrog Plugin for Cursor](https://docs.jfrog.com/ai-ml/docs/install-jfrog-plugin-for-cursor)
+- [Install JFrog Plugin for Claude Code](https://docs.jfrog.com/ai-ml/docs/install-jfrog-plugin-for-claude-code)
+- [Install JFrog Plugin for VS Code](https://docs.jfrog.com/ai-ml/docs/install-jfrog-plugin-for-vs-code)
+- [Use the MCP Registry with Agent Guard](https://docs.jfrog.com/ai-ml/docs/configure-coding-agents)

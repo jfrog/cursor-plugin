@@ -6,6 +6,9 @@
 //      need `jf setup` (per the receipt), spawn a DETACHED background worker for
 //      them, and return a short status note for the injected instruction. Never
 //      runs `jf setup` itself — injection must stay fast (< 7s hook budget).
+//      Exception: `JFROG_EAGER_SETUP_SYNC=1` waits for the worker, then
+//      re-reads the receipt so the note says `already set up` instead of
+//      `setting up in the background` (Consent Enable print-policy).
 //   2. WORKER (background, `node eager-setup.mjs --run <payload>`): take a
 //      global lock, re-check the receipt, run `jf setup <package-manager> --server-id --repo`
 //      one package manager at a time with a per-package-manager timeout, and
@@ -35,6 +38,7 @@ import { createLogger } from "../../core/logger.mjs";
 import {
   loadAgentsConfig,
   isAutoSetup,
+  globalDeclaredTypes,
 } from "../../core/agents-config.mjs";
 import { getPlatformIdentity } from "../../core/jf-identity.mjs";
 import {
@@ -45,6 +49,7 @@ import {
 import {
   readReceipt,
   writeReceipt,
+  receiptEntry,
   evaluateSetupNeed,
   applySetupResult,
 } from "./eager-setup-receipt.mjs";
@@ -53,6 +58,8 @@ import {
   packageManagersForType,
   packageManagerBinaryOnPath,
 } from "./package-manager-family.mjs";
+import { detectSetupConflict } from "./setup-conflict.mjs";
+import { envWithHookUserAgent } from "../../core/jf-user-agent.mjs";
 
 const log = createLogger("eager-setup");
 
@@ -62,13 +69,12 @@ const MAX_PACKAGE_MANAGER_JOBS = Object.values(TYPE_TO_PACKAGE_MANAGERS).reduce(
   0,
 );
 
-/** Actionable hint when autoSetup names a type that isn't governed. */
+/** Actionable hint when autoSetup names a type that isn't admin-declared. */
 function ungovernedAutoSetupHint(type) {
   return (
     `trying to eager-configure '${type}' via autoSetup but it is not ` +
-    "governed — no repo found in defaultGlobalRepos " +
-    "(~/.jfrog/agents-conf.json) or repositories in " +
-    ".jfrog/local/package-resolution.json"
+    "admin-declared in defaultGlobalRepos (~/.jfrog/agents-conf.json). " +
+    "Workspace-only types are never autoSetup-eligible."
   );
 }
 
@@ -95,8 +101,9 @@ function workerPath() {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute eligible eager-setup jobs = governed ∩ resolved ∩ autoSetup,
- * expanded to one job per package manager in that type's family (Option C).
+ * Compute eligible eager-setup jobs = admin-declared ∩ resolved ∩ autoSetup
+ * (workspace-only types never eager-setup), expanded to one job per package
+ * manager in that type's family (Option C).
  * Warns when `autoSetup` names an ungoverned type (ignored, not fatal).
  * Binary presence and `jf setup --help` are checked later (orchestrator/worker).
  * @param {string[]} governed
@@ -104,9 +111,15 @@ function workerPath() {
  * @returns {{type:string, repoKey:string, packageManager:string}[]}
  */
 export function computeEligibleJobs(governed, resolvedByType) {
-  const governedSet = new Set(governed);
+  const adminSet = new Set(globalDeclaredTypes());
   const jobs = [];
   for (const type of governed) {
+    if (!adminSet.has(type)) {
+      log.debug("eager skip: workspace-only type is not autoSetup-eligible", {
+        type,
+      });
+      continue;
+    }
     if (!isAutoSetup(type)) continue;
     const r = resolvedByType[type];
     if (!r) {
@@ -122,11 +135,12 @@ export function computeEligibleJobs(governed, resolvedByType) {
       jobs.push({ type, repoKey: r.repoKey, packageManager });
     }
   }
-  // Surface admin misconfig: autoSetup naming a type that isn't governed.
+  // Surface admin misconfig: autoSetup naming a type that isn't admin-declared
+  // (`autoSetup: true` skips workspace-only types without warning).
   const { autoSetup } = loadAgentsConfig().packageResolution;
   if (Array.isArray(autoSetup)) {
     for (const type of autoSetup) {
-      if (!governedSet.has(type)) {
+      if (!adminSet.has(type)) {
         log.warn(`eager setup skipped: ${ungovernedAutoSetupHint(type)}`, {
           type,
         });
@@ -143,6 +157,9 @@ export function computeEligibleJobs(governed, resolvedByType) {
  *   pending: string[],
  *   deferred: string[],
  *   skippedMissing?: string[],
+ *   skippedConflict?: string[],
+ *   skippedUnsupported?: string[],
+ *   skippedUnparsed?: string[],
  *   setupBusy?: boolean,
  * }} parts
  * @returns {string} markdown note or ""
@@ -152,36 +169,55 @@ function statusNote({
   pending,
   deferred,
   skippedMissing,
+  skippedConflict,
+  skippedUnsupported,
+  skippedUnparsed,
   setupBusy,
 }) {
   const parts = [];
   if (setupBusy && pending.length) {
     parts.push(
-      `zero-touch deferred (another jf setup is in progress) — will retry next session: ${pending.join(", ")}`,
+      `waiting to set up (another setup is already running; will try again next session): ${pending.join(", ")}`,
     );
   } else if (pending.length) {
-    parts.push(
-      `configuring in the background via \`jf setup\`: ${pending.join(", ")}`,
-    );
+    parts.push(`setting up in the background: ${pending.join(", ")}`);
   }
   if (configured.length) {
-    parts.push(
-      `already configured (cached, skipping re-setup): ${configured.join(", ")}`,
-    );
+    parts.push(`already set up: ${configured.join(", ")}`);
   }
   if (deferred.length) {
     parts.push(
-      `previously failed for ${deferred.join(", ")} — will retry after the cache ` +
-        `expires or once the repo/permission is fixed`,
+      `could not set up last time (will try again later): ${deferred.join(", ")}`,
     );
   }
   if (skippedMissing?.length) {
     parts.push(
-      `skipped (package manager binary not on PATH): ${skippedMissing.join(", ")}`,
+      `skipped (not installed on this machine): ${skippedMissing.join(", ")}`,
+    );
+  }
+  if (skippedConflict?.length) {
+    parts.push(
+      `left unchanged (already using another JFrog / registry): ` +
+        `${skippedConflict.join(", ")}. Ask the user: "Switch to this JFrog ` +
+        `instance?" If they say yes, run \`jf setup <package-manager>\` ` +
+        `(with \`--server-id\` / \`--repo\` as needed) only for each approved ` +
+        `package manager — not bare \`jf setup\``,
+    );
+  }
+  if (skippedUnsupported?.length) {
+    parts.push(
+      `skipped (update the JFrog CLI to enable setup for): ` +
+        `${skippedUnsupported.join(", ")}`,
+    );
+  }
+  if (skippedUnparsed?.length) {
+    parts.push(
+      `skipped (could not check JFrog CLI setup support for): ` +
+        `${skippedUnparsed.join(", ")} — try updating the JFrog CLI`,
     );
   }
   if (!parts.length) return "";
-  return `> **Zero-touch package-manager setup** — ${parts.join("; ")}.`;
+  return `> **Package manager setup** — ${parts.join("; ")}.`;
 }
 
 /**
@@ -259,10 +295,19 @@ export async function orchestrateEagerSetup(ctx = {}) {
     const serverId = identity.serverId ?? "default";
     const url = identity.url;
 
+    // Intersect the type→package-manager ceiling with what the *installed*
+    // `jf setup` supports, so an outdated CLI (e.g. one without `jf setup uv`)
+    // surfaces an actionable "update the JFrog CLI" note instead of silently
+    // sitting in the background worker's skip log.
+    const supported = supportedPackageManagers();
+
     const configured = [];
     const pending = [];
     const deferred = [];
     const skippedMissing = [];
+    const skippedConflict = [];
+    const skippedUnsupported = [];
+    const skippedUnparsed = [];
     const toRun = [];
     for (const job of jobs) {
       // Binary probe in the orchestrator so the injected note can list skips
@@ -275,6 +320,47 @@ export async function orchestrateEagerSetup(ctx = {}) {
         });
         continue;
       }
+      // Fail-closed: an unparseable `jf setup --help` means we cannot confirm
+      // support, so skip rather than bypass the filter and risk running an
+      // unsupported `jf setup <pm>`.
+      if (supported === null) {
+        skippedUnparsed.push(job.packageManager);
+        log.warn(
+          "eager skip: could not parse `jf setup --help` output — failing closed",
+          { type: job.type, packageManager: job.packageManager },
+        );
+        continue;
+      }
+      if (!supported.has(job.packageManager)) {
+        skippedUnsupported.push(job.packageManager);
+        log.warn(
+          "eager skip: package manager unsupported by installed jf setup",
+          {
+            type: job.type,
+            packageManager: job.packageManager,
+            hint: "update the JFrog CLI to the latest version",
+          },
+        );
+        continue;
+      }
+      const conflict = detectSetupConflict(job.packageManager, url);
+      if (conflict.conflict) {
+        const hostHint =
+          conflict.existingHost && conflict.targetHost
+            ? ` (${conflict.existingHost} → ${conflict.targetHost})`
+            : "";
+        skippedConflict.push(`${job.packageManager}${hostHint}`);
+        log.warn(
+          "eager skip: existing package-manager config points elsewhere",
+          {
+            type: job.type,
+            packageManager: job.packageManager,
+            existingHost: conflict.existingHost,
+            targetHost: conflict.targetHost,
+          },
+        );
+        continue;
+      }
       const need = evaluateSetupNeed(receipt, {
         serverId,
         url,
@@ -285,7 +371,8 @@ export async function orchestrateEagerSetup(ctx = {}) {
       if (need.skip) {
         // "failed-deferred" = a still-failing entry within its TTL: don't retry
         // this session (no jf setup, no WARN), but surface it in the note.
-        if (need.reason === "failed-deferred") deferred.push(job.packageManager);
+        if (need.reason === "failed-deferred")
+          deferred.push(job.packageManager);
         else configured.push(job.packageManager);
         continue;
       }
@@ -313,6 +400,29 @@ export async function orchestrateEagerSetup(ctx = {}) {
           "utf8",
         ).toString("base64");
         spawnWorker(payload, toRun.length);
+        if (process.env.JFROG_EAGER_SETUP_SYNC === "1") {
+          // spawnSync already waited. Re-bucket from the receipt so Consent
+          // Enable print-policy does not still say "setting up in the
+          // background" (that line is the agent's cue to rewrite with
+          // --registry / --index-url / GOPROXY). Use the receipt entry, not
+          // evaluateSetupNeed: ttl=0 would still look "needed" after a
+          // successful setup.
+          const after = await readReceipt();
+          pending.length = 0;
+          for (const job of toRun) {
+            const entry = receiptEntry(after, serverId, job.packageManager);
+            if (entry?.status === "ok" && entry.repoKey === job.repoKey) {
+              configured.push(job.packageManager);
+            } else if (
+              entry?.status === "failed" &&
+              entry.repoKey === job.repoKey
+            ) {
+              deferred.push(job.packageManager);
+            } else {
+              pending.push(job.packageManager);
+            }
+          }
+        }
       }
     }
 
@@ -321,6 +431,9 @@ export async function orchestrateEagerSetup(ctx = {}) {
       pending,
       deferred,
       skippedMissing,
+      skippedConflict,
+      skippedUnsupported,
+      skippedUnparsed,
       setupBusy,
     });
   } catch (err) {
@@ -522,17 +635,21 @@ export function releaseLock() {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse the `Supported package managers are: a, b, c` line from `jf setup --help`.
+ * Parse the `Supported package managers are: a, b, c.` line from `jf setup --help`.
+ * Real `jf` ends the list with a period, so the capture stops at `.`/newline —
+ * otherwise the last token keeps a trailing dot (e.g. `uv.`) and never matches.
  * @returns {Set<string>|null} lowercase tokens, or null if help could not be parsed
  */
 function supportedPackageManagers() {
   try {
+    // --help is local (no Artifactory traffic); no UA needed for telemetry.
     const res = spawnSync("jf", ["setup", "--help"], {
       encoding: "utf8",
       timeout: 5000,
+      env: process.env,
     });
     const out = `${res.stdout ?? ""}\n${res.stderr ?? ""}`;
-    const m = out.match(/Supported package managers are:\s*([^\n]+)/i);
+    const m = out.match(/Supported package managers are:\s*([^.\n]+)/i);
     if (!m) return null;
     return new Set(
       m[1]
@@ -576,10 +693,18 @@ function extractJfError(stdout, stderr) {
  * @returns {{ ok: true } | { ok: false, reason: string }}
  */
 function runJfSetup(packageManager, serverId, repoKey) {
-  const args = ["setup", packageManager, "--server-id", serverId, "--repo", repoKey];
+  const args = [
+    "setup",
+    packageManager,
+    "--server-id",
+    serverId,
+    "--repo",
+    repoKey,
+  ];
   const res = spawnSync("jf", args, {
     encoding: "utf8",
     timeout: PER_PACKAGE_MANAGER_TIMEOUT_MS,
+    env: envWithHookUserAgent(process.env),
   });
   if (res.error) {
     return { ok: false, reason: `spawn error: ${res.error.message}` };
@@ -632,11 +757,38 @@ export async function runWorker(payload) {
         });
         continue;
       }
-      if (supported && !supported.has(job.packageManager)) {
+      // Fail-closed: an unparseable `jf setup --help` means we cannot confirm
+      // support, so skip rather than bypass the filter (mirrors orchestrator).
+      if (supported === null) {
+        log.warn(
+          "worker skip: could not parse `jf setup --help` output — failing closed",
+          { type: job.type, packageManager: job.packageManager },
+        );
+        continue;
+      }
+      if (!supported.has(job.packageManager)) {
         log.warn("worker skip: package manager unsupported by jf setup", {
           type: job.type,
           packageManager: job.packageManager,
         });
+        continue;
+      }
+
+      // Re-check for a foreign registry conflict under the lock — mirrors the
+      // orchestrator's check, closing the race where a developer runs a
+      // manual `npm config set registry` between the foreground spawn and
+      // this worker acquiring the lock.
+      const conflict = detectSetupConflict(job.packageManager, url);
+      if (conflict.conflict) {
+        log.warn(
+          "worker skip: existing package-manager config points elsewhere",
+          {
+            type: job.type,
+            packageManager: job.packageManager,
+            existingHost: conflict.existingHost,
+            targetHost: conflict.targetHost,
+          },
+        );
         continue;
       }
 

@@ -1,4 +1,4 @@
-// Shared stdin helpers for the subprocess-style adapters (Claude, Cursor).
+// Shared stdin helpers for subprocess-style adapters (Claude, Cursor, VS Code).
 //
 // Hooks deliver their JSON payload on stdin immediately; in non-hook contexts
 // (CI, npm scripts, terminal smoke tests) nothing arrives, so we bail out after
@@ -71,29 +71,47 @@ export function parseSessionId(stdinRaw) {
   }
 }
 
+// Claude's documented SessionStart sources. VS Code Copilot documents only
+// "new", so the two sets stay disjoint and neither can claim the other's
+// sessions.
+const CLAUDE_SESSION_SOURCES = new Set([
+  "startup",
+  "resume",
+  "clear",
+  "compact",
+]);
+
 // Positively identify the harness that invoked this hook from its stdin
-// payload. Returns "cursor", "claude_code", or null when it can't tell
-// (no stdin — e.g. terminal smoke tests — or an unrecognized shape).
+// payload. Returns "cursor", "copilot", "claude_code", or null when no harness
+// left a fingerprint (no stdin — e.g. terminal smoke tests — or a shape none of
+// them own).
 //
 // Why this matters: Cursor reads sessionStart hooks from BOTH
 // ~/.cursor/hooks.json AND ~/.claude/settings.json. Without this, a Cursor
 // session fires the Claude adapter too, double-injecting the policy. Each
 // adapter uses this to no-op when a different harness invoked it.
 //
-// Cursor: cursor_version / agent_type. Claude: transcript_path / hook_event_name /
-// session_id. Cursor also reads ~/.claude/settings.json, so each adapter no-ops
-// when a different harness invoked it.
+// Every branch below is a signal exactly one harness documents, and null means
+// "can't tell". An adapter is only ever registered by the harness it serves, so
+// a payload no harness claims is left to whichever adapter was invoked.
 export function detectHarness(stdinRaw) {
   if (!stdinRaw) return null;
   try {
     const p = JSON.parse(stdinRaw);
     if (!p) return null;
+    // Cursor stamps its own version/agent on every hook payload.
     if (p.cursor_version || p.agent_type === "cursor") {
       return "cursor";
     }
-    if (p.transcript_path || p.hook_event_name || p.session_id) {
-      return "claude_code";
+    if (p.hook_event_name === "SessionStart") {
+      // Copilot's documented `new` source is decisive. Current VS Code payloads
+      // also include a transcript_path, so path presence cannot classify Claude
+      // before the source is checked.
+      if (p.source === "new") return "copilot";
+      if (CLAUDE_SESSION_SOURCES.has(p.source)) return "claude_code";
     }
+    // Claude writes a transcript for non-SessionStart hooks too.
+    if (p.transcript_path) return "claude_code";
   } catch {
     // stdin wasn't JSON — can't tell.
   }
@@ -102,7 +120,8 @@ export function detectHarness(stdinRaw) {
 
 /**
  * Workspace roots for this hook invocation.
- * Cursor: workspace_roots[]. Claude: payload cwd. Fallback: process.cwd().
+ * Cursor: workspace_roots[]. Claude and VS Code Copilot: payload cwd.
+ * Fallback: process.cwd().
  *
  * @param {string} [stdinRaw]
  * @returns {string[]}

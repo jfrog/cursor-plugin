@@ -5,18 +5,20 @@
 //
 //   1. JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1 → mode="off" (env kill switch)
 //   2. packageResolution.enabled !== true in      → mode="off" (file-primary gate;
-//      ~/.jfrog/agents-conf.json                   default off in shipped template)
-//   3. jf config (via jf-identity)                → mode="routing" when identity is
-//      usable; otherwise mode="pending" with a `cause` (jf-not-installed /
-//      jf-not-configured) so the session hook can inject a targeted,
-//      remediation-focused advisory notice.
+//      ~/.jfrog/agents-conf.json                   shipped template defaults on)
+//   3. jf config + readiness probe (via jf-identity)
+//      → mode="routing" when identity is usable and Artifactory accepts it;
+//      otherwise mode="pending" with a `cause`:
+//        jf-not-installed | jf-not-configured | jf-unsupported-auth |
+//        jf-auth-failed | insecure-url
+//      (jf-unreachable stays routing best-effort — not a pending cause)
 //
 // Modes:
 //   "off"     — do nothing (no injection).
 //   "routing" — inject resolved Artifactory URLs + routing policy.
-//   "pending" — jf missing/unconfigured: inject the advisory "routing not
-//               ready" notice (no resolved URLs). This is advisory steering,
-//               not a hard block — real enforcement is durable PM config
+//   "pending" — identity missing/unusable/rejected: inject the advisory
+//               "routing not ready" notice (no resolved URLs). Advisory
+//               steering only — real enforcement is durable PM config
 //               (jf setup) + server-side Curation.
 //
 // Repo keys come from agents-conf.json defaultGlobalRepos (resolver.mjs).
@@ -26,7 +28,7 @@ import process from "node:process";
 import { createLogger } from "../../core/logger.mjs";
 import { getAgentsConfigSection } from "../../core/agents-config.mjs";
 import {
-  getPlatformIdentity,
+  getReadyPlatformIdentity,
   identityLabel,
   IdentityCause,
 } from "../../core/jf-identity.mjs";
@@ -63,13 +65,23 @@ export async function isPackageResolutionEnabled() {
     };
   }
 
-  const { identity, cause } = getPlatformIdentity();
+  // Probe credentials so expired/revoked tokens fail closed to pending
+  // instead of "routing" with every row unresolved.
+  const { identity, cause } = await getReadyPlatformIdentity();
   if (!identity) {
     log.debug("pending", { reason: "missing-identity", cause });
-    return { mode: "pending", reason: "missing-identity", identity: "none", cause };
+    return {
+      mode: "pending",
+      reason: "missing-identity",
+      identity: "none",
+      cause,
+    };
   }
 
-  log.debug("routing", { reason: "jf-config", identity: identityLabel(identity) });
+  log.debug("routing", {
+    reason: "jf-config",
+    identity: identityLabel(identity),
+  });
   return {
     mode: "routing",
     reason: "jf-config",
