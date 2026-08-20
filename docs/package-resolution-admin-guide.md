@@ -267,19 +267,19 @@ All keys are optional. Unknown keys are ignored.
 | `enabled`            | `true`       | Shipped scaffold default. `true` turns Agent Package Resolution on for the user (subject to a usable `jf` config and the disable env var). Empty `defaultGlobalRepos` means no governed routing yet. |
 | `verifyRepos`        | `true`       | When `true`, each repo key in `defaultGlobalRepos` is verified against Artifactory before use                                                                                                                  |
 | `cacheTtlDays`       | `7`          | Days to reuse a per-server result before re-checking. Governs **both** the verified repo snapshot and eager `jf setup` receipt. `0` always re-checks; use it only when deliberately avoiding all cached state. |
-| `defaultGlobalRepos` | See template | Map of package type → Artifactory **repository key**. Its keys also define the **governed** package types (see below). `configure.mjs enable --repos` **replaces** this map (it does not merge)                                                                                          |
+| `defaultGlobalRepos` | See template | Map of package type → Artifactory **repository key**. Org-wide governed types. A verified workspace overlay can add further governed types for that checkout. `configure.mjs enable --repos` **replaces** this map (it does not merge)                                                                                          |
 | `autoSetup`          | `[]`         | Governed types to auto-configure with `jf setup` at session start. Array of type names, or `true` for all governed types. `configure.mjs auto-setup --types` **replaces** this list. See [Zero-touch setup](#zero-touch-setup-autosetup)                                  |
 
 **Supported package types:** `npm`, `pypi`, `maven`, `gradle`, `go`, `docker`, `helm`, `nuget`.
 
-**Governed vs. ungoverned.** A package type is **governed** when it is declared
-by the administrator as a key in `defaultGlobalRepos`. A workspace file can
-override the repository for an already-governed type, but cannot add a new
-governed type. Only governed types appear in the injected policy:
+**Governed vs. ungoverned.** A package type is **governed** when it is in
+`defaultGlobalRepos` **or** a workspace overlay (`.jfrog/local/package-resolution.json`)
+that actually resolved. Only governed types appear in the injected policy:
 
 - **Governed + resolved** — routed: a table row + rewrite rule, and (if listed in `autoSetup`) an eager `jf setup`.
-- **Governed + unresolved** (declared but the repo is missing or fails verification) — shown as `<no … repo resolved>` and blocked until setup, so a misconfiguration is never silently sent to a public registry.
-- **Ungoverned** (not declared by the administrator) — **out of scope**: omitted from the policy entirely and left for the agent to handle normally. This is how you route, for example, `pypi` without touching `docker`.
+- **Admin-declared + unresolved** (in `defaultGlobalRepos` but the repo is missing or fails verification) — shown as `<no … repo resolved>` and blocked until setup, so a misconfiguration is never silently sent to a public registry.
+- **Workspace-only + unresolved** — dropped: not governed, not blocked, not autoSetup-eligible.
+- **Ungoverned** (not in `defaultGlobalRepos` and not a verified workspace key) — **out of scope**: omitted from the policy entirely and left for the agent to handle normally. This is how you route, for example, `pypi` without touching `docker`.
 
 ### Repo resolution order (per package type)
 
@@ -293,8 +293,9 @@ governed type. Only governed types appear in the injected policy:
 
 Agent Package Resolution governs **only the package types you declare**. This lets you onboard incrementally — start with, say, `pypi` and `npm`, and leave `docker`, `go`, and everything else untouched until you are ready.
 
-- **To govern a type**, add it to `defaultGlobalRepos` (org-wide).
-- **To leave a type alone**, simply don't declare it. Ungoverned types never appear in the injected policy and the agent installs them normally, with no JFrog routing and no "unresolved" blocking.
+- **To govern a type org-wide**, add it to `defaultGlobalRepos`.
+- **To govern a type in one checkout**, add a verified key in `.jfrog/local/package-resolution.json` (Consent Enable / the setup skill does this).
+- **To leave a type alone**, don't declare it in either place. Ungoverned types never appear in the injected policy and the agent installs them normally, with no JFrog routing and no "unresolved" blocking.
 
 Example — govern only PyPI, leave Docker (and the rest) alone:
 
@@ -309,8 +310,9 @@ Example — govern only PyPI, leave Docker (and the rest) alone:
 }
 ```
 
-A workspace can override an administrator-approved repository key for its own
-checkout. The override is verified when `verifyRepos` is enabled:
+A workspace can override an administrator-approved repository key, or add a
+type that is not in `defaultGlobalRepos`. Overlay keys are verified when
+`verifyRepos` is enabled:
 
 ```json
 {
@@ -321,7 +323,9 @@ checkout. The override is verified when `verifyRepos` is enabled:
 ```
 
 With the two files above, that project still governs only `pypi`, but resolves it
-through `team-pypi-virtual`; everything else stays out of scope.
+through `team-pypi-virtual`. Adding another verified key in the workspace file
+(for example `"npm": "team-npm-virtual"`) would also govern `npm` in that
+checkout only.
 
 ---
 
@@ -493,7 +497,7 @@ Workspace values win over `agents-conf.json` for matching types during that sess
 | Policy still off despite enabled config | `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` in the IDE environment                                                                                                                                                                                                                                                                                                 |
 | Wrong repository URLs                   | Verify `defaultGlobalRepos` keys exist on your Platform; check `verifyRepos` and `~/.jfrog/skills-cache/package-resolution.json`                                                                                                                                                                                                                               |
 | Invalid config ignored                  | Malformed JSON logs a **WARN** in `~/.jfrog/logs/agent-hooks.log` and falls back to the shipped template defaults (`enabled: true`, empty bindings)                                                                                                                                                                                                             |
-| A governed type isn't in the policy     | Confirm it's declared in `defaultGlobalRepos`; workspace files can only override an already-governed type. Ungoverned types are intentionally omitted                                                                                                                                                                                                          |
+| A governed type isn't in the policy     | Confirm it's in `defaultGlobalRepos` or a verified workspace overlay (`.jfrog/local/package-resolution.json`). Admin-declared types that fail verify stay in the policy as unresolved; workspace-only keys that fail verify are dropped. Ungoverned types are intentionally omitted                                                                                                                                            |
 | `autoSetup` type not auto-configured    | Must be **governed + resolved** and in `routing` mode; check `~/.jfrog/logs/agent-hooks.log` for the `jf setup` result and `~/.jfrog/skills-cache/package-setup-v2.json` for the recorded status. If another session holds the setup lock, the note says setup is deferred until the next session                                                              |
 | Re-run an eager `jf setup`              | Change the repo key (or server), delete the PM's entry (e.g. `pip`, `uv`) in `~/.jfrog/skills-cache/package-setup-v2.json` (or the whole file), or wait for `cacheTtlDays` to expire                                                                                                                                                                           |
 | A bad repo keeps retrying every session | Fixed in current behavior — a failed `jf setup` is deferred for `cacheTtlDays` instead of retried each session. Correct the repo key to retry immediately, or fix the repo/permission in Artifactory (it self-heals after the TTL)                                                                                                                             |
