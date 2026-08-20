@@ -45,7 +45,19 @@ export function cursorRulePath(home = homedir()) {
 }
 
 export function claudeRulePath(home = homedir()) {
+  const dir = process.env.CLAUDE_CONFIG_DIR || path.join(home, ".claude");
+  return path.join(dir, "rules", CLAUDE_RULE_NAME);
+}
+
+/** Always `home/.claude/rules/…`, ignoring `CLAUDE_CONFIG_DIR`. */
+export function defaultHomeClaudeRulePath(home = homedir()) {
   return path.join(home, ".claude", "rules", CLAUDE_RULE_NAME);
+}
+
+function claudeRulePathsToClear(home) {
+  const active = claudeRulePath(home);
+  const fallback = defaultHomeClaudeRulePath(home);
+  return active === fallback ? [active] : [active, fallback];
 }
 
 function configureCommand() {
@@ -176,21 +188,26 @@ export function syncOnboardingOfferRules(opts) {
   const home = opts.home ?? homedir();
   const cursorPath = cursorRulePath(home);
   const claudePath = claudeRulePath(home);
+  const claudeClear = claudeRulePathsToClear(home);
 
   if (!opts.present) {
     deleteIfExists(cursorPath);
-    deleteIfExists(claudePath);
-    return { wrote: [], deleted: [cursorPath, claudePath], skipped: false };
+    for (const file of claudeClear) deleteIfExists(file);
+    return {
+      wrote: [],
+      deleted: [cursorPath, ...claudeClear],
+      skipped: false,
+    };
   }
 
   const suppressed = offerSuppressedFor(home);
   if (suppressed) {
     log.debug("offer rule write suppressed", { reason: suppressed });
     deleteIfExists(cursorPath);
-    deleteIfExists(claudePath);
+    for (const file of claudeClear) deleteIfExists(file);
     return {
       wrote: [],
-      deleted: [cursorPath, claudePath],
+      deleted: [cursorPath, ...claudeClear],
       skipped: true,
       reason: suppressed,
     };
@@ -200,10 +217,10 @@ export function syncOnboardingOfferRules(opts) {
   const claudeBody = loadStage1Body({ adminGuideUrl: CLAUDE_ADMIN_GUIDE_URL });
   if (!cursorBody.trim() || !claudeBody.trim()) {
     deleteIfExists(cursorPath);
-    deleteIfExists(claudePath);
+    for (const file of claudeClear) deleteIfExists(file);
     return {
       wrote: [],
-      deleted: [cursorPath, claudePath],
+      deleted: [cursorPath, ...claudeClear],
       skipped: true,
       reason: "template-error",
     };
@@ -214,14 +231,14 @@ export function syncOnboardingOfferRules(opts) {
   // All-or-nothing: a single-harness success would burn budget for only one IDE.
   if (!cursorOk || !claudeOk) {
     deleteIfExists(cursorPath);
-    deleteIfExists(claudePath);
+    for (const file of claudeClear) deleteIfExists(file);
     log.warn("onboarding rule write incomplete — rolled back both harnesses", {
       cursorOk,
       claudeOk,
     });
     return {
       wrote: [],
-      deleted: [cursorPath, claudePath],
+      deleted: [cursorPath, ...claudeClear],
       skipped: true,
       reason: "write-failed",
     };
@@ -246,13 +263,17 @@ export function syncOnboardingOfferRules(opts) {
       reason: after,
     });
     deleteIfExists(cursorPath);
-    deleteIfExists(claudePath);
+    for (const file of claudeClear) deleteIfExists(file);
     return {
       wrote: [],
-      deleted: [cursorPath, claudePath],
+      deleted: [cursorPath, ...claudeClear],
       skipped: true,
       reason: after,
     };
+  }
+
+  for (const file of claudeClear) {
+    if (file !== claudePath) deleteIfExists(file);
   }
 
   log.debug("onboarding rules written", {
@@ -261,7 +282,7 @@ export function syncOnboardingOfferRules(opts) {
   });
   return {
     wrote: [cursorPath, claudePath],
-    deleted: [],
+    deleted: claudeClear.filter((file) => file !== claudePath),
     skipped: false,
   };
 }

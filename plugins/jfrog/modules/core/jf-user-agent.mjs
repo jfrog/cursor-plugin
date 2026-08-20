@@ -12,11 +12,12 @@
 // Spawn env is inherited so CLI DetectExecutionContext can append
 // ai-agent/ / ai-client/ / ai-model/ when those signals exist at jf start.
 
-import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 
-const require = createRequire(import.meta.url);
-const PKG_VERSION = String(require("../../package.json").version || "0.0.0");
+// Plugin sync stamps this literal with the release semver (jfrog-sync-modules.py
+// stamp). Only `modules/` is vendored, so nothing outside this tree is readable
+// at runtime. Unstamped trees (this repo, local dev) report 0.0.0.
+const PKG_VERSION = "0.11.0";
 
 const MAX_TOKEN_LEN = 64;
 

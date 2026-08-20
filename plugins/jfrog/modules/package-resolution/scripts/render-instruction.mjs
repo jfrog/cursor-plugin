@@ -53,6 +53,9 @@ function causeIntro(cause) {
   if (cause === IdentityCause.JF_AUTH_FAILED) {
     return "`jf` credentials were rejected by Artifactory (expired, revoked, or wrong)";
   }
+  if (cause === IdentityCause.INSECURE_URL) {
+    return "`jf` is configured with a non-HTTPS platform URL (credentials would be sent in cleartext)";
+  }
   if (cause === IdentityCause.JF_UNREACHABLE) {
     return "Artifactory did not respond to a readiness probe (network / URL / outage)";
   }
@@ -83,6 +86,13 @@ function causeRemediation(cause) {
       "key with `jf config add` / re-login, then retry."
     );
   }
+  if (cause === IdentityCause.INSECURE_URL) {
+    return (
+      "The JFrog CLI is installed and a server is configured, but the platform " +
+      "URL is not HTTPS. Reconfigure with `jf config add` using an https:// URL " +
+      "so credentials are not sent in cleartext."
+    );
+  }
   if (cause === IdentityCause.JF_UNREACHABLE) {
     return (
       "The JFrog CLI is installed and a server is configured, but Artifactory " +
@@ -111,6 +121,9 @@ function causeChecklist(cause) {
   const refreshCreds =
     "Refresh credentials (`jf config add` / re-login) and confirm with " +
     "`jf config show`.";
+  const reconfigureHttps =
+    "Reconfigure the server with an https:// platform URL (`jf config add`) " +
+    "and confirm with `jf config show`.";
   const checkReachable =
     "Confirm the platform URL is reachable and Artifactory is healthy, " +
     "then retry.";
@@ -128,6 +141,9 @@ function causeChecklist(cause) {
   }
   if (cause === IdentityCause.JF_AUTH_FAILED) {
     return `1. ${refreshCreds}\n2. ${setup}`;
+  }
+  if (cause === IdentityCause.INSECURE_URL) {
+    return `1. ${reconfigureHttps}\n2. ${setup}`;
   }
   if (cause === IdentityCause.JF_UNREACHABLE) {
     return `1. ${checkReachable}\n2. ${setup}`;
@@ -333,7 +349,7 @@ export async function renderInstruction(flag, ctx = {}) {
     };
   }
 
-  // routing: resolve only the GOVERNED types (admin defaultGlobalRepos keys)
+  // routing: resolve governed types (admin ∪ applied workspace overlay)
   // and build the table / bullets / docker section
   // dynamically so ungoverned types disappear entirely (not blocked).
   await prepareSessionResolve({ workspaceRoots: ctx.workspaceRoots });

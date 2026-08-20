@@ -35,7 +35,11 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { createLogger } from "../../core/logger.mjs";
-import { loadAgentsConfig, isAutoSetup } from "../../core/agents-config.mjs";
+import {
+  loadAgentsConfig,
+  isAutoSetup,
+  globalDeclaredTypes,
+} from "../../core/agents-config.mjs";
 import { getPlatformIdentity } from "../../core/jf-identity.mjs";
 import {
   prepareSessionResolve,
@@ -65,13 +69,12 @@ const MAX_PACKAGE_MANAGER_JOBS = Object.values(TYPE_TO_PACKAGE_MANAGERS).reduce(
   0,
 );
 
-/** Actionable hint when autoSetup names a type that isn't governed. */
+/** Actionable hint when autoSetup names a type that isn't admin-declared. */
 function ungovernedAutoSetupHint(type) {
   return (
     `trying to eager-configure '${type}' via autoSetup but it is not ` +
-    "governed — no repo found in defaultGlobalRepos " +
-    "(~/.jfrog/agents-conf.json) or repositories in " +
-    ".jfrog/local/package-resolution.json"
+    "admin-declared in defaultGlobalRepos (~/.jfrog/agents-conf.json). " +
+    "Workspace-only types are never autoSetup-eligible."
   );
 }
 
@@ -98,8 +101,9 @@ function workerPath() {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute eligible eager-setup jobs = governed ∩ resolved ∩ autoSetup,
- * expanded to one job per package manager in that type's family (Option C).
+ * Compute eligible eager-setup jobs = admin-declared ∩ resolved ∩ autoSetup
+ * (workspace-only types never eager-setup), expanded to one job per package
+ * manager in that type's family (Option C).
  * Warns when `autoSetup` names an ungoverned type (ignored, not fatal).
  * Binary presence and `jf setup --help` are checked later (orchestrator/worker).
  * @param {string[]} governed
@@ -107,9 +111,15 @@ function workerPath() {
  * @returns {{type:string, repoKey:string, packageManager:string}[]}
  */
 export function computeEligibleJobs(governed, resolvedByType) {
-  const governedSet = new Set(governed);
+  const adminSet = new Set(globalDeclaredTypes());
   const jobs = [];
   for (const type of governed) {
+    if (!adminSet.has(type)) {
+      log.debug("eager skip: workspace-only type is not autoSetup-eligible", {
+        type,
+      });
+      continue;
+    }
     if (!isAutoSetup(type)) continue;
     const r = resolvedByType[type];
     if (!r) {
@@ -125,11 +135,12 @@ export function computeEligibleJobs(governed, resolvedByType) {
       jobs.push({ type, repoKey: r.repoKey, packageManager });
     }
   }
-  // Surface admin misconfig: autoSetup naming a type that isn't governed.
+  // Surface admin misconfig: autoSetup naming a type that isn't admin-declared
+  // (`autoSetup: true` skips workspace-only types without warning).
   const { autoSetup } = loadAgentsConfig().packageResolution;
   if (Array.isArray(autoSetup)) {
     for (const type of autoSetup) {
-      if (!governedSet.has(type)) {
+      if (!adminSet.has(type)) {
         log.warn(`eager setup skipped: ${ungovernedAutoSetupHint(type)}`, {
           type,
         });

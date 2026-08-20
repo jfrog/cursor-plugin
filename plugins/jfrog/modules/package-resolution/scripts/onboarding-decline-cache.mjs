@@ -18,6 +18,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -73,11 +74,20 @@ function releaseDeclineCacheLock(home) {
 }
 
 function reclaimStaleDeclineCacheLock(home, nowMs) {
+  const lock = declineCacheLockPath(home);
   try {
-    const raw = readFileSync(declineCacheLockPath(home), "utf8");
-    const ts = Number(raw.split("\n")[1]);
-    if (!Number.isFinite(ts) || nowMs - ts > DECLINE_CACHE_LOCK_STALE_MS) {
-      unlinkSync(declineCacheLockPath(home));
+    const raw = readFileSync(lock, "utf8");
+    const stampLine = raw.split("\n")[1];
+    const ts = Number(stampLine);
+    const hasStamp =
+      typeof stampLine === "string" &&
+      stampLine.trim() !== "" &&
+      Number.isFinite(ts);
+    // Incomplete wx→write lock files have no timestamp yet. Never treat those
+    // as stale or a concurrent waiter steals the lock and last-write wins.
+    const ageMs = hasStamp ? nowMs - ts : nowMs - statSync(lock).mtimeMs;
+    if (ageMs > DECLINE_CACHE_LOCK_STALE_MS) {
+      unlinkSync(lock);
       return true;
     }
   } catch {

@@ -10,7 +10,8 @@
 //      → mode="routing" when identity is usable and Artifactory accepts it;
 //      otherwise mode="pending" with a `cause`:
 //        jf-not-installed | jf-not-configured | jf-unsupported-auth |
-//        jf-auth-failed | jf-unreachable
+//        jf-auth-failed | insecure-url
+//      (jf-unreachable stays routing best-effort — not a pending cause)
 //
 // Modes:
 //   "off"     — do nothing (no injection).

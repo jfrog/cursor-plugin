@@ -73,11 +73,18 @@ function releaseAgentsConfigLock() {
 }
 
 function reclaimStaleAgentsConfigLock(nowMs) {
+  const lock = agentsConfigLockPath();
   try {
-    const raw = readFileSync(agentsConfigLockPath(), "utf8");
-    const ts = Number(raw.split("\n")[1]);
-    if (!Number.isFinite(ts) || nowMs - ts > AGENTS_CONFIG_LOCK_STALE_MS) {
-      unlinkSync(agentsConfigLockPath());
+    const raw = readFileSync(lock, "utf8");
+    const stampLine = raw.split("\n")[1];
+    const ts = Number(stampLine);
+    const hasStamp =
+      typeof stampLine === "string" &&
+      stampLine.trim() !== "" &&
+      Number.isFinite(ts);
+    const ageMs = hasStamp ? nowMs - ts : nowMs - statSync(lock).mtimeMs;
+    if (ageMs > AGENTS_CONFIG_LOCK_STALE_MS) {
+      unlinkSync(lock);
       return true;
     }
   } catch {
@@ -392,9 +399,9 @@ export function getGlobalLogLevel() {
 }
 
 /**
- * Package types the admin declares globally (the governance boundary).
- * Workspace files may override repository keys for these types but cannot add
- * new governed types.
+ * Package types the admin declares globally. Workspace overlay may add
+ * additional governed types for the session (see governedPackageTypes), but
+ * autoSetup never runs for workspace-only types.
  * @returns {string[]} defaultGlobalRepos keys (unordered)
  */
 export function globalDeclaredTypes() {
