@@ -20,6 +20,7 @@ CLI authentication options: run `jf login` for browser-based setup, or set the `
 |---|---|---|
 | **MCP** | `mcp.json` | Remote JFrog MCP server (OAuth, no API keys) |
 | **Hook + Skill** | `hooks/hooks.json`, `skills/jfrog-setup-package-managers/` | Agent Package Resolution (Preview) — route agent package installs through Artifactory |
+| **Hook** | `hooks/hooks.json`, `scripts/cursor-align-mcp-json.mjs` (+ `cursor-mcp-json-discover.mjs`) | On session start, rewrite discovered plugin `mcp.json` / `.mcp.json` files through Agent Guard (`--rewrite-mcp-json`) so stdio MCP entries launch via `@jfrog/agent-guard` |
 
 ### Skills
 
@@ -45,6 +46,25 @@ Agent Package Resolution is in preview and opt-in. To get started:
 
 - **Users:** see the [User Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-user-guide.md).
 - **Admins:** see the [Admin Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-admin-guide.md).
+
+## Plugin MCP rewrite (Agent Guard)
+
+On every Cursor agent `sessionStart`, the plugin discovers plugin `mcp.json` and `.mcp.json` files under `~/.cursor/plugins/local/*` and `~/.cursor/plugins/cache/*` (marketplace installs), plus this plugin's own configs, and runs `npx @jfrog/agent-guard --rewrite-mcp-json` against those paths. Cursor can load servers from both files when both exist. Stdio MCP entries are rewritten to launch through Agent Guard; remote `url` / `http` / `sse` / `ws` entries are left unchanged. Workspace and user-level `.cursor/mcp.json` files are **not** rewritten. If a file is rewritten, the sessionStart hook asks you to **open a new session** so Cursor reconnects those MCPs.
+
+Marketplace installs under `~/.cursor/plugins/cache` are rewritten by default (opt out via env below). Auto-discovered roots must resolve under `~/.cursor` (symlink escapes are skipped); `JF_ALIGN_MCP_JSON_ROOTS` overrides are trusted as-is and skip this plugin's own `mcp.json` unless you list that root yourself. `CURSOR_CONFIG_DIR` (CLI config) is **not** used for plugin discovery — Cursor loads plugins from `~/.cursor` regardless.
+
+The hook soft-fails (never breaks the session): missing project key, Agent Guard gate failure, or rewrite errors log and exit 0.
+
+| Env | Purpose |
+|---|---|
+| `JF_AGENT_REWRITE_MCP_JSON_DISABLE=1` | Kill switch — skip rewrite entirely |
+| `JF_PROJECT` / `JFROG_PROJECT` | Project key (also inferred from existing `_JF_ARGS project=` in discovered mcp.json) |
+| `JF_SERVER` / `JFROG_SERVER_ID` | Optional server ID for the gate / `--server` |
+| `JFROG_AGENT_GUARD_VERSION` | Override pinned `@jfrog/agent-guard` version |
+| `JFROG_AGENT_GUARD_REPO` | Private npm registry for `@jfrog/agent-guard` |
+| `JFROG_AGENT_GUARD_BIN` | Local Agent Guard binary (skips npx) |
+| `JF_ALIGN_MCP_JSON_ROOTS` | Replace discovery roots entirely (POSIX `:`/`,`; Windows `;`/`,`). Does not auto-include this plugin's own `mcp.json` |
+| `JF_ALIGN_MCP_JSON_SKIP_CACHE=1` | Skip `~/.cursor/plugins/cache` (marketplace installs; scanned by default) |
 
 ## MCP Capabilities
 
