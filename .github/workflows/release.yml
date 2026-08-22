@@ -28,10 +28,11 @@ jobs:
       # cross-checked here as well as by the validate-version PR check.
       - name: Read version from the plugin manifest
         id: version
+        shell: bash
         run: |
           set -euo pipefail
           VERSION=$(jq -er '.version' plugins/jfrog/.cursor-plugin/plugin.json)
-          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::plugin.json version '$VERSION' is not X.Y.Z — refusing to release"
             exit 1
           fi
@@ -44,13 +45,16 @@ jobs:
 
       - name: Compare version against latest release tag
         id: release_gate
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
           git fetch --tags origin
-          LATEST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)
+          # The glob is only a prefilter; grep -E is what guarantees every candidate is a vX.Y.Z
+          # release tag, so an unrelated tag like v2-beta can't become the comparison baseline.
+          LATEST=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
           if [ -z "$LATEST" ]; then
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "No prior release tag — v${VERSION} will be the first release"
             exit 0
           fi
@@ -65,33 +69,48 @@ jobs:
             echo "::error::plugin.json version ${VERSION} is older than the latest release ${LATEST} — check for an accidental revert"
             exit 1
           fi
-          echo "should_release=true" >> "$GITHUB_OUTPUT"
           echo "Version ${VERSION} is newer than ${LATEST} — proceeding with release"
 
+      # Every gate above fails the step rather than skipping, so reaching this point already means
+      # a release is due — the steps below need no further condition.
       - uses: actions/setup-node@v5
-        if: steps.release_gate.outputs.should_release == 'true'
         with:
           node-version: "20"
 
       # validate-template.yml only runs on pull requests, so nothing checks the merge commit
       # itself. Re-running its script here is what gates the release on it.
       - name: Validate marketplace template before releasing
-        if: steps.release_gate.outputs.should_release == 'true'
         run: node scripts/validate-template.mjs
 
       # Tracked files at HEAD only, so nothing left on the runner can end up in the zip.
       - name: Package release artifact
-        if: steps.release_gate.outputs.should_release == 'true'
         run: git archive --format=zip --output=release.zip HEAD -- ':(exclude).github'
 
-      # --target creates the tag as part of the release, so a failure can't leave an orphan tag.
+      # --target creates the tag as part of the release, so a failure can't leave a tag behind with
+      # no release attached to it.
       - name: Create GitHub Release
-        if: steps.release_gate.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release create "v${{ steps.version.outputs.version }}" \
+          gh release create "v${VERSION}" \
             release.zip \
             --target "$GITHUB_SHA" \
-            --title "Release v${{ steps.version.outputs.version }}" \
+            --title "Release v${VERSION}" \
             --generate-notes
+
+      # gh release create publishes the release and tag before the asset upload finishes, so a
+      # failure there leaves a v${VERSION} that every later run would reject as already released.
+      # Gated on the version gate having passed, so a run that never got that far — and whose
+      # v${VERSION} therefore belongs to an earlier, healthy release — can't delete it.
+      - name: Remove a partially published release
+        if: failure() && steps.release_gate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "Deleting incomplete release v${VERSION} and its tag so the next run can retry"
+            gh release delete "v${VERSION}" --cleanup-tag --yes
+          fi

@@ -16,9 +16,16 @@ jobs:
       # Cursor's marketplace reads. plugin.json is canonical; this check keeps marketplace.json
       # in step with it so a release can't ship two different version numbers.
       - name: Check version consistency
+        shell: bash
         run: |
           set -euo pipefail
           VERSION=$(jq -er '.version' plugins/jfrog/.cursor-plugin/plugin.json)
+          # Same X.Y.Z shape the release job demands, checked here so a malformed version is caught
+          # in review instead of failing the release after merge.
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::plugins/jfrog/.cursor-plugin/plugin.json version '$VERSION' is not X.Y.Z"
+            exit 1
+          fi
           MARKET_VERSION=$(jq -er '.metadata.version' .cursor-plugin/marketplace.json)
           if [ "$VERSION" != "$MARKET_VERSION" ]; then
             echo "::error::Version mismatch: plugins/jfrog/.cursor-plugin/plugin.json is $VERSION but .cursor-plugin/marketplace.json .metadata.version is $MARKET_VERSION"
