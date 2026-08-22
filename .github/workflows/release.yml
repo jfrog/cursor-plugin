@@ -1,6 +1,6 @@
 # Copyright (c) JFrog Ltd. 2026
 #
-# Cuts a GitHub Release when a release marker is merged to main.
+# Cuts a GitHub Release when the version file on main is newer than the latest tag.
 # Full flow and rationale: CONTRIBUTING.md#releasing
 name: Release
 
@@ -24,29 +24,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Subject line only, not the whole message. MSG goes through env rather than string
-      # interpolation, so a crafted commit subject can't inject shell.
-      - name: Detect release marker in commit subject
-        id: detect
-        env:
-          MSG: ${{ github.event.head_commit.message }}
-        run: |
-          SUBJECT=$(printf '%s\n' "$MSG" | head -1)
-          if printf '%s' "$SUBJECT" | grep -qE '\[(major|minor|patch)\]'; then
-            echo "triggered=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "triggered=false" >> "$GITHUB_OUTPUT"
-          fi
-
       # plugin.json is canonical; marketplace.json carries its own copy, so the two are
       # cross-checked here as well as by the validate-version PR check.
       - name: Read version from the plugin manifest
-        if: steps.detect.outputs.triggered == 'true'
         id: version
+        shell: bash
         run: |
           set -euo pipefail
           VERSION=$(jq -er '.version' plugins/jfrog/.cursor-plugin/plugin.json)
-          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::plugin.json version '$VERSION' is not X.Y.Z — refusing to release"
             exit 1
           fi
@@ -57,41 +43,74 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      # A tag exists only if that version was released, so this catches a marker that was merged
-      # without a manifest bump.
-      - name: Refuse to re-release an existing version
-        if: steps.detect.outputs.triggered == 'true'
+      - name: Compare version against latest release tag
+        id: release_gate
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          TAG="v${{ steps.version.outputs.version }}"
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "::error::$TAG already exists — bump the plugin manifests before merging a release marker"
+          set -euo pipefail
+          git fetch --tags origin
+          # The glob is only a prefilter; grep -E is what guarantees every candidate is a vX.Y.Z
+          # release tag, so an unrelated tag like v2-beta can't become the comparison baseline.
+          LATEST=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          if [ -z "$LATEST" ]; then
+            echo "No prior release tag — v${VERSION} will be the first release"
+            exit 0
+          fi
+          LATEST_VERSION="${LATEST#v}"
+          if [ "$VERSION" = "$LATEST_VERSION" ]; then
+            echo "::error::v${VERSION} was already released — bump the plugin manifests before merging"
             exit 1
           fi
+          TAG_FOR_VERSION="v${VERSION}"
+          LOWEST=$(printf '%s\n%s\n' "$TAG_FOR_VERSION" "$LATEST" | sort -V | head -1)
+          if [ "$LOWEST" = "$TAG_FOR_VERSION" ]; then
+            echo "::error::plugin.json version ${VERSION} is older than the latest release ${LATEST} — check for an accidental revert"
+            exit 1
+          fi
+          echo "Version ${VERSION} is newer than ${LATEST} — proceeding with release"
 
+      # Every gate above fails the step rather than skipping, so reaching this point already means
+      # a release is due — the steps below need no further condition.
       - uses: actions/setup-node@v5
-        if: steps.detect.outputs.triggered == 'true'
         with:
           node-version: "20"
 
       # validate-template.yml only runs on pull requests, so nothing checks the merge commit
       # itself. Re-running its script here is what gates the release on it.
       - name: Validate marketplace template before releasing
-        if: steps.detect.outputs.triggered == 'true'
         run: node scripts/validate-template.mjs
 
       # Tracked files at HEAD only, so nothing left on the runner can end up in the zip.
       - name: Package release artifact
-        if: steps.detect.outputs.triggered == 'true'
         run: git archive --format=zip --output=release.zip HEAD -- ':(exclude).github'
 
-      # --target creates the tag as part of the release, so a failure can't leave an orphan tag.
+      # --target creates the tag as part of the release, so a failure can't leave a tag behind with
+      # no release attached to it.
       - name: Create GitHub Release
-        if: steps.detect.outputs.triggered == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release create "v${{ steps.version.outputs.version }}" \
+          gh release create "v${VERSION}" \
             release.zip \
             --target "$GITHUB_SHA" \
-            --title "Release v${{ steps.version.outputs.version }}" \
+            --title "Release v${VERSION}" \
             --generate-notes
+
+      # gh release create publishes the release and tag before the asset upload finishes, so a
+      # failure there leaves a v${VERSION} that every later run would reject as already released.
+      # Gated on the version gate having passed, so a run that never got that far — and whose
+      # v${VERSION} therefore belongs to an earlier, healthy release — can't delete it.
+      - name: Remove a partially published release
+        if: failure() && steps.release_gate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "Deleting incomplete release v${VERSION} and its tag so the next run can retry"
+            gh release delete "v${VERSION}" --cleanup-tag --yes
+          fi
