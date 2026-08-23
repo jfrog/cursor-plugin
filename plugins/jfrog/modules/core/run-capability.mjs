@@ -15,7 +15,10 @@ import { setLogContext, createLogger } from "./logger.mjs";
 const log = createLogger("run-capability");
 
 /** modules bundle root (parent of core/ and package-resolution/). */
-const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PLUGIN_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 
 /** Shipped capabilities — add a name here; folder layout must match convention. */
 const ALLOWLIST = new Set(["package-resolution"]);
@@ -36,7 +39,9 @@ function loadCapabilityModule(name) {
 }
 
 function hookDurMs(ctx) {
-  return typeof ctx.startedAtMs === "number" ? Date.now() - ctx.startedAtMs : undefined;
+  return typeof ctx.startedAtMs === "number"
+    ? Date.now() - ctx.startedAtMs
+    : undefined;
 }
 
 /**
@@ -64,8 +69,10 @@ export async function runCapability(name, ctx = {}) {
     const text = await cap.sessionStart(ctx);
     const trimmed = text?.trim() ? text : "";
 
+    // EVENT (visible at default info): one summary line per invocation so a
+    // cache-hit / quiet routing path is distinguishable from "hook never fired".
     if (trimmed) {
-      log.debug("sessionStart injected", {
+      log.event("sessionStart injected", {
         enabled: true,
         capabilities: name,
         mode: cap.mode,
@@ -74,7 +81,12 @@ export async function runCapability(name, ctx = {}) {
         durMs: hookDurMs(ctx),
       });
     } else {
-      log.debug("sessionStart no-op", { capabilities: name, durMs: hookDurMs(ctx) });
+      log.event("sessionStart no-op", {
+        capabilities: name,
+        mode: cap.mode,
+        ...(cap.meta ?? {}),
+        durMs: hookDurMs(ctx),
+      });
     }
 
     return trimmed;

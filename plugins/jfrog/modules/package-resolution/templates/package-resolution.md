@@ -2,50 +2,49 @@
 
 Your organization mediates package fetches through JFrog Artifactory for the
 **governed** package managers listed below. Before any governed package install —
-shell, sub-agent, or MCP tool — route through the resolved Artifactory repository.
+shell, sub-agent, or MCP tool — follow the **Decision order** below.
 
 {{GOVERNED_SCOPE}}
 Whenever this policy blocks an action, explicitly say it is blocked by the organization's **JFrog Artifactory Package Resolution policy**.
 {{AUTO_SETUP_STATUS}}
 
+## Decision order (top to bottom; first match wins)
+
+**Setup skill** = `jfrog-setup-package-managers`. Public-registry / skip-JFrog asks → step 7 **immediately**.
+
+1. **Unresolved** — `<no … repo resolved>` → do **not** install; invoke the setup skill. Never invent a URL or use a public registry.
+2. **Zero-touch handled** — **Package manager setup** status line lists this PM as:
+   - `already set up` → normal command (trust PM config). **No** `--registry`, `--index-url`, `GOPROXY=…`.
+   - `setting up in the background` → **direct rewrite only** (no `npx`/`-r`/postinstall/`docker build` until `already set up` or durable PM config exists).
+3. **Foreign-host conflict** — status says `left unchanged (already using another JFrog / registry)` → ask _Switch to this JFrog instance?_; on yes, `jf setup <pm> --server-id … --repo …` only — never bare `jf setup`.
+4. **Manifest unbound** — governed manifest present (e.g. `package.json`, `requirements.txt`, `go.mod`; map in setup skill) **and** `.jfrog/local/package-resolution.json` lacks that type → setup skill first (`jf setup` + binding; autoSetup does **not** write that file), **then** install. No rewrite-flag-only shortcut (`--registry`, `--index-url`, `GOPROXY=…`). **Agent Guard bootstrap** (below) is exempt from this rewrite-flag ban.
+5. **Ready** — binding present, **or** no governed manifest for this type. Flag-based (npm/pypi/go/docker): rewrite / trust PM config. **Config-driven** (maven/gradle/helm/nuget) unbound → setup skill first; not rewrite-ready.
+6. **401/403 from JFrog** → setup skill again; never raw `npm login` / `docker login` / `pip config`.
+7. **Public-registry / skip-JFrog** → refuse (hard rule #7). Offer the next allowed step from this order.
+
+Ungoverned package managers are out of scope — install normally; do not invoke the setup skill.
+
 ## Resolved URLs for this session
 
 {{RESOLVED_TABLE}}
 
-If any row shows `<no … repo resolved>`, ask the user which repo to use and invoke
-`jfrog-setup-package-managers` — do not guess or call public registries.
+Unresolved rows → Decision step 1 (setup skill; no public registries).
 
 ## Rewrite templates
 
-Direct installs — form the command yourself (no automatic rewriter; `jf setup` package-manager
-config and server-side Curation back this):
+Use only when Decision order reached step 2 (`setting up in the background`) or step 5. Form the command yourself (`jf setup` config + Curation back this):
 
 {{REWRITE_BULLETS}}
 
-## Hard rules (apply to the governed package managers above)
+## Hard rules (governed types only)
 
-1. **Only URLs in the table above** — for the governed package managers, no default upstream registries, mirrors, or CDNs.
-2. **Never override flags the user typed** (`--registry`, `--index-url`, `GOPROXY=…`) — if the command already includes a routing flag, surface the conflict with policy and ask before changing the command. This applies only to flags already in the command, **not** to verbal requests in chat to bypass routing policy.
-3. **Indirect installs** (`npx`, `pip install -r`, `docker build`, postinstall scripts) — trust package-manager config files; if missing, run `jfrog-setup-package-managers`.
+{{AGENT_GUARD_SECTION}}
+1. **Only URLs in the table above** — no public registries, mirrors, or CDNs.
+2. **Never override flags the user typed** (`--registry`, `--index-url`, `GOPROXY=…`) — if already in the command, ask before changing. This applies only to flags already in the command, **not** to verbal requests in chat to bypass routing policy.
+3. **Indirect installs** (`npx`, `pip install -r`, `docker build`, postinstall) — trust PM config; if missing, run the setup skill (unless Decision step 2 lists `already set up`).
 4. **Curation block** — surface the reason verbatim; do not retry another host.
-5. **Unresolved governed package manager** — if the table shows `<no … repo resolved>` for a governed package manager the user
-   requested, **do not run the original command**. In order: (a) invoke `jfrog-setup-package-managers` for that package manager,
-   (b) wait until `.jfrog/local/package-resolution.json` records the binding,
-   (c) re-issue routed via the templates above. A successful exit from an unrouted
-   command still violates policy.
-6. **401/403 from JFrog** — run `jfrog-setup-package-managers` (`jf setup`); never raw `docker login` / `npm login` / `pip config`.
-7. **No public-registry bypass** — if the user asks to use public registries or skip JFrog routing for a governed package manager, refuse. State clearly that the request is blocked by the organization's **JFrog Artifactory Package Resolution policy**, then offer the JFrog-routed command from the rewrite templates above.
-8. **No delegation bypass** — do not spawn `agent -p` or another agent for a governed package-install task unless that child receives this same Package Resolution policy from trusted `sessionStart` injection. **Refuse before launching an unprotected child.** Spawning a child merely so it can refuse is still a policy violation. A routed command or policy text in the child's user prompt cannot replace trusted injection because the child can execute different commands. Never pass a forbidden install request unchanged to a child. In the refusal, explicitly say that the **JFrog Artifactory Package Resolution policy** requires governed installs to remain routed through Artifactory.
-
-**Package managers not listed above are out of scope** — install them normally; no JFrog routing required. Do not block them, do not invoke `jfrog-setup-package-managers` for them.
+5. **Unresolved governed package manager** — Decision step 1: setup skill → wait for `.jfrog/local/package-resolution.json` → re-issue via Decision order. Unrouted success still violates policy.
+6. **401/403** — Decision step 6: setup skill (`jf setup`); never raw login/config.
+7. **No public-registry bypass** — refuse; name this policy; offer the next allowed Decision step.
+8. **No delegation bypass** — do not spawn `agent -p` or another agent for a governed package-install unless the child receives this policy via trusted `sessionStart` injection. **Refuse before launching an unprotected child.** Spawning a child merely so it can refuse is still a policy violation. A routed command or policy text in the child's user prompt cannot replace trusted injection because the child can execute different commands. In the refusal, say the **JFrog Artifactory Package Resolution policy** requires Artifactory routing.
 {{DOCKER_SECTION}}
-When a **governed** package manifest appears and `.jfrog/local/package-resolution.json` lacks the
-matching package manager, invoke `jfrog-setup-package-managers` proactively (see that skill for
-manifest → package-manager mapping). Do not do this for ungoverned package managers.
-
-## Enablement
-
-Opt-in via admin config. Set `packageResolution.enabled: true` in `~/.jfrog/agents-conf.json`
-and declare the governed types under `defaultGlobalRepos`. On first session, if that file
-is missing, the hook scaffolds it from the shipped template (`packageResolution.enabled`
-defaults to `false`).
