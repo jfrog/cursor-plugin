@@ -23,7 +23,6 @@ test("stashKeepFiles + restoreKeepFiles round-trip overlay files", async () => {
   const stash = await stashKeepFiles(destRoot, [rel, "modules/core/missing.mjs"]);
   assert.equal(stash.size, 1);
   assert.equal(stash.get(rel)?.toString("utf8"), "overlay-v1\n");
-
   // Simulate sync wiping the tree.
   writeFileSync(full, "upstream-empty\n");
 
