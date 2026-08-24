@@ -1,6 +1,6 @@
 # Agent Package Resolution: User Guide (Preview)
 
-**Audience:** Users of Cursor or Claude Code with the JFrog plugin, whether or not you're a professional developer.
+**Audience:** Users of Cursor, Claude Code, or VS Code Copilot with the JFrog plugin, whether or not you're a professional developer.
 
 You (or your org) installed the JFrog plugin. This is what happens next, step by step, when you ask your agent to do something that needs a package: install a dependency to build an app, pull a Docker image, and so on.
 
@@ -9,6 +9,8 @@ You (or your org) installed the JFrog plugin. This is what happens next, step by
 ## Prerequisite
 
 The JFrog plugin is installed. That's it; nothing else is required of you up front.
+
+On **VS Code Copilot**, also enable both settings (`chat.plugins.enabled` and `chat.useHooks`) so the plugin and SessionStart hook load.
 
 ## What will happen, by case
 
@@ -44,9 +46,9 @@ This is the state you'll be in almost all the time.
 
 ## Turning it on
 
-Agent Package Resolution is disabled by default; it needs to be enabled for any of the above to take effect. It can be turned on by your org, or by you directly.
+The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty repository bindings. Nothing is routed to Artifactory until your org (or Consent Enable in chat) adds keys under `defaultGlobalRepos`.
 
-Edit `~/.jfrog/agents-conf.json` (created automatically the first time you use the plugin, so the file already exists) and set:
+To bind package types yourself, edit `~/.jfrog/agents-conf.json` (created automatically the first time you use the plugin) and set repository keys that exist on your JFrog Platform:
 
 ```json
 {
@@ -60,7 +62,7 @@ Edit `~/.jfrog/agents-conf.json` (created automatically the first time you use t
 }
 ```
 
-If a repository key isn't accurate for your org, update it to the correct one. If you don't know the correct key, or a key doesn't exist on your JFrog Platform, that package type simply stays unrouted until someone corrects it; nothing breaks. The change takes effect automatically, no need to start a new session.
+If a repository key isn't accurate for your org, update it to the correct one. If you don't know the correct key, or a key doesn't exist on your JFrog Platform, that package type simply stays unrouted until someone corrects it; nothing breaks. Start a **new agent session** after changing the file so SessionStart reloads policy.
 
 ## Turning it off
 
@@ -71,6 +73,8 @@ export JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1
 ```
 
 Restart your IDE for it to take effect. This overrides `agents-conf.json`, so it works even if your org has enabled the feature centrally. Remove the variable (or restart without it set) to turn routing back on. Please also report the issue (see [Feedback](#feedback)) so we can fix it.
+
+To turn it off in the config file itself, set `"enabled": false`. If your file is still the untouched shipped scaffold, also set `"onboardingPrompt": "off"` — otherwise the next session can migrate `enabled` back to `true`. Setting only `"onboardingPrompt": "off"` silences Consent Enable offers; it does **not** disable APR while `enabled` remains `true`.
 
 ---
 
@@ -86,7 +90,7 @@ Restart your IDE for it to take effect. This overrides `agents-conf.json`, so it
 | Symptom | What to do |
 |---------|-------------|
 | Install fails with `401` / `403` even though routing looked ready | Your token is expired or revoked, not a repository problem; this isn't caught until an install actually fails. Log in again for that server |
-| Nothing seems to be happening / no mention of Artifactory | It's off by default until someone turns it on; see [Turning it on](#turning-it-on) above to turn it on yourself, or check with your admin |
+| Nothing seems to be happening / no mention of Artifactory | Confirm `enabled` is `true` and `defaultGlobalRepos` has the package type; see [Turning it on](#turning-it-on), or check with your admin. Pending mode (no usable `jf` config) only shows a setup advisory |
 | Install used the wrong repository | Check whether your project has a `.jfrog/local/package-resolution.json` override, or ask your admin what the org default is for that package type. See [Advanced](#advanced-project-specific-repository-overrides) below |
 | You want to temporarily turn this off | See [Turning it off](#turning-it-off) above |
 | Something looks broken | Check `~/.jfrog/logs/agent-hooks.log` for details, and let us know (see below); this is exactly the kind of thing we want to hear about during the preview |
@@ -101,6 +105,7 @@ File an issue on GitHub, in whichever plugin repo you use:
 
 - Cursor: [github.com/jfrog/cursor-plugin/issues](https://github.com/jfrog/cursor-plugin/issues)
 - Claude Code: [github.com/jfrog/claude-plugin/issues](https://github.com/jfrog/claude-plugin/issues)
+- VS Code: [github.com/jfrog/vscode-plugin/issues](https://github.com/jfrog/vscode-plugin/issues)
 - Email: plugins-feedback@jfrog.com
 
 ---
