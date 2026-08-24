@@ -42,7 +42,7 @@ The **jfrog-package-safety-and-download** skill (`skills/jfrog-package-safety-an
 
 The plugin can automatically route the packages your AI agent installs (npm, PyPI, Maven, Go, Docker, Helm, and NuGet) through your organization's JFrog Artifactory instead of public registries. This keeps agent-driven dependency installs inside your organization's governance perimeter.
 
-Agent Package Resolution is in preview and opt-in. To get started:
+Agent Package Resolution is in preview. The shipped template enables it with empty repository bindings (nothing is routed until Consent Enable or an admin adds `defaultGlobalRepos`). To get started:
 
 - **Users:** see the [User Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-user-guide.md).
 - **Admins:** see the [Admin Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-admin-guide.md).

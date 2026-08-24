@@ -9,8 +9,16 @@
 import process from "node:process";
 
 import { runCapability } from "./core/run-capability.mjs";
-import { ensureAgentsConfigScaffold, agentsConfigLoadWarnings } from "./core/agents-config.mjs";
-import { readStdin, parseSessionId, detectHarness, parseWorkspaceRoots } from "./core/io.mjs";
+import {
+  ensureAgentsConfigScaffold,
+  agentsConfigLoadWarnings,
+} from "./core/agents-config.mjs";
+import {
+  readStdin,
+  parseSessionId,
+  detectHarness,
+  parseWorkspaceRoots,
+} from "./core/io.mjs";
 import { setLogContext, createLogger } from "./core/logger.mjs";
 
 const HARNESS_ID = "cursor";

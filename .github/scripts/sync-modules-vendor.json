@@ -1,13 +1,7 @@
 {
   "repo": "JFROG/jfrog-agent-hooks",
-  "pin": "jfrog-agent-hooks/v0.8.1+mld-1386-rewrite-core@a146a13",
-  "dest_prefix": "plugins/jfrog",
+  "pin": "jfrog-agent-hooks/v0.11.1",
   "paths": [
     "modules"
-  ],
-  "keep": [
-    "modules/core/rewrite-mcp-json.mjs",
-    "modules/core/agent-guard-check.mjs",
-    "modules/core/entry.mjs"
   ]
 }
