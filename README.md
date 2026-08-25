@@ -14,6 +14,7 @@ The JFrog plugin provides the following capabilities, grouped by component:
 
 | Component | Feature | Description |
 | --- | --- | --- |
+| **MCP** | JFrog MCP server | Remote JFrog MCP server auto-attached to every session via `mcp.json` at `https://${JFROG_PLATFORM_URL}/mcp` (OAuth, no API keys). |
 | **Skill** | JFrog Platform | Interact with Artifactory repositories, builds, permissions, users, access tokens, projects, release bundles, and platform administration via the JFrog CLI and REST/GraphQL APIs. Also covers security audits, CVE lookups, and Advanced Security exposure queries. |
 | **Skill** | Package safety & download | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers. |
 | **Hook + Skill** | Agent Package Resolution (Preview) | Automatically route packages installed by the AI agent through your organization's JFrog Artifactory, keeping agent-driven installs inside your Curation, Xray, and governance perimeter. |
