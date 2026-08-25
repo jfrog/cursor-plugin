@@ -81,7 +81,7 @@ test("runCursorAlignMcpJson no-ops on unknown mode", async () => {
     readStdinFn: async () => "",
     runRewriteMcpJsonPipelineFn: async () => {
       called = true;
-      return { code: 0, rewritten: 0 };
+      return { exitCode: 0, outcome: "skipped_current", reason: "" };
     },
     writeStdout: (s) => {
       stdout += s;
@@ -104,7 +104,7 @@ test("runCursorAlignMcpJson no-ops when harness is not cursor", async () => {
       }),
     runRewriteMcpJsonPipelineFn: async () => {
       called = true;
-      return { code: 0, rewritten: 0 };
+      return { exitCode: 0, outcome: "skipped_current", reason: "" };
     },
     writeStdout: (s) => {
       stdout += s;
@@ -141,7 +141,7 @@ test("runCursorAlignMcpJson passes discovered paths to shared pipeline", async (
         typeof opts.allowRoots === "function"
           ? opts.allowRoots(paths)
           : opts.allowRoots;
-      return { code: 0, rewritten: 0 };
+      return { exitCode: 0, outcome: "skipped_current", reason: "" };
     },
     writeStdout: (s) => {
       stdout += s;
@@ -166,7 +166,7 @@ test("runCursorAlignMcpJson respects mcpJsonPath override", async () => {
     readStdinFn: async () => "",
     runRewriteMcpJsonPipelineFn: async (opts) => {
       paths = await opts.discover();
-      return { code: 0, rewritten: 0 };
+      return { exitCode: 0, outcome: "skipped_current", reason: "" };
     },
     writeStdout: () => {},
   });
@@ -174,12 +174,16 @@ test("runCursorAlignMcpJson respects mcpJsonPath override", async () => {
   assert.deepEqual(paths, [file]);
 });
 
-test("runCursorAlignMcpJson emits reconnect hint when rewritten > 0", async () => {
+test("runCursorAlignMcpJson emits reconnect hint when outcome is rewritten", async () => {
   let stdout = "";
   const code = await runCursorAlignMcpJson("session-start", {
     readStdinFn: async () =>
       JSON.stringify({ session_id: "s1", cursor_version: "1.0.0" }),
-    runRewriteMcpJsonPipelineFn: async () => ({ code: 0, rewritten: 1 }),
+    runRewriteMcpJsonPipelineFn: async () => ({
+      exitCode: 0,
+      outcome: "rewritten",
+      reason: "",
+    }),
     writeStdout: (s) => {
       stdout += s;
     },
@@ -195,12 +199,16 @@ test("runCursorAlignMcpJson emits reconnect hint when rewritten > 0", async () =
   assert.doesNotMatch(payload.additional_context, /\/reload-plugins/);
 });
 
-test("runCursorAlignMcpJson does not emit when rewritten is 0", async () => {
+test("runCursorAlignMcpJson does not emit when outcome is not rewritten", async () => {
   let stdout = "";
   const code = await runCursorAlignMcpJson("session-start", {
     readStdinFn: async () =>
       JSON.stringify({ session_id: "s1", cursor_version: "1.0.0" }),
-    runRewriteMcpJsonPipelineFn: async () => ({ code: 0, rewritten: 0 }),
+    runRewriteMcpJsonPipelineFn: async () => ({
+      exitCode: 0,
+      outcome: "skipped_current",
+      reason: "",
+    }),
     writeStdout: (s) => {
       stdout += s;
     },

@@ -212,6 +212,18 @@ test("discoverPluginMcpJsonPaths skips self when roots env overrides", () => {
   assert.deepEqual(paths, [path.join(override, "mcp.json")]);
 });
 
+test("resolveMcpJsonForPluginRoot drops mcp.json symlink outside plugin root", () => {
+  const root = tempDir("plugin-symlink");
+  const outside = tempDir("outside-mcp");
+  const target = path.join(outside, "mcp.json");
+  writeFileSync(target, "{}");
+  symlinkSync(target, path.join(root, "mcp.json"));
+  writeFileSync(path.join(root, ".mcp.json"), "{}");
+  assert.deepEqual(resolveMcpJsonForPluginRoot(root), [
+    path.join(root, ".mcp.json"),
+  ]);
+});
+
 test("discoverCursorPluginRoots drops symlinks that escape ~/.cursor", () => {
   const { home, cursorDir } = tempHomeCursor("plugins", "local");
   const outside = tempDir("outside-plugin");

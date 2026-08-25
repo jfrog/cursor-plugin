@@ -135,7 +135,7 @@ export async function runCursorAlignMcpJson(modeArg, deps = {}) {
     readFileSyncFn: deps.readFileSyncFn,
   });
 
-  if ((result?.rewritten ?? 0) > 0) {
+  if (result?.outcome === "rewritten") {
     writeStdout(buildReconnectPayload());
   }
 

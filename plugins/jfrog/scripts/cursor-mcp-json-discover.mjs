@@ -201,19 +201,37 @@ function listImmediateSubdirs(dir, fs) {
 /**
  * Resolve MCP config paths for a plugin root. Cursor loads servers from both
  * `mcp.json` and `.mcp.json` when present, so both are returned (in that order).
+ * File symlinks are resolved; a path that is not inside the plugin root is
+ * excluded (e.g. `mcp.json` → `~/.cursor/mcp.json`).
  * @param {string} pluginRoot
  * @param {{
  *   existsSyncFn?: typeof existsSync,
+ *   realpathSyncFn?: typeof realpathSync,
  * }} [deps]
  * @returns {string[]}
  */
 export function resolveMcpJsonForPluginRoot(pluginRoot, deps = {}) {
   const existsFn = deps.existsSyncFn ?? existsSync;
+  const realpathFn = deps.realpathSyncFn ?? realpathSync;
   /** @type {string[]} */
   const paths = [];
+  let pluginRootResolved;
+  try {
+    pluginRootResolved = realpathFn(pluginRoot);
+  } catch {
+    return paths;
+  }
   for (const name of ["mcp.json", ".mcp.json"]) {
     const candidate = path.join(pluginRoot, name);
-    if (existsFn(candidate)) paths.push(candidate);
+    if (!existsFn(candidate)) continue;
+    try {
+      const resolved = realpathFn(candidate);
+      if (isPathInsideResolvedRoot(resolved, pluginRootResolved)) {
+        paths.push(candidate);
+      }
+    } catch {
+      // skip unreadable / broken symlink
+    }
   }
   return paths;
 }
@@ -234,13 +252,14 @@ export function resolveMcpJsonForPluginRoot(pluginRoot, deps = {}) {
 export function discoverPluginMcpJsonPaths(opts = {}) {
   const env = opts.env ?? process.env;
   const existsFn = opts.existsSyncFn ?? existsSync;
+  const realpathFn = opts.realpathSyncFn ?? realpathSync;
   const roots = discoverCursorPluginRoots({
     home: opts.home,
     env,
     readdirSyncFn: opts.readdirSyncFn,
     existsSyncFn: existsFn,
     statSyncFn: opts.statSyncFn,
-    realpathSyncFn: opts.realpathSyncFn,
+    realpathSyncFn: realpathFn,
   });
 
   /** @type {string[]} */
@@ -256,6 +275,7 @@ export function discoverPluginMcpJsonPaths(opts = {}) {
   for (const root of roots) {
     for (const p of resolveMcpJsonForPluginRoot(root, {
       existsSyncFn: existsFn,
+      realpathSyncFn: realpathFn,
     })) {
       add(p);
     }
@@ -267,6 +287,7 @@ export function discoverPluginMcpJsonPaths(opts = {}) {
       resolvePluginRoot(opts.moduleUrl),
       {
         existsSyncFn: existsFn,
+        realpathSyncFn: realpathFn,
       },
     )) {
       add(p);
