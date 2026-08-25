@@ -2,6 +2,8 @@
 
 JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, supply-chain best practices, and Agent Guard.
 
+> **Install flow:** [Shared install, verify, and recovery guide](https://github.com/jfrog/claude-plugin/blob/main/docs/shared-install-and-verify.md) — canonical cross-harness rules. This README covers **Cursor-only** steps.
+
 ## What's new
 
 - **Agent Package Resolution (Preview).** A hook automatically routes the packages your AI agent installs through your JFrog Artifactory instead of public registries. See [Agent Package Resolution](#agent-package-resolution-preview).
@@ -45,6 +47,24 @@ Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.c
 2. Open **Cursor Settings** and select **Plugins**.
 3. Search for **JFrog** and open the **JFrog** plugin.
 4. Choose **Add to Cursor**, then **Add Plugin**.
+
+Run **`/jfrog-init`** after install, **restart Cursor** if MCP config changed, then complete [Verify](#verify).
+
+---
+
+## Verify
+
+Verification is a required install step, not a troubleshooting fallback:
+
+1. **Cursor Settings → Plugins** — the JFrog plugin is installed.
+2. **`/jfrog-init`** — the readiness walk completes without blocking errors.
+3. `jf rt ping` — succeeds against your configured server.
+
+`JFROG_PLATFORM_URL` is for MCP placeholder resolution only, as described in the
+[shared env-var rules](https://github.com/jfrog/claude-plugin/blob/main/docs/shared-install-and-verify.md#environment-variables--what-actually-helps);
+setting it does not repair a failed init. If a check fails, fix the reported step,
+re-run `/jfrog-init`, and restart — see the
+[shared recovery playbook](https://github.com/jfrog/claude-plugin/blob/main/docs/shared-install-and-verify.md#recovery-playbook).
 
 ---
 
