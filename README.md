@@ -2,8 +2,6 @@
 
 JFrog plugin for [Cursor](https://cursor.com): artifact management, security scanning, supply-chain best practices, and Agent Guard.
 
-> **Install flow:** [Shared install, verify, and recovery guide](https://github.com/jfrog/claude-plugin/blob/main/docs/shared-install-and-verify.md) — canonical cross-harness rules. This README covers **Cursor-only** steps.
-
 ## What's new
 
 - **Agent Package Resolution (Preview).** A hook automatically routes the packages your AI agent installs through your JFrog Artifactory instead of public registries. See [Agent Package Resolution](#agent-package-resolution-preview).
@@ -60,11 +58,17 @@ Verification is a required install step, not a troubleshooting fallback:
 2. **`/jfrog-init`** — the readiness walk completes without blocking errors.
 3. `jf rt ping` — succeeds against your configured server.
 
-`JFROG_PLATFORM_URL` is for MCP placeholder resolution only, as described in the
-[shared env-var rules](https://github.com/jfrog/claude-plugin/blob/main/docs/shared-install-and-verify.md#environment-variables--what-actually-helps);
-setting it does not repair a failed init. If a check fails, fix the reported step,
-re-run `/jfrog-init`, and restart — see the
-[shared recovery playbook](https://github.com/jfrog/claude-plugin/blob/main/docs/shared-install-and-verify.md#recovery-playbook).
+`JFROG_PLATFORM_URL` is for MCP placeholder resolution only. Setting it does not
+repair a failed `/jfrog-init`. If a check fails, fix the reported step, re-run
+`/jfrog-init`, and restart Cursor.
+
+### Recovery
+
+| Symptom | Do this | Do **not** do this |
+| --- | --- | --- |
+| MCP missing after install | Run `/jfrog-init`, complete OAuth if prompted, **restart Cursor**, re-check MCP tools. | Assume `JFROG_PLATFORM_URL` alone will register MCP. |
+| `/jfrog-init` stopped at CLI/auth | Follow the skill prompt (`jf config add`, web login, or token path), then **re-run `/jfrog-init`**. | Skip init and only export env vars. |
+| Placeholder URL still in plugin MCP config | Fix `jf config` for the intended server, re-run `/jfrog-init`. | Reinstall the plugin when the detector says auth/URL resolution failed. |
 
 ---
 
