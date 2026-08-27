@@ -39,12 +39,14 @@ fail=0
 # succeeded and the host IS reachable — treat it as allowed, not blocked.
 probe() {
   local host="$1" want="$2" code
+  # Do not `|| echo "000"`: on CONNECT-close curl already writes http_code 000
+  # and exits 56, so that would concatenate to 000000 and look reachable.
   code=$(curl -s -o /dev/null -w "%{http_code}" \
     --max-time 5 \
-    "https://${host}/" 2>/dev/null || echo "000")
+    "https://${host}/" 2>/dev/null) || true
 
   local blocked=0
-  [[ "$code" == "000" ]] && blocked=1
+  [[ -z "$code" || "$code" == "000" ]] && blocked=1
 
   if [[ "$want" == "allow" ]]; then
     if (( blocked )); then
