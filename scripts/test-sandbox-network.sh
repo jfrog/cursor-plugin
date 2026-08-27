@@ -31,8 +31,13 @@ CONTROL_HOSTS=(
 
 # Hosts not in *.jfrog.io and not in Cursor's defaults — must remain blocked.
 # Confirms the sandbox is actually enforced, not just running unrestricted.
+# Use structurally guaranteed-unreachable addresses so that future changes to
+# Cursor's default allow-list never cause false failures here:
+#   203.0.113.1  — TEST-NET-3 (RFC 5737), not routed on the public internet.
+#   dns-test.blocked.invalid — .invalid TLD (RFC 2606), never resolvable.
 DENY_HOSTS=(
-  "example.com"
+  "203.0.113.1"
+  "dns-test.blocked.invalid"
 )
 
 command -v curl >/dev/null 2>&1 || { echo "curl is required but not found"; exit 1; }
@@ -45,8 +50,14 @@ fail=0
 # succeeded and the host IS reachable — treat it as allowed, not blocked.
 probe() {
   local host="$1" want="$2" code
-  # Use || true (not || echo "000"): curl already emits "000" on CONNECT-close
-  # (exit 56). Appending an echo would produce "000000" and defeat the check.
+
+  # Validate the want argument to catch typos early.
+  [[ "$want" == "allow" || "$want" == "block" ]] \
+    || { echo "probe: invalid want='$want' (must be 'allow' or 'block')"; exit 1; }
+
+  # curl writes "000" via -w "%{http_code}" when a transfer fails (e.g. exit 56
+  # on CONNECT-close). Using || echo "000" would append a second "000" to the
+  # captured output, producing "000000" and breaking the string comparison.
   code=$(curl -s -o /dev/null -w "%{http_code}" \
     --connect-timeout 3 --max-time 5 \
     "https://${host}/") || true
@@ -57,6 +68,7 @@ probe() {
   if [[ "$want" == "allow" ]]; then
     if (( blocked )); then
       echo "FAIL  ${host}  (blocked — expected reachable; code=${code})"
+      # (( expr )) returns exit 1 when the result is 0; || true guards set -e.
       ((fail++)) || true
     else
       echo "OK    ${host}  (HTTP ${code})"
@@ -81,6 +93,12 @@ if [[ "${CURSOR_SANDBOX:-}" != "seatbelt" ]]; then
   echo "WARNING: CURSOR_SANDBOX is not \"seatbelt\" — this shell is not inside Cursor's"
   echo "Agents Window sandbox, so hosts will look reachable regardless of sandbox.json."
   echo "Run this from inside the Agents Window to actually verify the fix."
+  exit 2
+fi
+
+if [[ -z "${HTTPS_PROXY:-}" && -z "${HTTP_PROXY:-}" ]]; then
+  echo "WARNING: CURSOR_SANDBOX=seatbelt but neither HTTPS_PROXY nor HTTP_PROXY is set."
+  echo "curl will bypass the sandbox proxy; results are not meaningful."
   exit 2
 fi
 
