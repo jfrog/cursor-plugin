@@ -27,14 +27,14 @@ CLI authentication options: run `jf login` for browser-based setup, or set the `
 | Skill | Triggers when you mention... |
 |-------|------------------------------|
 | **jfrog** | any JFrog product, artifactory, xray, security, access token, curation, distribution, release bundle, apptrust, runtime, mission control, worker, jf command, or best practice |
-| **jfrog-ai-catalog-skills** | discovering/installing/updating/publishing agent skills, JFrog AI Catalog, `jf skills`, Agent Guard |
-| **jfrog-package-safety-and-download** | package safety, curation, allowed/blocked packages, downloading packages via JFrog |
+| **jfrog-ai-catalog** | discovering/installing/updating/publishing agent skills, JFrog AI Catalog, `jf skills`, Agent Guard |
+| **jfrog-package-curation** | package safety, curation, allowed/blocked packages, downloading packages via JFrog |
 
 The **jfrog** skill (`skills/jfrog/`) provides platform-wide coverage via MCP tools, JFrog CLI commands, and `jf api` REST/GraphQL. It includes 24 reference files under `references/` and 3 automation scripts under `scripts/` covering Artifactory, Security/Xray, Access, Distribution, Curation, AppTrust, Mission Control, Workers, and architectural patterns.
 
-The **jfrog-ai-catalog-skills** skill (`skills/jfrog-ai-catalog-skills/`) discovers, installs, manages, and publishes agent skills hosted in the JFrog AI Catalog via `jf skills` and Agent Guard.
+The **jfrog-ai-catalog** skill (`skills/jfrog-ai-catalog/`) discovers, installs, manages, and publishes agent skills hosted in the JFrog AI Catalog via `jf skills` and Agent Guard.
 
-The **jfrog-package-safety-and-download** skill (`skills/jfrog-package-safety-and-download/`) handles package safety checks — querying the JFrog Public Catalog, interpreting security signals, checking curation policies, and downloading packages through Artifactory remote caches.
+The **jfrog-package-curation** skill (`skills/jfrog-package-curation/`) handles package safety checks — querying the JFrog Public Catalog, interpreting security signals, checking curation policies, and downloading packages through Artifactory remote caches.
 
 ## Agent Package Resolution (Preview)
 
