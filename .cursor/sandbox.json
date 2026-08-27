@@ -1,0 +1,7 @@
+{
+  "networkPolicy": {
+    "allow": [
+      "*.jfrog.io"
+    ]
+  }
+}
