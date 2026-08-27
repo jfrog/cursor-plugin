@@ -27,3 +27,8 @@ jobs:
 
       - name: Run template validation
         run: node scripts/validate-template.mjs
+
+      - name: Validate install/recovery docs
+        run: |
+          node --test scripts/validate-install-docs.test.mjs
+          JFROG_PLUGIN_HARNESS=cursor node scripts/validate-install-docs.mjs
