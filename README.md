@@ -4,8 +4,8 @@ JFrog plugin for [Cursor](https://cursor.com): artifact management, security sca
 
 ## What's new
 
-- **Skills governance.** A new hook checks every skill invocation against your JFrog governance policy and blocks disallowed or unscanned skills before they run. See [Skills governance](#skills-governance).
-- **Agent Package Resolution (Preview).** A new opt-in hook automatically routes the packages your AI agent installs through your JFrog Artifactory instead of public registries. See [Agent Package Resolution](#agent-package-resolution-preview).
+- **Skills governance.** A hook checks the skills you invoke against your JFrog governance policy and blocks the ones it disallows. See [Skills governance](#skills-governance).
+- **Agent Package Resolution (Preview).** A hook automatically routes the packages your AI agent installs through your JFrog Artifactory instead of public registries. See [Agent Package Resolution](#agent-package-resolution-preview).
 - **AI Catalog skill.** New `jfrog-ai-catalog-skills` skill to discover, install, update, and publish agent skills hosted in the JFrog AI Catalog.
 ---
 
@@ -15,6 +15,7 @@ The JFrog plugin provides the following capabilities, grouped by component:
 
 | Component | Feature | Description |
 | --- | --- | --- |
+| **MCP** | JFrog MCP server | Remote JFrog MCP server auto-attached to every session via `mcp.json` at `https://${JFROG_PLATFORM_URL}/mcp` (OAuth, no API keys). |
 | **Skill** | JFrog Platform | Interact with Artifactory repositories, builds, permissions, users, access tokens, projects, release bundles, and platform administration via the JFrog CLI and REST/GraphQL APIs. Also covers security audits, CVE lookups, and Advanced Security exposure queries. |
 | **Skill** | Package safety & download | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers. |
 | **Hook + Skill** | Agent Package Resolution (Preview) | Automatically route packages installed by the AI agent through your organization's JFrog Artifactory, keeping agent-driven installs inside your Curation, Xray, and governance perimeter. |
@@ -71,7 +72,7 @@ Run `jf login` for browser-based setup, or set the `JFROG_ACCESS_TOKEN` environm
 
 The plugin can now automatically route the packages your AI agent installs (npm, PyPI, Maven, Go, Docker, Helm, and NuGet) through your organization's JFrog Artifactory instead of public registries. This keeps agent-driven dependency installs inside your organization's governance perimeter.
 
-Agent Package Resolution is in preview and opt-in. To get started:
+Agent Package Resolution is in preview. The shipped template enables it with empty repository bindings (nothing is routed until Consent Enable or an admin adds `defaultGlobalRepos`). To get started:
 
 - **Users:** see the [User Guide](docs/package-resolution-user-guide.md).
 - **Admins:** see the [Admin Guide](docs/package-resolution-admin-guide.md).

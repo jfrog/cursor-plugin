@@ -137,10 +137,13 @@ check("no plugin-side governance code remains at all", () => {
 });
 
 check("the package-resolution sessionStart hook is byte-identical", () => {
-  const h = entriesFor("sessionStart")[0];
-  assert(h?.command === 'node "./modules/cursor-session-start.mjs" package-resolution',
-    "the package-resolution sessionStart hook command was altered");
-  assert(h?.timeout === 7, "the package-resolution sessionStart hook timeout was altered");
+  // Located by CONTENT, never by index: sessionStart is a shared list that other features append
+  // to, so an index pins this check to whatever happens to sit there. It has already moved once.
+  const want = 'node "./modules/cursor-session-start.mjs" package-resolution';
+  const h = entriesFor("sessionStart").find((e) => e.command === want);
+  assert(h, `the package-resolution sessionStart hook is missing or its command was altered; ` +
+    `found: ${entriesFor("sessionStart").map((e) => e.command).join(" | ")}`);
+  assert(h.timeout === 7, "the package-resolution sessionStart hook timeout was altered");
 });
 
 for (const step of GOVERNED_STEPS) {

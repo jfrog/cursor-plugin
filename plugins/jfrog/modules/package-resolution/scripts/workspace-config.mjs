@@ -6,6 +6,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { isSafeRepoKey } from "./repo-types.mjs";
 
 export const WORKSPACE_CONFIG_FILE = "package-resolution.json";
 
@@ -36,7 +37,7 @@ function normalizeWorkspaceConfig(data) {
   if (!data?.repositories || typeof data.repositories !== "object") return null;
   const repositories = {};
   for (const [type, repoKey] of Object.entries(data.repositories)) {
-    if (typeof repoKey === "string" && repoKey) repositories[type] = repoKey;
+    if (isSafeRepoKey(repoKey)) repositories[type] = repoKey;
   }
   if (!Object.keys(repositories).length) return null;
   return { repositories };

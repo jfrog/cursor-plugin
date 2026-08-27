@@ -11,6 +11,12 @@ export const PACKAGE_TYPES = [
   "nuget",
 ];
 
+const SAFE_REPO_KEY = /^[A-Za-z0-9._-]+$/;
+
+export function isSafeRepoKey(value) {
+  return typeof value === "string" && SAFE_REPO_KEY.test(value);
+}
+
 const TYPE_PACKAGE_TYPE = {
   npm: "npm",
   pypi: "pypi",

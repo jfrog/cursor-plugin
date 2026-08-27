@@ -9,16 +9,49 @@ description: >-
   already has the same repo key. Never pick a repo by discovery; use resolver
   output only (unless the user names or asks to browse repos). On unresolved
   or failed setup, ask with the failure verbatim — never switch servers.
+  NOT for installing packages, general Artifactory repo operations (use the base
+  jfrog skill), or MCP server setup (use jfrog-mcp-management).
 metadata:
   role: workflow
 ---
 
 # JFrog — Setup Package Managers for Artifactory
 
+In examples below, `<skill_path>` is this skill's directory (parent of
+`scripts/` / `references/`).
+
 Apply the session hook's repo pick via [`jf setup`](references/jf-setup-command.md),
-then record it in [`.jfrog/local/package-resolution.json`](references/workspace-binding.md).
+then record it in [`.jfrog/local/package-resolution.json`](references/workspace-binding.md)
+via [`scripts/merge-workspace-binding.sh`](scripts/merge-workspace-binding.sh).
 `jf setup` writes package-manager-native config (`.npmrc`, `pip.conf`, `uv.toml`, …); the binding
 lets the hook re-apply on later sessions.
+
+## At a glance (always-read core)
+
+Every `jf setup` this session:
+
+- **Cover base [`../jfrog/SKILL.md`](../jfrog/SKILL.md) At-a-glance / Tier A**
+  (Step 0.1) → `<UA>`, `--server-id` placement, single-server, stop-don't-switch.
+  Prefer full base SKILL.md when you can; Tier B (`cli-gotchas` / `jf-api` / …)
+  only if the next action needs `jf api` / advanced CLI
+- **Always `--repo` + `--server-id`.** `<repoKey>` ← [Step 2](#step-2--get-the-resolved-repo)
+  (table / binding / global-cache) or user override / unresolved AskQuestion;
+  never self-discover. `<SID>` ← resolver only (never user-selected)
+- **Confirm** before first `jf setup` unless user asked silent / non-interactive
+- **Exit 0 → merge binding**; non-zero → stop, surface CLI verbatim, offer
+  alternate repo or `abort` (2-answer cap)
+- **Binding = decisions, not creds** — never write tokens into
+  `.jfrog/local/package-resolution.json`
+- **Unresolved / failed:** ask with failure verbatim — never switch servers
+- **Never skip** [Gotchas](#gotchas--hard-rules-never-skip) + base Tier A hard
+  rules (`../jfrog/SKILL.md` Cautious execution / Server selection / Tier A
+  gotcha floor). Full `cli-gotchas.md` is Tier B — not required for `jf setup`
+
+Steps: [0](#step-0--read-the-base-skill-then-ensure-jf-is-ready) →
+[1](#step-1--identify-package-managers-to-bind) →
+[2](#step-2--get-the-resolved-repo) →
+[3](#step-3--confirm-run-jf-setup-persist-binding) →
+[4](#step-4--load-the-routing-policy)
 
 ## Scope (this skill vs session hook)
 
@@ -28,7 +61,8 @@ renderer is available on demand via `modules/package-resolution/scripts/print-po
 notice embeds the exact command), so the policy can be loaded after setup.
 
 **This skill:** reads that output, runs `jf setup`, and persists the workspace
-binding at `.jfrog/local/package-resolution.json` when package-manager config is still missing.
+binding at `.jfrog/local/package-resolution.json` (via
+`scripts/merge-workspace-binding.sh`) when package-manager config is still missing.
 
 **Honor the injected policy's governed scope.** The session policy lists the
 package managers it governs. Do **not** *proactively* onboard a package manager the policy
@@ -42,11 +76,17 @@ unlisted package manager apply as usual).
 - `jf setup` **mutates user state** (`~/.npmrc`, `~/.docker/config.json`, …).
   Confirm before the first `jf setup` in a session unless the user explicitly
   requests silent/non-interactive setup.
-- Reading [`../jfrog/SKILL.md`](../jfrog/SKILL.md) is required — done as Step 0.1 below.
+- Covering base At-a-glance / Tier A is required — done as Step 0.1 below.
 
 **Out of scope:** CLI install/login (`../jfrog/references/…`).
 
-## Gotchas
+## Gotchas — hard rules (never skip)
+
+**Not tips.** Do/don'ts and known traps for `jf setup` — follow every bullet
+before binding. Also honor base **Tier A** hard rules from
+[`../jfrog/SKILL.md`](../jfrog/SKILL.md) (Cautious execution, Server selection,
+Tier A gotcha floor). Full `cli-gotchas.md` is Tier B — load only if this
+session also needs `jf api` / advanced CLI.
 
 - **Always pass `--repo` and `--server-id`** — omitting `--repo` fails when
   multiple repos match. See [`jf-setup-command.md`](references/jf-setup-command.md).
@@ -57,6 +97,8 @@ unlisted package manager apply as usual).
   `<host>/<repoKey>/<img>`.
 - **Binding holds decisions, not credentials** — never write tokens into
   `.jfrog/local/package-resolution.json`.
+- **Persist binding with the merge script** — after each successful `jf setup`,
+  run `scripts/merge-workspace-binding.sh` (Step 6). Do **not** hand-edit the JSON.
 - **`gradle` ≠ `maven`.** Bind under `repositories.gradle`, never `repositories.maven`.
 - **Yarn / Poetry** — not APR zero-touch; bind only on explicit user ask (Step 1).
 
@@ -66,15 +108,18 @@ unlisted package manager apply as usual).
 |------|--------------|
 | [`references/jf-setup-command.md`](references/jf-setup-command.md) | CLI flags, supported package managers, exit-code contract, `jf setup --help` |
 | [`references/global-cache-file.md`](references/global-cache-file.md) | Global cache shape, resolution classes, jq one-liners |
-| [`references/workspace-binding.md`](references/workspace-binding.md) | Workspace binding schema, package-manager → type map, merge semantics |
+| [`references/workspace-binding.md`](references/workspace-binding.md) | Workspace binding schema, package-manager → type map, merge script |
+| [`scripts/merge-workspace-binding.sh`](scripts/merge-workspace-binding.sh) | After each successful `jf setup` — deterministic binding merge (`jq` required) |
 
 ## Step 0 — Read the base skill, then ensure `jf` is ready
 
-1. **Read [`../jfrog/SKILL.md`](../jfrog/SKILL.md) fully first — always, before any
-   `jf` command, even when `jf` is already configured.** It carries the `jf`
-   invariants this skill relies on. After reading, run that skill's
-   *Environment check* (and export `JFROG_CLI_USER_AGENT`) before the first
-   `jf` call.
+1. **Cover base skill At-a-glance / Tier A before the first non-exempt `jf`
+   (even when `jf` is already configured).** Prefer reading
+   [`../jfrog/SKILL.md`](../jfrog/SKILL.md) in full when you can; the At-a-glance
+   Tier A floor is enough for `jf setup` / package-manager binding. Load Tier B
+   (`cli-gotchas.md`, `jf-api.md`, …) only if the next action needs `jf api` /
+   advanced CLI. Then run that skill's *Environment check* (and export
+   `JFROG_CLI_USER_AGENT`) before the first `jf` call.
 2. Ensure `jf` + a configured server (`<SID>`). If `jf config show` already
    succeeds, skip to Step 1; otherwise:
    - **`jf --version`** missing → install per
@@ -177,15 +222,20 @@ Cap at **2 answers per package manager**, then abort. User may override repo onl
 5. **Exit code `0` = success** — merge binding (step 6). On non-zero, **stop**,
    surface CLI output verbatim, offer alternate repo or `abort` (2-answer cap).
 
-6. On success, merge into `.jfrog/local/package-resolution.json` per
-   [`workspace-binding.md`](references/workspace-binding.md):
+6. On success, **run the merge script** (do **not** hand-edit JSON). Pass the
+   IDE workspace root when the shell cwd is not that root:
 
-   ```json
-   { "repositories": { "<pkgType>": "<repoKey>" } }
+   ```bash
+   bash <skill_path>/scripts/merge-workspace-binding.sh \
+     --package-manager <package-manager> \
+     --repo <repoKey> \
+     [--workspace-root <workspace-root>]
    ```
 
-   Map package manager → type via the reference table (`gradle` → `gradle`).
-   Merge atomically.
+   Requires `jq` (same prerequisite as the base `jfrog` skill). Exit `0` prints
+   `merged <type> → <repo> into <path>`. On non-zero, **stop**, surface stderr
+   verbatim — do not claim the binding was recorded. Schema and PM → type map:
+   [`workspace-binding.md`](references/workspace-binding.md).
 
 ## Step 4 — Load the routing policy
 
@@ -198,3 +248,16 @@ hard rules. Continue the original request using those URLs.
 If the command prints nothing, routing is off by config
 (`packageResolution.enabled` is not `true`) — an admin opt-in. Report that to
 the user and let them decide whether to enable it.
+
+## Before you run `jf setup` — checklist
+
+[At a glance](#at-a-glance-always-read-core) invariants:
+
+- [ ] base At-a-glance / Tier A covered; `<UA>` exported
+- [ ] `<repoKey>` ← Step 2 or user override; `<SID>` ← resolver only
+- [ ] confirmed (or explicit silent-setup)
+- [ ] `jf setup <pm> --server-id <SID> --repo <repoKey>`
+- [ ] exit 0 → merge binding (no creds); non-zero → stop + report verbatim;
+      never switch servers
+- [ ] **never skip** Gotchas (this skill) + base Tier A hard rules (full
+      `cli-gotchas.md` only if Tier B path)

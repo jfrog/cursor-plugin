@@ -147,15 +147,16 @@ export async function writeReceipt(root) {
 
 /**
  * Whether `configuredAt` is still within `ttlDays`.
- * `ttlDays <= 0` means no time-based expiry (only repo/server change invalidates).
+ * `ttlDays === 0` means always re-check (never trust time-based state).
  * @param {string|null} configuredAt
  * @param {number} ttlDays
  * @returns {boolean}
  */
 function receiptWithinTtl(configuredAt, ttlDays) {
   if (!configuredAt) return false;
-  if (typeof ttlDays !== "number" || !Number.isFinite(ttlDays) || ttlDays <= 0)
-    return true;
+  if (ttlDays === 0) return false;
+  if (typeof ttlDays !== "number" || !Number.isFinite(ttlDays) || ttlDays < 0)
+    return false;
   const ttlMs = ttlDays * 24 * 60 * 60 * 1000;
   const age = Date.now() - new Date(configuredAt).getTime();
   return age >= 0 && age < ttlMs;
