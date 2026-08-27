@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// GitHub Copilot Chat SessionStart hook runner.
+// GitHub Copilot Chat SessionStart hook runner (installed via the VS Code
+// Copilot plugin — see jfrog/vscode-plugin).
 //
 // Usage: node copilot-session-start.mjs <capability>
 // Example: node copilot-session-start.mjs package-resolution
