@@ -9,6 +9,10 @@
       {
         "command": "node \"./scripts/cursor-align-mcp-json.mjs\" session-start",
         "timeout": 60
+      },
+      {
+        "command": "( npx --yes --registry \"${JFROG_AGENT_GUARD_REPO:-https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/}\" @jfrog/agent-guard --version >/dev/null 2>&1 & ) ; exit 0",
+        "timeout": 10
       }
     ],
     "beforeSubmitPrompt": [

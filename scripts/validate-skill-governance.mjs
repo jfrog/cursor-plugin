@@ -146,6 +146,25 @@ check("the package-resolution sessionStart hook is byte-identical", () => {
   assert(h.timeout === 7, "the package-resolution sessionStart hook timeout was altered");
 });
 
+check("a sessionStart pre-warm refreshes the cache the governed hooks then read", () => {
+  const warm = entriesFor("sessionStart").find((h) => h.command.includes("@jfrog/agent-guard"));
+  assert(warm, "sessionStart must pre-warm agent-guard: it is the ONLY thing that refreshes the " +
+    "npx cache, and without it --prefer-offline below can serve a stale binary indefinitely " +
+    "(measured: a cached 1.10.0 kept being used while 1.11.0 was latest, reinstating a bug " +
+    "1.11.0 had fixed)");
+  assert(!warm.command.includes("--prefer-offline"),
+    "the pre-warm MUST hit the registry; --prefer-offline here would defeat its only purpose");
+  assert(!warm.command.includes("JFROG_AGENT_GUARD_VERSION"),
+    "the pre-warm must refresh to latest, not to a pinned version");
+  // Cursor's hook schema has no `async`, so the command detaches itself. Both halves matter:
+  // the subshell-and-background returns control immediately, and the explicit exit 0 keeps a
+  // spawn failure from surfacing as a failed session-start hook.
+  assert(/\(.*&\s*\)/.test(warm.command),
+    "the pre-warm must detach (subshell + &) so it cannot delay session start");
+  assert(/exit 0\s*$/.test(warm.command.trim()),
+    "the pre-warm must end in `exit 0`: a warm failure is never a reason to fail session start");
+});
+
 for (const step of GOVERNED_STEPS) {
   check(`${step} invokes agent-guard through npx only, with no plugin script in the path`, () => {
     const entries = entriesFor(step);
