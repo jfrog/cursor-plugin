@@ -4,6 +4,7 @@ JFrog plugin for [Cursor](https://cursor.com): artifact management, security sca
 
 ## What's new
 
+- **Skills governance.** A new hook checks every skill invocation against your JFrog governance policy and blocks disallowed or unscanned skills before they run. See [Skills governance](#skills-governance).
 - **Agent Package Resolution (Preview).** A new opt-in hook automatically routes the packages your AI agent installs through your JFrog Artifactory instead of public registries. See [Agent Package Resolution](#agent-package-resolution-preview).
 - **AI Catalog skill.** New `jfrog-ai-catalog-skills` skill to discover, install, update, and publish agent skills hosted in the JFrog AI Catalog.
 ---
@@ -17,7 +18,8 @@ The JFrog plugin provides the following capabilities, grouped by component:
 | **Skill** | JFrog Platform | Interact with Artifactory repositories, builds, permissions, users, access tokens, projects, release bundles, and platform administration via the JFrog CLI and REST/GraphQL APIs. Also covers security audits, CVE lookups, and Advanced Security exposure queries. |
 | **Skill** | Package safety & download | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers. |
 | **Hook + Skill** | Agent Package Resolution (Preview) | Automatically route packages installed by the AI agent through your organization's JFrog Artifactory, keeping agent-driven installs inside your Curation, Xray, and governance perimeter. |
-| **Skill** | Agent Guard | Manage MCPs through the JFrog Agent Guard. Through the Agent Guard you can discover, install, configure, update, and remove MCP servers from the JFrog AI Catalog approved for your project, and authenticate to remote HTTP MCPs via OAuth, API key, or bearer token. |
+| **Hook** | Agent Guard | Cursor manage MCPs through the JFrog Agent Guard. Through the Agent Guard you can discover, install, configure, update, and remove MCP servers from the JFrog AI Catalog approved for your project, and authenticate to remote HTTP MCPs via OAuth, API key, or bearer token. |
+| **Hook** | Skills governance | When a skill is invoked, the plugin checks it against your JFrog governance policy and blocks disallowed or unscanned skills before they run. Applies to skills you run with `/<skill-name>` and to any read of a `SKILL.md` (how a skill's body reaches the model, since Cursor has no dedicated `Skill` tool). Enforced only when your account is entitled to AI Catalog skills governance. |
 
 ---
 
@@ -125,6 +127,58 @@ When Agent Package Resolution is enabled and configured, no special prompt synta
 ### How secrets are handled
 
 When an MCP server requires a sensitive configuration, the agent cannot set the value directly. Instead, it returns a CLI command for you to copy and run in your terminal. Secrets such as API keys, tokens, and connection strings are never exposed in the agent chat history.
+
+### Skills governance
+
+When a skill is about to run, a hook checks it against your JFrog governance policy and blocks it if policy disallows it. Cursor has no dedicated `Skill` tool, so it covers the two entry points that actually carry a skill's identity:
+
+- you running a skill with `/<skill-name>`,
+- and the agent reading a skill's `SKILL.md` — how a skill's body reaches the model, and so also the path a model-decided invocation funnels through, since the agent must read the file before it can act on it. This is caught at `preToolUse` (matcher `Read`), before Cursor reads the file's bytes off disk rather than after.
+
+These are the two entry points that carry a skill's identity; they are not a claim to cover every way content can reach the model. A skill whose name the hook cannot resolve to a folder on disk is **allowed**, not blocked — resolution completeness is therefore a security property, and the searched locations are listed in the Agent Guard's architecture notes. Anything that puts a file's contents in front of the model without going through a `Read` tool call is outside both surfaces.
+
+For each, the hook computes the skill's content **fingerprint** and asks the JFrog governance service for a verdict:
+
+| Verdict | What happens |
+| --- | --- |
+| **Allowed** | The skill runs. |
+| **Blocked** | The skill is prevented from running, and each violated policy is named along with the reason it failed. |
+| **Not yet scanned** | The skill is submitted for an on-the-fly scan and blocked with a "scan started — retry shortly" message. |
+| **Not entitled** | If your account isn't entitled to AI Catalog skills governance, enforcement is skipped and skills run normally. |
+
+#### Requesting a waiver
+
+When a policy block carries a waiver scope, the block message shows the command that requests one, against the blocking policy's application, stage, and gate, with your justification attached. The Agent Guard files it — `agent-guard --request-waiver` — so the plugin holds no credentials and no waiver logic of its own.
+
+On a blocked `Read` the agent is given the command and can run it once you say why you need access. On a blocked `/<skill-name>` there is no model turn, so the command is printed for you to copy and run yourself. Either way the request goes to your project admin for review — it does not unblock the skill on its own, and nothing is submitted unless you ask for it and give a reason.
+
+**Requirements & behavior**
+
+> [!IMPORTANT]
+> **On Cursor, only an answer can block.** A verdict reaches Cursor as JSON on the hook's stdout;
+> the hook always exits 0 and does not signal through its exit code. So there are two outcomes:
+>
+> - **The Agent Guard answers** — its answer decides. A policy denial blocks and names the policies
+>   violated plus the command to request a waiver; anything else runs.
+> - **The Agent Guard does not answer** — `npx` missing, the registry unreachable, no JFrog server
+>   configured, a crash, or the check running out of time — **allowed**. A machine that cannot get a
+>   verdict is not governed by it, and blocking there would stop work without enforcing anything.
+>
+> This is deliberately more permissive than the Claude Code plugin, which blocks when the guard
+> reaches the check but cannot finish it. Cursor's hooks carry `failClosed: false`, so a hook that
+> fails or is killed is not a block — meaning a slow verdict allows here where it would refuse
+> there. A user entitled to nothing is unaffected either way: the Agent Guard answers "allow" for an
+> unconfigured or unentitled user, so no setup is needed to opt out of the feature.
+>
+> A user who is entitled to nothing is unaffected either way: the Agent Guard returns "allow" for
+> an unconfigured or unentitled user, so no setup is needed to opt out of the feature.
+
+- Set `JFROG_URL` and `JF_ACCESS_TOKEN` (or configure the JFrog CLI — see [Authentication](#authentication)) and `JF_PROJECT` (the JFrog project the skill runs in). For an entitled account with credentials but no project, skills are **blocked** with a message telling you what to set; with no credentials at all they are **allowed**, per the table above.
+- **Node.js (≥ 18) with `npx` on your `PATH`** — the hook resolves the Agent Guard through `npx`. Without it, governed actions are allowed unchecked.
+- **POSIX shell required.** Cursor's hook schema has no `shell` field, so the command runs in the platform's default shell. It uses POSIX syntax (`${VAR:-default}`, `$(( ))`), so on Windows `cmd`/PowerShell it cannot run — and governed actions are allowed unchecked. macOS and Linux are unaffected.
+- **Cost per call.** The hook spawns a shell, `npx` and the Agent Guard on *every* prompt submission (`beforeSubmitPrompt` is unmatched, so it sees all of them) and on *every* `Read`. There is no throttle and no cache of a recent verdict, so a read-heavy session pays it repeatedly. `--prefer-offline` keeps a warm machine off the network, which is what makes that affordable; the warm per-call cost has not been measured.
+- The Agent Guard logs its decisions to stderr; run Cursor with hook output visible to see them.
+- To turn enforcement off, remove the `beforeSubmitPrompt`/`preToolUse` entries from `plugins/jfrog/hooks/hooks.json`.
 
 ---
 

@@ -6,6 +6,21 @@
         "command": "node \"./modules/cursor-session-start.mjs\" package-resolution",
         "timeout": 7
       }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "npm_config_fetch_retries=0 npm_config_fetch_timeout=10000 JF_AGENT_GUARD_ENFORCE_DEADLINE=\"$(($(date +%s) + 25))\" npx --yes --prefer-offline --registry \"${JFROG_AGENT_GUARD_REPO:-https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/}\" @jfrog/agent-guard --enforce-skill --client cursor",
+        "timeout": 30,
+        "failClosed": false
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "npm_config_fetch_retries=0 npm_config_fetch_timeout=10000 JF_AGENT_GUARD_ENFORCE_DEADLINE=\"$(($(date +%s) + 25))\" npx --yes --prefer-offline --registry \"${JFROG_AGENT_GUARD_REPO:-https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/}\" @jfrog/agent-guard --enforce-skill --client cursor",
+        "matcher": "Read",
+        "timeout": 30,
+        "failClosed": false
+      }
     ]
   }
 }
