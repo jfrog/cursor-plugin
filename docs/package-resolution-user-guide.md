@@ -101,12 +101,9 @@ To turn it off in the config file itself, set `"enabled": false`. If your file i
 
 This is a preview, and your feedback directly shapes what ships next. Please tell us about anything that felt confusing, broken, or surprising, good or bad.
 
-File an issue on GitHub, in whichever plugin repo you use:
+File an issue on GitHub: [github.com/jfrog/cursor-plugin/issues](https://github.com/jfrog/cursor-plugin/issues)
 
-- Cursor: [github.com/jfrog/cursor-plugin/issues](https://github.com/jfrog/cursor-plugin/issues)
-- Claude Code: [github.com/jfrog/claude-plugin/issues](https://github.com/jfrog/claude-plugin/issues)
-- VS Code: [github.com/jfrog/vscode-plugin/issues](https://github.com/jfrog/vscode-plugin/issues)
-- Email: plugins-feedback@jfrog.com
+Email: plugins-feedback@jfrog.com
 
 ---
 
