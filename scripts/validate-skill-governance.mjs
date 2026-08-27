@@ -210,8 +210,12 @@ for (const step of GOVERNED_STEPS) {
 
   check(`${step} computes the deadline fresh, with no inheritable fallback`, () => {
     const h = entriesFor(step)[0];
-    assert(h.command.includes('JF_AGENT_GUARD_ENFORCE_DEADLINE="$(($(date +%s) + 25))"'),
-      `${step} must compute an absolute deadline at invocation time`);
+    assert(/_JFAG_NOW=\$\(date \+%s 2>\/dev\/null\);/.test(h.command),
+      `${step} must read the clock defensively, tolerating an absent date(1)`);
+    assert(h.command.includes('JF_AGENT_GUARD_ENFORCE_DEADLINE="${_JFAG_NOW:+$((_JFAG_NOW + 25))}"'),
+      `${step} must compute an absolute deadline at invocation time, and pass EMPTY when the ` +
+      `clock could not be read: agent-guard ignores an empty deadline and falls back to its own ` +
+      `budget, whereas a garbage epoch floors the budget at 500ms and blocks every skill`);
     assert(!/JF_AGENT_GUARD_ENFORCE_DEADLINE:[-=]/.test(h.command),
       `${step} must not fall back to an inherited value: an absolute instant inherited from an ` +
       `earlier process pins every later invocation to the past`);
