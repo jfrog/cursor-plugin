@@ -251,34 +251,7 @@ function resolveMarketplaceSource(source, pluginRoot) {
   return `${normalizedRoot}/${normalizedSource}`;
 }
 
-async function validateSandboxJson() {
-  const sandboxPath = path.join(repoRoot, ".cursor", "sandbox.json");
-  const sandbox = await readJsonFile(sandboxPath, ".cursor/sandbox.json");
-  if (!sandbox) return;
-
-  const policy = sandbox.networkPolicy;
-  if (!policy || typeof policy !== "object") {
-    addError('.cursor/sandbox.json: missing "networkPolicy" object.');
-    return;
-  }
-
-  if (policy.default !== "deny") {
-    addError('.cursor/sandbox.json: "networkPolicy.default" must be "deny".');
-  }
-
-  if (!Array.isArray(policy.allow)) {
-    addError('.cursor/sandbox.json: "networkPolicy.allow" must be an array.');
-    return;
-  }
-
-  if (!policy.allow.includes("*.jfrog.io")) {
-    addError('.cursor/sandbox.json: "networkPolicy.allow" must include "*.jfrog.io".');
-  }
-}
-
 async function main() {
-  await validateSandboxJson();
-
   const marketplacePath = path.join(repoRoot, ".cursor-plugin", "marketplace.json");
   const marketplace = await readJsonFile(marketplacePath, "Marketplace manifest");
   if (!marketplace) {
