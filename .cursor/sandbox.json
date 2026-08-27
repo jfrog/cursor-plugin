@@ -1,5 +1,6 @@
 {
   "networkPolicy": {
+    "default": "deny",
     "allow": [
       "*.jfrog.io"
     ]

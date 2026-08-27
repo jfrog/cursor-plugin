@@ -29,6 +29,12 @@ CONTROL_HOSTS=(
   "nodejs.org"
 )
 
+# Hosts not in *.jfrog.io and not in Cursor's defaults — must remain blocked.
+# Confirms the sandbox is actually enforced, not just running unrestricted.
+DENY_HOSTS=(
+  "example.com"
+)
+
 command -v curl >/dev/null 2>&1 || { echo "curl is required but not found"; exit 1; }
 
 fail=0
@@ -39,11 +45,11 @@ fail=0
 # succeeded and the host IS reachable — treat it as allowed, not blocked.
 probe() {
   local host="$1" want="$2" code
-  # Do not `|| echo "000"`: on CONNECT-close curl already writes http_code 000
-  # and exits 56, so that would concatenate to 000000 and look reachable.
+  # Use || true (not || echo "000"): curl already emits "000" on CONNECT-close
+  # (exit 56). Appending an echo would produce "000000" and defeat the check.
   code=$(curl -s -o /dev/null -w "%{http_code}" \
-    --max-time 5 \
-    "https://${host}/" 2>/dev/null) || true
+    --connect-timeout 3 --max-time 5 \
+    "https://${host}/") || true
 
   local blocked=0
   [[ -z "$code" || "$code" == "000" ]] && blocked=1
@@ -87,6 +93,12 @@ echo ""
 echo "-- control hosts (should remain allowed by Cursor's defaults) --"
 for host in "${CONTROL_HOSTS[@]}"; do
   probe "$host" "allow"
+done
+
+echo ""
+echo "-- hosts that should remain blocked --"
+for host in "${DENY_HOSTS[@]}"; do
+  probe "$host" "block"
 done
 
 echo ""
