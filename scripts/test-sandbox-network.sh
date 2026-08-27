@@ -47,14 +47,14 @@ probe() {
   [[ "$code" == "000" ]] && blocked=1
 
   if [[ "$want" == "allow" ]]; then
-    if [[ "$blocked" == "1" ]]; then
+    if (( blocked )); then
       echo "FAIL  ${host}  (blocked — expected reachable; code=${code})"
       ((fail++)) || true
     else
       echo "OK    ${host}  (HTTP ${code})"
     fi
   else
-    if [[ "$blocked" == "1" ]]; then
+    if (( blocked )); then
       echo "OK    ${host}  (still blocked, as expected; code=${code})"
     else
       echo "FAIL  ${host}  (reachable — expected blocked; code=${code})"
@@ -66,6 +66,7 @@ probe() {
 echo "Sandbox env:"
 echo "  CURSOR_SANDBOX=${CURSOR_SANDBOX:-<not set>}"
 echo "  HTTP_PROXY=${HTTP_PROXY:-<not set>}"
+echo "  HTTPS_PROXY=${HTTPS_PROXY:-<not set>}"
 echo ""
 
 if [[ "${CURSOR_SANDBOX:-}" != "seatbelt" ]]; then
