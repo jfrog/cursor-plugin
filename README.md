@@ -20,7 +20,7 @@ The JFrog plugin provides the following capabilities, grouped by component:
 | **Skill** | Package safety & download | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers. |
 | **Hook + Skill** | Agent Package Resolution (Preview) | Automatically route packages installed by the AI agent through your organization's JFrog Artifactory, keeping agent-driven installs inside your Curation, Xray, and governance perimeter. |
 | **Hook** | Agent Guard | Cursor manage MCPs through the JFrog Agent Guard. Through the Agent Guard you can discover, install, configure, update, and remove MCP servers from the JFrog AI Catalog approved for your project, and authenticate to remote HTTP MCPs via OAuth, API key, or bearer token. |
-| **Hook** | Skills governance | When a skill is invoked, the plugin checks it against your JFrog governance policy and blocks disallowed or unscanned skills before they run. Applies to skills you run with `/<skill-name>` and to any read of a `SKILL.md` (how a skill's body reaches the model, since Cursor has no dedicated `Skill` tool). Enforced only when your account is entitled to AI Catalog skills governance. |
+| **Hook** | Skills governance | When a skill is invoked, the plugin checks it against your JFrog governance policy and blocks disallowed or unscanned skills before they run. Covers the two entry points that carry a skill's identity: skills you run with `/<skill-name>`, and any read of a `SKILL.md` (how a skill's body reaches the model, since Cursor has no dedicated `Skill` tool). Content that reaches the model without a `Read` tool call is outside both — see [Skills governance](#skills-governance). Enforced only when your account is entitled to AI Catalog skills governance. |
 
 ---
 
@@ -156,23 +156,23 @@ On a blocked `Read` the agent is given the command and can run it once you say w
 **Requirements & behavior**
 
 > [!IMPORTANT]
-> **On Cursor, only an answer can block.** A verdict reaches Cursor as JSON on the hook's stdout;
-> the hook always exits 0 and does not signal through its exit code. So there are two outcomes:
+> **A verdict reaches Cursor as JSON on the hook's stdout.** Three outcomes, and they are distinct:
 >
-> - **The Agent Guard answers** — its answer decides. A policy denial blocks and names the policies
->   violated plus the command to request a waiver; anything else runs.
-> - **The Agent Guard does not answer** — `npx` missing, the registry unreachable, no JFrog server
->   configured, a crash, or the check running out of time — **allowed**. A machine that cannot get a
->   verdict is not governed by it, and blocking there would stop work without enforcing anything.
+> - **Your JFrog policies deny the skill** — **blocked**, naming the policies it violated and the
+>   command to request a waiver.
+> - **The Agent Guard reaches the check but cannot finish it in time** — **blocked**. It writes a
+>   refusal explaining that it could not answer, and exits 2. It got as far as the check, so it does
+>   not guess.
+> - **The Agent Guard cannot be *run at all*** — `npx` missing, the registry unreachable, no JFrog
+>   server configured, or it fails internally — **allowed**. A machine that cannot get a verdict is
+>   not governed by it, and blocking there would stop work without enforcing anything.
 >
-> This is deliberately more permissive than the Claude Code plugin, which blocks when the guard
-> reaches the check but cannot finish it. Cursor's hooks carry `failClosed: false`, so a hook that
-> fails or is killed is not a block — meaning a slow verdict allows here where it would refuse
-> there. A user entitled to nothing is unaffected either way: the Agent Guard answers "allow" for an
+> One case is Cursor-specific: the hooks carry `failClosed: false`, so if **Cursor** kills the hook
+> at its own `timeout` the action is allowed. That is a different clock from the Agent Guard's own
+> budget, which is deliberately the shorter of the two so it answers first.
+>
+> A user who is entitled to nothing is unaffected either way: the Agent Guard answers "allow" for an
 > unconfigured or unentitled user, so no setup is needed to opt out of the feature.
->
-> A user who is entitled to nothing is unaffected either way: the Agent Guard returns "allow" for
-> an unconfigured or unentitled user, so no setup is needed to opt out of the feature.
 
 - Set `JFROG_URL` and `JF_ACCESS_TOKEN` (or configure the JFrog CLI — see [Authentication](#authentication)) and `JF_PROJECT` (the JFrog project the skill runs in). For an entitled account with credentials but no project, skills are **blocked** with a message telling you what to set; with no credentials at all they are **allowed**, per the table above.
 - **Node.js (≥ 18) with `npx` on your `PATH`** — the hook resolves the Agent Guard through `npx`. Without it, governed actions are allowed unchecked.

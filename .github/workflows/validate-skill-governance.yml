@@ -13,6 +13,7 @@ on:
       # validator that asserts it must not exist.
       - "plugins/jfrog/hooks/hooks.json"
       - "plugins/jfrog/scripts/**"
+      - "plugins/jfrog/modules/**"
       - "plugins/jfrog/.cursor-plugin/plugin.json"
       - "scripts/validate-skill-governance.mjs"
   workflow_dispatch:

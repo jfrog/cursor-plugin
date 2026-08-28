@@ -315,6 +315,21 @@ for (const step of GOVERNED_STEPS) {
     assert(!blocks(r), "an empty object must not read as a block");
   });
 
+  await check(`${step}: output that is not valid JSON is forwarded, not repaired`, async () => {
+    stubNpx({ stdout: "not json at all" });
+    const r = runHook(commandFor(step), payloadFor(step));
+    assert(r.stdout === "not json at all",
+      `the hook must forward bytes verbatim and never rewrite a verdict: ${r.stdout}`);
+    assert(!blocks(r), `unparseable output is not a deny; failClosed:false lets it through`);
+  });
+
+  await check(`${step}: empty stdout with exit 0 stays empty`, async () => {
+    stubNpx({ stdout: "", exitCode: 0 });
+    const r = runHook(commandFor(step), payloadFor(step));
+    assert(r.stdout === "", `the hook must not invent a verdict: ${r.stdout}`);
+    assert(!blocks(r), "silence is not a deny");
+  });
+
   await check(`${step}: an agent-guard failure fails OPEN, not closed`, async () => {
     stubNpx({ stdout: "", exitCode: 1 });
     const r = runHook(commandFor(step), payloadFor(step));
