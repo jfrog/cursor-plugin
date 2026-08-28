@@ -9,15 +9,11 @@
       {
         "command": "node \"./scripts/cursor-align-mcp-json.mjs\" session-start",
         "timeout": 60
-      },
-      {
-        "command": "( npx --yes --registry \"${JFROG_AGENT_GUARD_REPO:-https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/}\" @jfrog/agent-guard --version >/dev/null 2>&1 & ) ; exit 0",
-        "timeout": 10
       }
     ],
     "beforeSubmitPrompt": [
       {
-        "command": "_JFAG_NOW=$(date +%s 2>/dev/null); npm_config_fetch_retries=0 npm_config_fetch_timeout=10000 JF_AGENT_GUARD_ENFORCE_DEADLINE=\"${_JFAG_NOW:+$((_JFAG_NOW + 25))}\" npx --yes --prefer-offline --registry \"${JFROG_AGENT_GUARD_REPO:-https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/}\" @jfrog/agent-guard --enforce-skill --client cursor",
+        "command": "_JFAG_NOW=$(date +%s 2>/dev/null); npm_config_fetch_retries=0 npm_config_fetch_timeout=10000 JF_AGENT_GUARD_ENFORCE_DEADLINE=\"${_JFAG_NOW:+$((_JFAG_NOW + 25))}\" npx --yes --registry \"${JFROG_AGENT_GUARD_REPO:-https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/}\" @jfrog/agent-guard --enforce-skill --client cursor",
         "timeout": 30,
         "failClosed": false
       }

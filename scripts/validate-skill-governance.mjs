@@ -146,23 +146,24 @@ check("the package-resolution sessionStart hook is byte-identical", () => {
   assert(h.timeout === 7, "the package-resolution sessionStart hook timeout was altered");
 });
 
-check("a sessionStart pre-warm refreshes the cache the governed hooks then read", () => {
-  const warm = entriesFor("sessionStart").find((h) => h.command.includes("@jfrog/agent-guard"));
-  assert(warm, "sessionStart must pre-warm agent-guard: it is the ONLY thing that refreshes the " +
-    "npx cache, and without it --prefer-offline below can serve a stale binary indefinitely " +
-    "(measured: a cached 1.10.0 kept being used while 1.11.0 was latest, reinstating a bug " +
-    "1.11.0 had fixed)");
-  assert(!warm.command.includes("--prefer-offline"),
-    "the pre-warm MUST hit the registry; --prefer-offline here would defeat its only purpose");
-  assert(!warm.command.includes("JFROG_AGENT_GUARD_VERSION"),
-    "the pre-warm must refresh to latest, not to a pinned version");
-  // Cursor's hook schema has no `async`, so the command detaches itself. Both halves matter:
-  // the subshell-and-background returns control immediately, and the explicit exit 0 keeps a
-  // spawn failure from surfacing as a failed session-start hook.
-  assert(/\(.*&\s*\)/.test(warm.command),
-    "the pre-warm must detach (subshell + &) so it cannot delay session start");
-  assert(/exit 0\s*$/.test(warm.command.trim()),
-    "the pre-warm must end in `exit 0`: a warm failure is never a reason to fail session start");
+check("one governed hook refreshes the npx cache, the other reads it", () => {
+  // Measured under Cursor: a detached sessionStart pre-warm does NOT survive — Cursor kills the
+  // hook's process group, and no escape (subshell, `sh -mc`, perl setsid) outruns it. So the
+  // refresh has to happen on a hook Cursor waits for.
+  //
+  // beforeSubmitPrompt fires once per prompt and omits --prefer-offline, so it revalidates against
+  // the registry and pulls a newer agent-guard into the cache. preToolUse fires on every Read and
+  // keeps --prefer-offline, reading what the prompt hook just refreshed. Measured warm: 1091ms
+  // revalidating vs 324ms from cache.
+  assert(!entriesFor("sessionStart").some((h) => h.command.includes("@jfrog/agent-guard")),
+    "sessionStart must not pre-warm: it is killed with the hook and only pretends to keep the " +
+    "cache fresh");
+  assert(!commandFor("beforeSubmitPrompt").includes("--prefer-offline"),
+    "beforeSubmitPrompt must NOT pass --prefer-offline: it is the only thing that refreshes the " +
+    "cache, and without it agent-guard is frozen at whatever version was first fetched");
+  assert(commandFor("preToolUse").includes("--prefer-offline"),
+    "preToolUse must pass --prefer-offline: it fires on every Read, and revalidating each time " +
+    "costs ~770ms per call");
 });
 
 for (const step of GOVERNED_STEPS) {
@@ -195,8 +196,6 @@ for (const step of GOVERNED_STEPS) {
   check(`${step} lets npx cold-start and bounds its fetch`, () => {
     const h = entriesFor(step)[0];
     assert((h.timeout ?? 0) >= 30, `${step} timeout ${h.timeout} is too short for an npx cold start`);
-    assert(h.command.includes("--prefer-offline"),
-      `${step} must prefer the cache, so a warm machine pays no registry round trip`);
     const retries = /npm_config_fetch_retries=(\d+)/.exec(h.command);
     const fetchTimeout = /npm_config_fetch_timeout=(\d+)/.exec(h.command);
     assert(retries && Number(retries[1]) === 0,
@@ -240,9 +239,11 @@ check("beforeSubmitPrompt has no matcher, so every submission is seen", () => {
     "a matcher here would filter out the slash invocations this hook exists to gate");
 });
 
-check("the two governed hooks run byte-identical commands", () => {
-  assert(commandFor("beforeSubmitPrompt") === commandFor("preToolUse"),
-    "the two surfaces must enforce identically; they have drifted apart");
+check("the two governed hooks differ ONLY in the cache flag", () => {
+  const norm = (c) => c.replace(" --prefer-offline", "");
+  assert(norm(commandFor("beforeSubmitPrompt")) === norm(commandFor("preToolUse")),
+    "the two surfaces must enforce identically apart from --prefer-offline; they have drifted:\n" +
+    `  beforeSubmitPrompt: ${commandFor("beforeSubmitPrompt")}\n  preToolUse: ${commandFor("preToolUse")}`);
 });
 
 check("every hook command is valid POSIX sh", () => {
