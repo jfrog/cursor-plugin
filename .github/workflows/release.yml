@@ -79,6 +79,12 @@ jobs:
         if: steps.detect.outputs.triggered == 'true'
         run: node scripts/validate-template.mjs
 
+      # Same reason as above: validate-skill-governance.yml is pull-request only, so the merge
+      # commit the release is cut from is never checked by it.
+      - name: Validate skill governance before releasing
+        if: steps.detect.outputs.triggered == 'true'
+        run: node scripts/validate-skill-governance.mjs
+
       # Tracked files at HEAD only, so nothing left on the runner can end up in the zip.
       - name: Package release artifact
         if: steps.detect.outputs.triggered == 'true'

@@ -1,0 +1,38 @@
+# Copyright (c) JFrog Ltd. 2026
+# Licensed under the Apache License, Version 2.0
+# https://www.apache.org/licenses/LICENSE-2.0
+
+name: Validate skill governance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      # Governance lives entirely in agent-guard now, so the wiring IS the hooks file. The
+      # scripts/** glob stays so that re-adding any plugin-side governance code re-triggers the
+      # validator that asserts it must not exist.
+      - "plugins/jfrog/hooks/hooks.json"
+      - "plugins/jfrog/scripts/**"
+      - "plugins/jfrog/modules/**"
+      - "plugins/jfrog/.cursor-plugin/plugin.json"
+      - "scripts/validate-skill-governance.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate skill governance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run skill-governance validation
+        run: node scripts/validate-skill-governance.mjs
