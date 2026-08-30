@@ -17,7 +17,7 @@ The JFrog plugin provides the following capabilities, grouped by component:
 | --- | --- | --- |
 | **MCP** | JFrog MCP server | Remote JFrog MCP server auto-attached to every session via `mcp.json` at `https://${JFROG_PLATFORM_URL}/mcp` (OAuth, no API keys). |
 | **Skill** | JFrog Platform | Interact with Artifactory repositories, builds, permissions, users, access tokens, projects, release bundles, and platform administration via the JFrog CLI and REST/GraphQL APIs. Also covers security audits, CVE lookups, and Advanced Security exposure queries. |
-| **Skill** | Package safety & download | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers. |
+| **Skill** | Package curation | Check whether npm, Maven, PyPI, Go, and other packages are safe, curated, or allowed, then download them through Artifactory remote caches or curation-aware package managers. |
 | **Hook + Skill** | Agent Package Resolution (Preview) | Automatically route packages installed by the AI agent through your organization's JFrog Artifactory, keeping agent-driven installs inside your Curation, Xray, and governance perimeter. |
 | **Hook** | Agent Guard | Cursor manage MCPs through the JFrog Agent Guard. Through the Agent Guard you can discover, install, configure, update, and remove MCP servers from the JFrog AI Catalog approved for your project, and authenticate to remote HTTP MCPs via OAuth, API key, or bearer token. |
 | **Hook** | Skills governance | When a skill is invoked, the plugin checks it against your JFrog governance policy and blocks disallowed or unscanned skills before they run. Covers the two entry points that carry a skill's identity: skills you run with `/<skill-name>`, and any read of a `SKILL.md` (how a skill's body reaches the model, since Cursor has no dedicated `Skill` tool). Content that reaches the model without a `Read` tool call is outside both — see [Skills governance](#skills-governance). Enforced only when your account is entitled to AI Catalog skills governance. |
@@ -94,7 +94,7 @@ Once configured, interact with the JFrog plugin through natural language. Exampl
 | "Create a scoped access token for CI." | Creates an access token with the requested scope. |
 | "Promote this release bundle to production." | Uses Lifecycle / Distribution APIs to promote the bundle. |
 
-### Package safety & download skill
+### Package curation skill
 
 | Ask the agent… | What happens |
 | --- | --- |
