@@ -33,7 +33,7 @@ Before installing, make sure you have:
 - **Node.js** (≥ 18) — with `npx` on your `PATH`.
 - **Skill runtime requirements** — `jf` CLI, `jq`, and `curl` on `PATH`, plus a configured JFrog instance. For the minimum versions, see the upstream skills [`Requirements`](https://github.com/jfrog/jfrog-skills/blob/v0.11.0/README.md#requirements). Configure the CLI with `jf config add` — see [Authentication](#authentication).
 - **JFrog Platform access** (optional) — If you want to use the Agent Guard feature, your JFrog subscription needs to include the AI Catalog entitlement. Contact your JFrog account team if you're unsure whether it's enabled.
-- **JFrog CLI ≥ 2.105.0** (optional) — If you want the Agent Guard to auto-resolve credentials/server ID from the JFrog CLI instead of `JFROG_PLATFORM_URL`/`JFROG_ACCESS_TOKEN` env vars. Older CLIs don't support the `--format` flag used by `jf config show`/`jf config export` for this.
+- **JFrog CLI ≥ 2.105.0** (optional) — If you want the Agent Guard to auto-resolve the credentials/server ID from the JFrog CLI configuration. Older CLIs don't support the `--format` flag used by `jf config show`/`jf config export` for this.
 - **JFrog project** (optional) — If you want to use the Agent Guard feature.
 
 ---
@@ -48,6 +48,29 @@ Use either the marketplace link from the [Configure Cursor](https://docs.jfrog.c
 2. Open **Cursor Settings** and select **Plugins**.
 3. Search for **JFrog** and open the **JFrog** plugin.
 4. Choose **Add to Cursor**, then **Add Plugin**.
+
+Run **`/jfrog-init`** after install, **restart Cursor** if MCP config changed, then complete [Verify](#verify).
+
+---
+
+## Verify
+
+Verification is a required install step, not a troubleshooting fallback:
+
+1. **Cursor Settings → Plugins** — the JFrog plugin is installed.
+2. **`/jfrog-init`** — the readiness walk completes without blocking errors.
+3. `jf rt ping` — succeeds against your configured server.
+
+If a check fails, see [Recovery](#recovery). `JFROG_PLATFORM_URL` is for MCP
+placeholder resolution only. Setting it does not repair a failed `/jfrog-init`.
+
+## Recovery
+
+| Symptom | Do this | Do **not** do this |
+| --- | --- | --- |
+| MCP missing after install | Run `/jfrog-init`, complete OAuth if prompted, **restart Cursor**, re-check MCP tools. | Assume `JFROG_PLATFORM_URL` alone will register MCP. |
+| `/jfrog-init` stopped at CLI/auth | Follow the skill prompt (`jf config add`, web login, or token path), then **re-run `/jfrog-init`**. | Skip init and only export env vars. |
+| Placeholder URL still in plugin MCP config | Fix `jf config` for the intended server, re-run `/jfrog-init`. | Reinstall the plugin when the detector says auth/URL resolution failed. |
 
 ---
 
