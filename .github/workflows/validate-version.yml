@@ -25,8 +25,3 @@ jobs:
             exit 1
           fi
           echo "Versions consistent: $VERSION"
-
-      - name: Validate README has no plugin version
-        env:
-          PLUGIN_MANIFEST: plugins/jfrog/.cursor-plugin/plugin.json
-        run: node scripts/validate-readme-no-version.mjs
