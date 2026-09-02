@@ -29,7 +29,7 @@
 // on Cursor 3.4.20) — the direct analogue of CLAUDE_PLUGIN_ROOT.
 
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -59,6 +59,12 @@ const nodeDir = path.join(sandbox, "node-only");
 mkdirSync(nodeDir, { recursive: true });
 symlinkSync(process.execPath, path.join(nodeDir, "node"));
 symlinkSync("/bin/date", path.join(nodeDir, "date"));
+// `base64` for the same reason: Cursor delivers the event as `printf %s '<b64>' | base64 -d |
+// <command>` (see runHook), so without it the harness would hand agent-guard an empty pipe and
+// every stdin assertion would fail for a reason that has nothing to do with the hook.
+const base64Bin = ["/usr/bin/base64", "/bin/base64"].find((p) => existsSync(p));
+if (!base64Bin) throw new Error("base64 not found; cannot reproduce Cursor's payload delivery");
+symlinkSync(base64Bin, path.join(nodeDir, "base64"));
 
 const failures = [];
 const check = async (label, fn) => {
@@ -92,12 +98,32 @@ process.stdin.on("end", () => {
   return record;
 }
 
-// Run a hook command the way Cursor does: the string from hooks.json handed to a shell, the event
-// JSON on stdin, and CURSOR_PLUGIN_ROOT set as Cursor sets it. `isolate` drops the stub from PATH,
-// which is how "npx is not installed at all" is reproduced.
-function runHook(command, payload, { isolate = false, extraEnv = {} } = {}) {
-  const result = spawnSync(SH, ["-c", command], {
-    input: Buffer.from(payload),
+// Deliver the payload EXACTLY as Cursor does. How the event ARRIVES is the part most likely to
+// break, and it is not the way Claude Code does it: on macOS and Linux Cursor never writes the
+// event to the hook process's stdin. It base64s the JSON into the command string, pipes it in
+// from a pipeline the spawned shell builds itself, and closes the child's own stdin:
+//
+//   workbench.desktop.main.js   R = `printf %s '${b64}' | base64 -d | ${command}`
+//   extensionHostProcess.js     stdio: [ pipeStdin ? "pipe" : "ignore", "pipe", "pipe" ]
+//                               // hooks never pass pipeStdin, so fd 0 is /dev/null
+//
+// Two consequences, and this function exists to make both testable:
+//
+//   * our command runs as the TAIL OF A PIPELINE, so a top-level `;`, `&&` or `||` inside it
+//     severs the payload; agent-guard then reads /dev/null and renders its no-opinion allow.
+//     That is MLAI-1310 — every skill allowed, silently, exit 0.
+//   * handing the payload to the shell's own stdin instead, as this helper used to, exercises a
+//     delivery path Cursor never uses. All 34 checks below passed that way against a hook that
+//     delivered nothing at all.
+//
+// `isolate` drops the stub from PATH, which is how "npx is not installed at all" is reproduced.
+function runHook(command, payload, { isolate = false, extraEnv = {}, shell = SH } = {}) {
+  const b64 = Buffer.from(payload).toString("base64");
+  const wrapped = `printf %s '${b64}' | base64 -d | ${command}`;
+  const result = spawnSync(shell, ["-c", wrapped], {
+    // fd 0 is /dev/null, exactly as Cursor leaves it. A hook that only works because the
+    // harness fed it stdin does not work in Cursor.
+    stdio: ["ignore", "pipe", "pipe"],
     encoding: "buffer",
     timeout: 30_000,
     env: {
@@ -107,7 +133,7 @@ function runHook(command, payload, { isolate = false, extraEnv = {} } = {}) {
       ...extraEnv,
     },
   });
-  if (result.error) throw new Error(`could not run the hook via ${SH}: ${result.error.message}`);
+  if (result.error) throw new Error(`could not run the hook via ${shell}: ${result.error.message}`);
   return {
     code: result.status,
     stdout: result.stdout ? result.stdout.toString() : "",
@@ -211,10 +237,17 @@ for (const step of GOVERNED_STEPS) {
     const h = entriesFor(step)[0];
     assert(/_JFAG_NOW=\$\(date \+%s 2>\/dev\/null\);/.test(h.command),
       `${step} must read the clock defensively, tolerating an absent date(1)`);
-    assert(h.command.includes('JF_AGENT_GUARD_ENFORCE_DEADLINE="${_JFAG_NOW:+$((_JFAG_NOW + 25))}"'),
-      `${step} must compute an absolute deadline at invocation time, and pass EMPTY when the ` +
-      `clock could not be read: agent-guard ignores an empty deadline and falls back to its own ` +
-      `budget, whereas a garbage epoch floors the budget at 500ms and blocks every skill`);
+    // The whole computation lives INSIDE a command substitution. That is not cosmetic: the
+    // clock read needs a ';' to separate it from the expansion, and at top level that ';' would
+    // sever the payload pipeline Cursor wraps around this command (MLAI-1310). Scoping it here
+    // keeps the hook one simple command while preserving the degrade-to-empty behaviour.
+    assert(h.command.includes(
+      'JF_AGENT_GUARD_ENFORCE_DEADLINE="$(_JFAG_NOW=$(date +%s 2>/dev/null); ' +
+      'echo ${_JFAG_NOW:+$((_JFAG_NOW + 25))})"'),
+      `${step} must compute an absolute deadline at invocation time INSIDE a command ` +
+      `substitution, and pass EMPTY when the clock could not be read: agent-guard ignores an ` +
+      `empty deadline and falls back to its own budget, whereas a garbage epoch floors the ` +
+      `budget at 500ms and blocks every skill`);
     assert(!/JF_AGENT_GUARD_ENFORCE_DEADLINE:[-=]/.test(h.command),
       `${step} must not fall back to an inherited value: an absolute instant inherited from an ` +
       `earlier process pins every later invocation to the past`);
@@ -255,15 +288,67 @@ check("every hook command is valid POSIX sh", () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Behavioural: execute the real hooks.json command string.
-// ---------------------------------------------------------------------------
+// Strip every $(…) / $((…)) group, leaving only the command's TOP-LEVEL text. A ';' inside a
+// substitution is scoped and harmless; one outside it is not.
+const topLevelOf = (s) => {
+  let out = "", depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s.startsWith("$(", i)) { depth++; i++; continue; }
+    if (depth && s[i] === "(") { depth++; continue; }
+    if (depth && s[i] === ")") { depth--; continue; }
+    if (!depth) out += s[i];
+  }
+  return out;
+};
+
+// MLAI-1310, the regression this file failed to catch. Cursor appends our command to a pipeline
+// it builds — `printf %s '<b64>' | base64 -d | <command>` — so a governed command must be ONE
+// simple command. A top-level `;`, `&&` or `||` ends that pipeline, and agent-guard then reads
+// the shell's stdin, which Cursor set to /dev/null: 0 bytes, no classifiable event, and a
+// no-opinion ALLOW at exit 0 that is indistinguishable from "this prompt was not a skill".
+//
+// Asserted statically as well as behaviourally below, because this names the property and fails
+// with the offending text instead of a mystery allow.
+check("no governed command has a top-level ';', '&&' or '||' (it is the tail of Cursor's pipeline)", () => {
+  for (const step of GOVERNED_STEPS) {
+    const top = topLevelOf(commandFor(step));
+    for (const op of [";", "&&", "||"]) {
+      assert(!top.includes(op),
+        `${step}: a top-level "${op}" severs the payload pipeline Cursor builds, so agent-guard ` +
+        `reads /dev/null and silently allows (MLAI-1310). Keep it inside $( ).\n` +
+        `         top-level text: ${top.trim()}`);
+    }
+  }
+});
 
 // A payload shaped like the surface actually sends, so a check cannot pass by feeding preToolUse's
 // event to the prompt hook.
 const payloadFor = (step) => step === "preToolUse"
   ? `{"hook_event_name":"preToolUse","tool_name":"Read","tool_input":{"file_path":"/a/b/SKILL.md"}}`
   : `{"hook_event_name":"beforeSubmitPrompt","prompt":"/demo-skill"}`;
+
+// Cursor spawns `process.env.SHELL || "/bin/sh"` with -c, so the command must survive whichever
+// shell the user happens to have. Shells absent from the runner are skipped rather than failed.
+check("the payload survives Cursor's pipeline under every shell Cursor may pick", () => {
+  const shells = ["/bin/sh", "/bin/bash", "/bin/zsh"].filter((s) => existsSync(s));
+  assert(shells.length > 0, "no shell found to test with");
+  for (const step of GOVERNED_STEPS) {
+    for (const shell of shells) {
+      const record = stubNpx({ stdout: "{}" });
+      const payload = payloadFor(step);
+      const r = runHook(commandFor(step), payload, { shell });
+      assert(r.code === 0, `${step} under ${shell}: exit=${r.code} stderr=${r.stderr}`);
+      const seen = JSON.parse(readFileSync(record, "utf8"));
+      assert(seen.stdin === payload,
+        `${step} under ${shell}: agent-guard received ${seen.stdin.length} bytes, expected ` +
+        `${payload.length}. The payload is not reaching it.`);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Behavioural: execute the real hooks.json command string.
+// ---------------------------------------------------------------------------
 
 // Run every behavioural check against BOTH governed surfaces, not just preToolUse. The
 // byte-identical check above already makes divergence loud, but it only holds while it runs first;
