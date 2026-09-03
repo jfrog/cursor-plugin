@@ -51,9 +51,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --tags origin
-          # The glob is only a prefilter; grep -E is what guarantees every candidate is a vX.Y.Z
-          # release tag, so an unrelated tag like v2-beta can't become the comparison baseline.
-          LATEST=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          # grep exits 1 when no tag matches, which pipefail would turn into a step failure —
+          # an empty LATEST is the legitimate first-release case, handled just below.
+          LATEST=$(git tag -l | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)
           if [ -z "$LATEST" ]; then
             echo "No prior release tag — v${VERSION} will be the first release"
             exit 0
@@ -114,8 +114,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          set -euo pipefail
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
-            echo "Deleting incomplete release v${VERSION} and its tag so the next run can retry"
-            gh release delete "v${VERSION}" --cleanup-tag --yes
+            gh release delete "v${VERSION}" --yes --cleanup-tag
           fi

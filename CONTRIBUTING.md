@@ -50,7 +50,7 @@ The bump is reviewed in the PR that makes it, and it is required of every PR —
 
 The workflow reads the version from `plugin.json`, confirms `marketplace.json` agrees, runs the same marketplace-template and skill-governance checks as the `validate-template` and `validate-skill-governance` PR workflows, packages the tracked files at `HEAD` (minus `.github/`) into `release.zip`, and creates the `vX.Y.Z` tag as part of publishing the GitHub Release.
 
-Three things to know before changing it:
+Things to know before changing it:
 
 - Validation runs inside the release job. `validate-template.yml`, `validate-skill-governance.yml`, and `validate-version.yml` all run on pull requests only, so none of them sees the merge commit the release is cut from. Re-running their checks in the release job is what actually gates the release on them. Keep it that way even if one gains a `push` trigger: a separate workflow is still independent of this one, and can be red while a release goes out.
 - The tag is created by the release, not before it. `gh release create --target` does both in one API call, so a failed run can't leave a tag behind with no release attached to it.
