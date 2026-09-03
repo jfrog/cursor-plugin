@@ -27,3 +27,9 @@ jobs:
 
       - name: Run template validation
         run: node scripts/validate-template.mjs
+
+      - name: Run unit tests
+        run: node --test plugins/jfrog/scripts/cursor-mcp-json-discover.test.mjs plugins/jfrog/scripts/cursor-align-mcp-json.test.mjs plugins/jfrog/scripts/agent-guard-check.test.mjs
+
+      - name: Run /bridge-client fallback integration tests
+        run: node --test plugins/jfrog/scripts/bridge-client-fallback.test.mjs
