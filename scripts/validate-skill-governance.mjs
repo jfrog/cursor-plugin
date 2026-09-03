@@ -51,10 +51,13 @@ mkdirSync(binDir, { recursive: true });
 // unreachable. Using node's own directory would defeat the "npx is missing" check, because the
 // real npx sits right beside node — that check would then reach the network instead of exercising
 // the 127 path.
-// `date` lives here too: the hook computes its deadline with $(date +%s), and a PATH without it
-// would silently yield "$(( + 25))" = 25 — an epoch in 1970 — rather than exercising the real
-// computation. Keeping it beside node (not by adding /bin to PATH) preserves the isolate mode,
-// where npx must stay unreachable.
+// `date` lives here too, so the DEFAULT mode exercises the real deadline computation rather
+// than its degraded form. With `date` absent the hook passes an EMPTY deadline — measured, and
+// the point of the `${_JFAG_NOW:+…}` guard — which agent-guard ignores in favour of its own
+// budget. That is the safe direction, but it is not the path most checks mean to test, so the
+// two are separated: `noDateDir` below drops `date` for the one check that asserts the degrade.
+// Keeping it beside node (not by adding /bin to PATH) preserves the isolate mode, where npx
+// must stay unreachable.
 const nodeDir = path.join(sandbox, "node-only");
 mkdirSync(nodeDir, { recursive: true });
 symlinkSync(process.execPath, path.join(nodeDir, "node"));
@@ -65,6 +68,14 @@ symlinkSync("/bin/date", path.join(nodeDir, "date"));
 const base64Bin = ["/usr/bin/base64", "/bin/base64"].find((p) => existsSync(p));
 if (!base64Bin) throw new Error("base64 not found; cannot reproduce Cursor's payload delivery");
 symlinkSync(base64Bin, path.join(nodeDir, "base64"));
+
+// The same directory WITHOUT `date`, for the one check that asserts the degrade path. Built as
+// its own directory rather than by unlinking `date` between runs, so the checks stay order-
+// independent.
+const noDateDir = path.join(sandbox, "node-only-nodate");
+mkdirSync(noDateDir, { recursive: true });
+symlinkSync(process.execPath, path.join(noDateDir, "node"));
+symlinkSync(base64Bin, path.join(noDateDir, "base64"));
 
 const failures = [];
 const check = async (label, fn) => {
@@ -117,7 +128,7 @@ process.stdin.on("end", () => {
 //     delivered nothing at all.
 //
 // `isolate` drops the stub from PATH, which is how "npx is not installed at all" is reproduced.
-function runHook(command, payload, { isolate = false, extraEnv = {}, shell = SH } = {}) {
+function runHook(command, payload, { isolate = false, noDate = false, extraEnv = {}, shell = SH } = {}) {
   const b64 = Buffer.from(payload).toString("base64");
   const wrapped = `printf %s '${b64}' | base64 -d | ${command}`;
   const result = spawnSync(shell, ["-c", wrapped], {
@@ -127,7 +138,7 @@ function runHook(command, payload, { isolate = false, extraEnv = {}, shell = SH 
     encoding: "buffer",
     timeout: 30_000,
     env: {
-      PATH: isolate ? nodeDir : `${binDir}:${nodeDir}`,
+      PATH: isolate ? nodeDir : `${binDir}:${noDate ? noDateDir : nodeDir}`,
       HOME: sandbox,
       CURSOR_PLUGIN_ROOT: pluginRoot,
       ...extraEnv,
@@ -380,6 +391,26 @@ for (const step of GOVERNED_STEPS) {
     const deadline = Number(seen.deadline);
     assert(Number.isFinite(deadline) && deadline > before,
       `the deadline must be recomputed, not inherited; got ${seen.deadline}`);
+  });
+
+  // The degrade branch, EXECUTED rather than asserted in text. The static check above proves the
+  // command contains the `${_JFAG_NOW:+…}` guard; only running it with no `date` on PATH proves
+  // the guard does what the guard is for. That distinction is the whole reason this PR exists:
+  // the suite asserted the payload was forwarded, textually, while the hook forwarded nothing.
+  //
+  // EMPTY is the required outcome, not merely "some value": agent-guard ignores an empty deadline
+  // and falls back to its own budget, whereas a garbage epoch (what `$(($(date +%s) + 25))` yields
+  // as `$(( + 25))` = 25, an instant in 1970) floors that budget at 500ms and blocks every skill.
+  await check(`${step}: with no date(1) on PATH, the deadline degrades to EMPTY and the payload still arrives`, async () => {
+    const record = stubNpx({ stdout: "{}" });
+    const payload = payloadFor(step);
+    const r = runHook(commandFor(step), payload, { noDate: true });
+    assert(r.code === 0, `exit=${r.code} stderr=${r.stderr}`);
+    const seen = JSON.parse(readFileSync(record, "utf8"));
+    assert(seen.deadline === "",
+      `an unreadable clock must yield an EMPTY deadline, not a stale or garbage one; got ${JSON.stringify(seen.deadline)}`);
+    assert(seen.stdin === payload,
+      `losing date(1) must not cost the payload: agent-guard received ${seen.stdin.length} bytes, expected ${payload.length}`);
   });
 
   await check(`${step}: forwards a deny verdict's stdout verbatim and exits 0 (the JSON decides)`, async () => {
