@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "fingerprints": [
+    {
+      "id": "v0-placeholders-no-onboardingPrompt",
+      "sha256": "452b737ede2af5da3ea660cb0a2226d422b5624fa1684bc883279422c0728421",
+      "note": "Legacy template with example repo keys, before onboardingPrompt"
+    },
+    {
+      "id": "v1-placeholders-onboardingPrompt-auto",
+      "sha256": "b19251b4671db244a8050885bcbaf5f217f0e4eecfec34c0338264b08fa7c871",
+      "note": "Legacy template with example repo keys + onboardingPrompt: auto"
+    },
+    {
+      "id": "v2-empty-defaultGlobalRepos",
+      "sha256": "5a104c83c4cb67f2cb01d71ad0044a438f9125bab868ef76e24bd7be7828b82b",
+      "note": "Empty defaultGlobalRepos after #84 (no onboardingPrompt)"
+    },
+    {
+      "id": "v3-empty-onboardingPrompt-auto",
+      "sha256": "8b68d55af89e2dadf4ff0c3ae0784b70051c24d1fb75e3ea6df8ba3044c5cefa",
+      "note": "Legacy template: enabled false + empty defaultGlobalRepos + onboardingPrompt: auto"
+    },
+    {
+      "id": "v4-enabled-onboardingPrompt-auto",
+      "sha256": "f0481d915f1f7f2a1e7d88ab23ce7b9430d3e44e41aaabb4d4d13e2b40963ae2",
+      "note": "Current shipped template: enabled true + empty defaultGlobalRepos + onboardingPrompt: auto"
+    }
+  ]
+}

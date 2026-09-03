@@ -63,7 +63,7 @@ flowchart TD
     S4 -->|unreachable/timeout/other| STOP2["STOP: show raw error (network/URL hint included)"]:::stopBox
     S4 -->|yes| S5
 
-    S5["5. Plugin mcp.json has mcpServers.jfrog? (auto-substitutes a JFROG_PLATFORM_URL/JFROG_URL placeholder inline, if present)"]:::stepBox
+    S5["5. Plugin mcp.json has a valid jfrog entry? (auto-substitutes a JFROG_PLATFORM_URL/JFROG_URL placeholder inline, if present)"]:::stepBox
     S5 -->|substitution needed, server-id ambiguous| ASKSRV5["AskUserQuestion: pick server-id"]:::fixBox
     ASKSRV5 --> S5
     S5 -->|missing/invalid/no entry, incl. substitution failure| F5["Note: reinstall or update the JFrog plugin, or resolve jf config (non-blocking)"]:::fixBox
@@ -72,20 +72,11 @@ flowchart TD
 
     S6["6. Project resolved?"]:::stepBox
     S6 -->|state file has current project| ASKREUSE["AskUserQuestion: reuse CURRENT or pick different"]:::fixBox
-    ASKREUSE -->|reuse| VALPROJ["Validate via authenticated GET /access/api/v1/projects/KEY"]:::stepBox
-    ASKREUSE -->|different| ASKPROJ["AskUserQuestion: first 2 projects, or Other to type one"]:::fixBox
+    ASKREUSE -->|reuse| S7
+    ASKREUSE -->|different| ASKPROJ["AskUserQuestion: first 2 projects (from enumeration), or Other to type one"]:::fixBox
     S6 -->|no state file| ASKPROJ
-    ASKPROJ --> RESOLVE["Resolve name-or-key (case-insensitive) against project list from authenticated GET /access/api/v1/projects"]:::stepBox
-    RESOLVE -->|no match, 1st attempt| ASKPROJ
-    RESOLVE -->|no match again, 2nd attempt: give up| F6
-    RESOLVE -->|matched| VALPROJ
-    VALPROJ -->|404 or 403, 1st attempt| ASKPROJ
-    VALPROJ -->|404 or 403 again, 2nd attempt: give up| F6
-    VALPROJ -->|401, credentials rejected| STOPCREDS["STOP: show raw error (re-auth via the Step 3/4 picker)"]:::stopBox
-    VALPROJ -->|2xx| S7
-
-    F6["Note: no project resolved after 1 retry — continue without one (non-blocking)"]:::fixBox
-    F6 --> S7
+    ASKPROJ -->|picked or typed — accepted verbatim, no probe, no matching| S7
+    ASKPROJ -->|enumeration failed: jf missing / credentials rejected| STOPCREDS["STOP: show raw error (re-auth via the Step 3/4 picker)"]:::stopBox
 
     S7["7. AI Catalog reachable and user entitled?"]:::stepBox
     S7 -->|anon 404 / connection failure / 5xx, exit 1| F7U["Note: catalogReason=unreachable — JPD may not host AI Catalog, or it's down right now (non-blocking)"]:::fixBox

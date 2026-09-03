@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+// GitHub Copilot Chat SessionStart hook runner (installed via the VS Code
+// Copilot plugin — see jfrog/vscode-plugin).
+//
+// Usage: node copilot-session-start.mjs <capability>
+// Example: node copilot-session-start.mjs package-resolution
+//
+// stdout: JSON with hookSpecificOutput.additionalContext. "{}" is a no-op.
+
+import process from "node:process";
+
+import { runCapability } from "./core/run-capability.mjs";
+import {
+  ensureAgentsConfigScaffold,
+  agentsConfigLoadWarnings,
+} from "./core/agents-config.mjs";
+import {
+  readStdin,
+  parseSessionId,
+  detectHarness,
+  parseWorkspaceRoots,
+} from "./core/io.mjs";
+import { setLogContext, createLogger } from "./core/logger.mjs";
+
+const HARNESS_ID = "copilot";
+const log = createLogger("session-start");
+
+/** @returns {string | null} JSON stdout payload, or null when there is nothing to inject. */
+function formatSessionStartStdout(text) {
+  if (!text?.trim()) return null;
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: text,
+    },
+  });
+}
+
+function writeStdout(payload) {
+  if (payload === null) {
+    writeNoOp();
+    return;
+  }
+  process.stdout.write(payload);
+}
+
+function writeNoOp() {
+  process.stdout.write("{}");
+}
+
+async function main() {
+  const capability = process.argv[2];
+  if (!capability) {
+    writeNoOp();
+    return;
+  }
+
+  const startedAtMs = Date.now();
+  const stdinRaw = await readStdin();
+  const harness = detectHarness(stdinRaw);
+  if (harness && harness !== HARNESS_ID) {
+    setLogContext({ ide: HARNESS_ID, sessionId: parseSessionId(stdinRaw) });
+    log.warn("harness mismatch; wrong adapter invoked", {
+      expected: HARNESS_ID,
+      detected: harness,
+      adapter: "copilot-session-start",
+    });
+    writeNoOp();
+    return;
+  }
+  const sessionId = parseSessionId(stdinRaw);
+  const workspaceRoots = parseWorkspaceRoots(stdinRaw);
+  setLogContext({ ide: HARNESS_ID, sessionId });
+  ensureAgentsConfigScaffold();
+  for (const w of agentsConfigLoadWarnings()) {
+    log.warn(w.message, { path: w.path });
+  }
+  const text = await runCapability(capability, {
+    ide: HARNESS_ID,
+    sessionId,
+    workspaceRoots,
+    startedAtMs,
+  });
+  writeStdout(formatSessionStartStdout(text));
+}
+
+main().catch(() => {
+  writeNoOp();
+  process.exit(0);
+});

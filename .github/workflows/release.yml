@@ -82,6 +82,11 @@ jobs:
       - name: Validate marketplace template before releasing
         run: node scripts/validate-template.mjs
 
+      # Same reason as above: validate-skill-governance.yml is pull-request only, so the merge
+      # commit the release is cut from is never checked by it.
+      - name: Validate skill governance before releasing
+        run: node scripts/validate-skill-governance.mjs
+
       # Tracked files at HEAD only, so nothing left on the runner can end up in the zip.
       - name: Package release artifact
         run: git archive --format=zip --output=release.zip HEAD -- ':(exclude).github'

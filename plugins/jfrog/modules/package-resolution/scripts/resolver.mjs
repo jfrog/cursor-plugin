@@ -21,7 +21,12 @@ import {
   loadAgentsConfig,
   globalDeclaredTypes,
 } from "../../core/agents-config.mjs";
-import { getPlatformIdentity } from "../../core/jf-identity.mjs";
+import {
+  getPlatformIdentity,
+  authHeader,
+  isHttpsIdentityUrl,
+  safeErrorMessage,
+} from "../../core/jf-identity.mjs";
 import { PACKAGE_TYPES, repoMatchesPackageType } from "./repo-types.mjs";
 import {
   pickWorkspaceConfigRoot,
@@ -38,26 +43,31 @@ function cacheFile() {
   return path.join(cacheDir(), "package-resolution.json");
 }
 
-const CACHE_SCHEMA_VERSION = 1;
+const CACHE_SCHEMA_VERSION = 2;
+// One shared window covers admin and workspace verification. Keeping the
+// window below the shortest existing harness timeout prevents sequential
+// verification phases from consuming the entire SessionStart budget.
+const REPO_VERIFY_BUDGET_MS = 5_000;
 
 /** In-process snapshot after first resolve pass in this hook invocation. */
 const SESSION = {
   serverId: null,
   meta: null,
   byType: null,
-  // Package types DECLARED by the workspace `.jfrog/local` overlay (keys with a
-  // repo, regardless of whether verification would pass). Union with the global
-  // declared types gives the governed set.
   workspaceDeclaredTypes: [],
+  overlayPreparedFor: null,
 };
 
 function identityOrNull() {
   return getPlatformIdentity().identity;
 }
 
-function effectiveServerId(hint) {
+function effectiveServerId(hint, identity = identityOrNull()) {
   if (hint) return hint;
-  return identityOrNull()?.serverId ?? "default";
+  if (identity?.serverId) return identity.serverId;
+  // A URL is stable for an identity with no JFrog CLI server id, unlike a
+  // shared literal "default" key that can leak cache state across servers.
+  return identity?.url ? `url:${identity.url}` : "default";
 }
 
 function packageResolveSource(serverId, { via } = {}) {
@@ -124,13 +134,17 @@ function normalizeServerEntry(entry) {
     cached_at: entry.cached_at,
     source: entry.source,
     agentsConfigMtimeMs: entry.agentsConfigMtimeMs,
+    url: typeof entry.url === "string" ? entry.url : null,
   };
 }
 
-function isEntryFresh(entry, agentsConfigMtimeMs, cacheTtlDays) {
+function isEntryFresh(entry, agentsConfigMtimeMs, cacheTtlDays, url) {
   if (!entry?.cached_at) return false;
   if (cacheTtlDays === 0) return false;
   if (entry.agentsConfigMtimeMs !== agentsConfigMtimeMs) return false;
+  // Schema-1 entries have no URL. Refresh them once instead of trusting an
+  // entry verified against a server the user may have switched away from.
+  if (!entry.url || entry.url !== url) return false;
   const ttlMs = cacheTtlDays * 24 * 60 * 60 * 1000;
   const age = Date.now() - new Date(entry.cached_at).getTime();
   return age >= 0 && age < ttlMs;
@@ -163,19 +177,29 @@ function normalizeCacheRoot(data) {
   return { schemaVersion: CACHE_SCHEMA_VERSION, servers };
 }
 
-async function fetchRepoConfig(repoKey) {
-  const id = identityOrNull();
+async function fetchRepoConfig(repoKey, id, deadline) {
   if (!id) return null;
+  if (!isHttpsIdentityUrl(id)) {
+    log.warn("refusing repo verify over a non-HTTPS platform URL", { repoKey });
+    return null;
+  }
   const url = `${id.url}/artifactory/api/repositories/${encodeURIComponent(repoKey)}`;
   // Network call on session start (cache miss + verifyRepos) — log at info so a
   // fresh session's Artifactory calls are visible without enabling debug.
   log.info("verifying repo via Artifactory API", { repoKey, url });
+  const authorization = authHeader(id);
+  if (!authorization) return null;
+  // Bound the call so a stalled Artifactory can't hang session start.
+  const controller = new AbortController();
+  const remaining = Math.max(0, deadline - Date.now());
+  const timer = setTimeout(() => controller.abort(), remaining);
   try {
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${id.token}`,
+        Authorization: authorization,
         Accept: "application/json",
       },
+      signal: controller.signal,
     });
     if (!res.ok) {
       log.debug("repo verify miss", { repoKey, status: res.status });
@@ -185,9 +209,11 @@ async function fetchRepoConfig(repoKey) {
   } catch (err) {
     log.warn("repo verify threw", {
       repoKey,
-      error: err?.message ?? String(err),
+      error: safeErrorMessage(err),
     });
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -215,31 +241,51 @@ function entryToByType(entry, base) {
   return byType;
 }
 
-async function refreshServerCache(serverId) {
-  const id = identityOrNull();
+async function refreshServerCache(
+  serverId,
+  id = identityOrNull(),
+  verifyDeadline = Date.now() + REPO_VERIFY_BUDGET_MS,
+) {
   const base = id ? `${id.url}/artifactory` : "";
   const repositories = {};
   const pr = loadAgentsConfig().packageResolution;
   const verifyRepos = pr.verifyRepos;
   const adminRepos = pr.defaultGlobalRepos ?? {};
   const agentsConfigMtimeMs = getAgentsConfigMtimeMs();
-
-  for (const type of PACKAGE_TYPES) {
+  const configured = PACKAGE_TYPES.flatMap((type) => {
     const repoKey = adminRepos[type];
     if (!repoKey) {
       log.debug("unconfigured type", { type });
-      continue;
+      return [];
     }
+    return [{ type, repoKey }];
+  });
+  const adminConfiguredCount = configured.length;
 
-    if (verifyRepos) {
-      const config = await fetchRepoConfig(repoKey);
-      if (!config || !repoMatchesPackageType(config, type)) {
+  if (verifyRepos) {
+    // Each repository lookup is independent. Parallel verification keeps a
+    // cold session within the hook's 15-second budget instead of multiplying
+    // the five-second request timeout by every configured package type.
+    const verified = await Promise.all(
+      configured.map(async ({ type, repoKey }) => {
+        const config = await fetchRepoConfig(repoKey, id, verifyDeadline);
+        return {
+          type,
+          repoKey,
+          verified: Boolean(config && repoMatchesPackageType(config, type)),
+        };
+      }),
+    );
+    for (const { type, repoKey, verified: isVerified } of verified) {
+      if (!isVerified) {
         log.warn("repo verify failed", { type, repoKey, serverId });
         continue;
       }
       repositories[type] = repoKey;
       log.debug("resolved from agents-conf.json (verified)", { type, repoKey });
-    } else {
+    }
+  } else {
+    for (const { type, repoKey } of configured) {
       repositories[type] = repoKey;
       log.debug("resolved from agents-conf.json (trusted)", { type, repoKey });
     }
@@ -247,20 +293,85 @@ async function refreshServerCache(serverId) {
 
   const source = verifyRepos ? "verified" : "agents-config";
 
+  const { data: cacheRoot, file } = await readCacheFile();
+  const root = normalizeCacheRoot(cacheRoot);
+  const priorEntry = root.servers[serverId];
+  const priorHasRepos = Boolean(
+    priorEntry?.repositories && Object.keys(priorEntry.repositories).length,
+  );
+
+  // A total verify failure (every admin-configured type failed the repo
+  // check — e.g. Artifactory briefly unreachable) must not pin an empty
+  // `repositories: {}` with a fresh `cached_at` for the full TTL:
+  // - prior good entry → keep it (and its cached_at)
+  // - no prior → skip writeCacheFile so the next session retries verify
+  if (
+    verifyRepos &&
+    adminConfiguredCount > 0 &&
+    Object.keys(repositories).length === 0
+  ) {
+    if (priorHasRepos) {
+      log.warn(
+        "repo verify failed for every configured type — keeping prior cache " +
+          "entry instead of pinning an empty one",
+        { serverId, configuredCount: adminConfiguredCount },
+      );
+      SESSION.serverId = serverId;
+      SESSION.byType = entryToByType(priorEntry, base);
+      SESSION.meta = buildResolveMeta(serverId, priorEntry, {
+        via: "refresh-verify-failed-kept-prior",
+        cacheFile: file,
+      });
+      return;
+    }
+    log.warn(
+      "repo verify failed for every configured type — skipping empty cache " +
+        "write so the next session retries verification",
+      { serverId, configuredCount: adminConfiguredCount },
+    );
+    const empty = {
+      repositories: {},
+      cached_at: new Date().toISOString(),
+      source,
+      agentsConfigMtimeMs,
+      url: id?.url ?? null,
+    };
+    SESSION.serverId = serverId;
+    SESSION.byType = {};
+    SESSION.meta = buildResolveMeta(serverId, empty, {
+      via: "refresh-verify-failed-no-cache",
+      cacheFile: file,
+    });
+    return;
+  }
+
+  // Partial verify failure: keep prior keys for admin-configured types that
+  // failed this round so a transient blip on one type does not ungover that
+  // type for the full cache TTL.
+  if (verifyRepos && priorHasRepos) {
+    for (const [type, repoKey] of Object.entries(priorEntry.repositories)) {
+      if (repositories[type] || !adminRepos[type]) continue;
+      repositories[type] = repoKey;
+      log.warn("repo verify failed — keeping prior cache value for type", {
+        type,
+        repoKey,
+        serverId,
+      });
+    }
+  }
+
   const entry = {
     repositories,
     cached_at: new Date().toISOString(),
     source,
     agentsConfigMtimeMs,
+    url: id?.url ?? null,
   };
 
-  const { data: cacheRoot } = await readCacheFile();
-  const root = normalizeCacheRoot(cacheRoot);
   root.servers[serverId] = entry;
   await writeCacheFile(root);
 
   const via = verifyRepos ? "refresh-verified" : "refresh-agents-config";
-  const file = cacheFile();
   SESSION.serverId = serverId;
   SESSION.byType = entryToByType(entry, base);
   SESSION.meta = buildResolveMeta(serverId, entry, { via, cacheFile: file });
@@ -272,17 +383,19 @@ async function refreshServerCache(serverId) {
   });
 }
 
-async function loadFreshCacheEntry(serverId) {
+async function loadFreshCacheEntry(serverId, id = identityOrNull()) {
   const pr = loadAgentsConfig().packageResolution;
   const agentsConfigMtimeMs = getAgentsConfigMtimeMs();
   const { data, file } = await readCacheFile();
   const entry = normalizeServerEntry(
     normalizeCacheRoot(data).servers[serverId],
   );
-  if (!entry || !isEntryFresh(entry, agentsConfigMtimeMs, pr.cacheTtlDays))
+  if (
+    !entry ||
+    !isEntryFresh(entry, agentsConfigMtimeMs, pr.cacheTtlDays, id?.url ?? "")
+  )
     return null;
 
-  const id = identityOrNull();
   const base = id ? `${id.url}/artifactory` : "";
   SESSION.serverId = serverId;
   SESSION.byType = entryToByType(entry, base);
@@ -299,14 +412,27 @@ async function loadFreshCacheEntry(serverId) {
   return entry;
 }
 
-async function ensureSessionResolved(serverIdHint) {
-  const serverId = effectiveServerId(serverIdHint);
+async function ensureSessionResolved(
+  serverIdHint,
+  verifyDeadline = Date.now() + REPO_VERIFY_BUDGET_MS,
+) {
+  const rawId = identityOrNull();
+  if (rawId && !isHttpsIdentityUrl(rawId)) {
+    log.warn("refusing to resolve package URLs over a non-HTTPS platform URL");
+    SESSION.serverId = effectiveServerId(serverIdHint, rawId);
+    SESSION.byType = {};
+    SESSION.meta = null;
+    return;
+  }
+
+  const id = rawId;
+  const serverId = effectiveServerId(serverIdHint, id);
   if (SESSION.serverId === serverId && SESSION.byType) return;
 
-  const cached = await loadFreshCacheEntry(serverId);
+  const cached = await loadFreshCacheEntry(serverId, id);
   if (cached) return;
 
-  await refreshServerCache(serverId);
+  await refreshServerCache(serverId, id, verifyDeadline);
 }
 
 function workspaceOverlayMetaApplied(workspaceRoots, pick, overridden) {
@@ -317,7 +443,10 @@ function workspaceOverlayMetaApplied(workspaceRoots, pick, overridden) {
   };
 }
 
-async function applyWorkspaceOverlay(workspaceRoots) {
+async function applyWorkspaceOverlay(
+  workspaceRoots,
+  verifyDeadline = Date.now() + REPO_VERIFY_BUDGET_MS,
+) {
   SESSION.workspaceDeclaredTypes = [];
   const roots = workspaceRoots?.length ? workspaceRoots : [];
   const pick = pickWorkspaceConfigRoot(roots);
@@ -345,19 +474,52 @@ async function applyWorkspaceOverlay(workspaceRoots) {
   }
 
   const id = identityOrNull();
+  if (id && !isHttpsIdentityUrl(id)) {
+    log.warn("refusing workspace overlay over a non-HTTPS platform URL");
+    return;
+  }
   const base = id ? `${id.url}/artifactory` : "";
+  const pr = loadAgentsConfig().packageResolution;
   const overridden = [];
   const declared = [];
 
-  for (const [type, repoKey] of Object.entries(ws.config.repositories)) {
-    if (!repoKey || !PACKAGE_TYPES.includes(type)) continue;
-    declared.push(type);
+  const requested = Object.entries(ws.config.repositories).flatMap(
+    ([type, repoKey]) => {
+      if (!repoKey || !PACKAGE_TYPES.includes(type)) return [];
+      return [{ type, repoKey }];
+    },
+  );
+
+  const validated = pr.verifyRepos
+    ? await Promise.all(
+        requested.map(async ({ type, repoKey }) => {
+          const config = await fetchRepoConfig(repoKey, id, verifyDeadline);
+          return {
+            type,
+            repoKey,
+            verified: Boolean(config && repoMatchesPackageType(config, type)),
+          };
+        }),
+      )
+    : requested.map(({ type, repoKey }) => ({ type, repoKey, verified: true }));
+
+  for (const { type, repoKey, verified } of validated) {
+    if (!verified) {
+      log.warn("workspace repo verify failed", {
+        type,
+        repoKey,
+        file: pick.configFile,
+      });
+      continue;
+    }
+    if (!SESSION.byType) SESSION.byType = {};
     SESSION.byType[type] = {
       type,
       repoKey,
       baseUrl: urlFor(type, repoKey, base),
     };
     overridden.push(`${type}:${repoKey}`);
+    declared.push(type);
   }
 
   SESSION.workspaceDeclaredTypes = declared;
@@ -386,20 +548,26 @@ async function applyWorkspaceOverlay(workspaceRoots) {
 
 /**
  * Global cache resolve + optional workspace-local overlay (first root with a config file).
- * Call once per sessionStart before resolve(type) loops.
+ * Call once per sessionStart before resolve(type) loops. Eager setup and
+ * render both call this; the second call is a no-op for the same roots so
+ * overlay verification is not given a second 5s budget.
  */
 export async function prepareSessionResolve({ serverId, workspaceRoots } = {}) {
-  await ensureSessionResolved(serverId);
-  await applyWorkspaceOverlay(workspaceRoots);
+  const overlayKey = JSON.stringify(workspaceRoots ?? []);
+  if (SESSION.overlayPreparedFor === overlayKey) return;
+  const verifyDeadline = Date.now() + REPO_VERIFY_BUDGET_MS;
+  await ensureSessionResolved(serverId, verifyDeadline);
+  await applyWorkspaceOverlay(workspaceRoots, verifyDeadline);
+  SESSION.overlayPreparedFor = overlayKey;
 }
 
 /**
- * Governed (handled) package types for this session = admin-declared
- * (`defaultGlobalRepos` keys) UNION workspace-declared (`.jfrog/local` keys),
- * ordered by PACKAGE_TYPES. "Declared" — not "resolved": a governed type whose
- * repo fails to resolve/verify stays governed (and blocks) rather than falling
- * through to a public registry. MUST be called after prepareSessionResolve so
- * the workspace side is populated.
+ * Governed package types for this session = admin-declared
+ * (`defaultGlobalRepos` keys) UNION workspace keys that actually resolved
+ * (`.jfrog/local`). Call after prepareSessionResolve so the workspace half is
+ * populated. Admin types that fail verify stay governed (and block). A
+ * workspace-only type that fails verify is dropped — not blocked, not
+ * autoSetup-eligible.
  * @returns {string[]}
  */
 export function governedPackageTypes() {
@@ -440,6 +608,7 @@ export async function invalidateResolveCache(serverIdHint) {
   SESSION.byType = null;
   SESSION.meta = null;
   SESSION.workspaceDeclaredTypes = [];
+  SESSION.overlayPreparedFor = null;
   const serverId = effectiveServerId(serverIdHint);
   const { data } = await readCacheFile();
   const root = normalizeCacheRoot(data);
@@ -454,14 +623,14 @@ if (isMain) {
   const type = process.argv[2];
   if (!type) {
     console.error("usage: node lib/resolver.mjs <type>");
-    console.error("       types: npm pypi maven go docker helm nuget");
+    console.error("       types: npm pypi maven gradle go docker helm nuget");
     process.exit(1);
   }
   const result = await resolve(type);
   if (!result) {
     console.error(`No repo resolved for type=${type}.`);
     console.error(
-      "Live mode needs a configured `jf` server with an access token (run `jf c add`).",
+      "Live mode needs a configured `jf` server (access token or username + password / API key; run `jf c add`).",
     );
     process.exit(2);
   }

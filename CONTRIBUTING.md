@@ -48,12 +48,13 @@ To cut a release:
 
 The bump is reviewed in the PR that makes it, and it is required of every PR — docs-only and CI-only changes included. Merging without bumping the manifests fails the release rather than silently skipping or re-tagging a shipped version.
 
-The workflow reads the version from `plugin.json`, confirms `marketplace.json` agrees, runs the same marketplace-template check as the `validate-template` PR workflow, packages the tracked files at `HEAD` (minus `.github/`) into `release.zip`, and creates the `vX.Y.Z` tag as part of publishing the GitHub Release.
+The workflow reads the version from `plugin.json`, confirms `marketplace.json` agrees, runs the same marketplace-template and skill-governance checks as the `validate-template` and `validate-skill-governance` PR workflows, packages the tracked files at `HEAD` (minus `.github/`) into `release.zip`, and creates the `vX.Y.Z` tag as part of publishing the GitHub Release.
 
-Two things to know before changing it:
+Three things to know before changing it:
 
-- Validation runs inside the release job. Both `validate-template.yml` and `validate-version.yml` only run on pull requests, so neither one sees the merge commit the release is cut from. Re-running their checks in the release job is what actually gates the release on them. Keep it that way even if either workflow gains a `push` trigger: a separate workflow is still independent of this one, and can be red while a release goes out.
+- Validation runs inside the release job. `validate-template.yml`, `validate-skill-governance.yml`, and `validate-version.yml` all run on pull requests only, so none of them sees the merge commit the release is cut from. Re-running their checks in the release job is what actually gates the release on them. Keep it that way even if one gains a `push` trigger: a separate workflow is still independent of this one, and can be red while a release goes out.
 - The tag is created by the release, not before it. `gh release create --target` does both in one API call, so a failed run can't leave a tag behind with no release attached to it.
+- Asset upload happens after the release and tag are published, so a failure there would leave a `vX.Y.Z` that every later run rejects as already released. A cleanup step deletes that incomplete release and its tag, gated on the version check having passed so it can never delete an earlier, healthy release.
 
 ## Reporting Issues
 
