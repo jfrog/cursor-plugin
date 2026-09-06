@@ -31,7 +31,7 @@ Before installing, make sure you have:
 - **JFrog host URL and access token** — Your JFrog platform URL and a valid access token.
 - **Cursor** — Installed with AI features enabled.
 - **Node.js** (≥ 18) — with `npx` on your `PATH`.
-- **Skill runtime requirements** — `jf` CLI, `jq`, and `curl` on `PATH`, plus a configured JFrog instance. For the minimum versions, see the upstream skills [`Requirements`](https://github.com/jfrog/jfrog-skills/blob/v0.11.0/README.md#requirements). Configure the CLI with `jf config add` — see [Authentication](#authentication).
+- **Skill runtime requirements** — `jf` CLI, `jq`, and `curl` on `PATH`, plus a configured JFrog instance. For the minimum versions, see the upstream skills [`Requirements`](https://github.com/jfrog/jfrog-skills/blob/main/README.md#requirements). Configure the CLI with `jf config add` — see [Authentication](#authentication).
 - **JFrog Platform access** (optional) — If you want to use the Agent Guard feature, your JFrog subscription needs to include the AI Catalog entitlement. Contact your JFrog account team if you're unsure whether it's enabled.
 - **JFrog CLI ≥ 2.105.0** (optional) — If you want the Agent Guard to auto-resolve the credentials/server ID from the JFrog CLI configuration. Older CLIs don't support the `--format` flag used by `jf config show`/`jf config export` for this.
 - **JFrog project** (optional) — If you want to use the Agent Guard feature.
@@ -216,7 +216,7 @@ See the [JFrog MCP Registry troubleshooting guide](https://docs.jfrog.com/ai-ml/
 
 The `skills/` tree is vendored from [`jfrog/jfrog-skills`](https://github.com/jfrog/jfrog-skills) at the version pinned in [`.github/scripts/sync-skills-vendor.json`](.github/scripts/sync-skills-vendor.json). To pull a newer upstream release into this repo:
 
-1. Bump `pin` in `.github/scripts/sync-skills-vendor.json` to the new tag (e.g. `v0.12.0`).
+1. Bump `pin` in `.github/scripts/sync-skills-vendor.json` to the new upstream tag.
 2. Run the sync script from the repo root:
 
    ```bash
@@ -225,8 +225,7 @@ The `skills/` tree is vendored from [`jfrog/jfrog-skills`](https://github.com/jf
 
    It downloads the pinned tarball from `codeload.github.com`, extracts it, and replaces the directories listed in `paths` (today: `skills/`) under `plugins/jfrog/`.
 3. Bump `version` in [`plugins/jfrog/.cursor-plugin/plugin.json`](plugins/jfrog/.cursor-plugin/plugin.json) so users actually receive the update — Cursor skips installs whose resolved version hasn't changed.
-4. Update the pinned-version link in the [Prerequisites](#prerequisites) section so the skill runtime requirements point at the new tag.
-5. Commit the pin bump, the regenerated `plugins/jfrog/skills/` tree, the version bump, and the README link bump together, and open a PR.
+4. Commit the pin bump, the regenerated `plugins/jfrog/skills/` tree, and the version bump together, and open a PR.
 
 See [`VENDOR.md`](VENDOR.md) for the full picture.
 
