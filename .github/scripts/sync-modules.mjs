@@ -8,7 +8,7 @@
 // Reads paths from sync-modules-vendor.json.
 //
 // Optional vendor.keep: dest-relative file paths restored after sync so a
-// temporary overlay (e.g. MLD-1386 core files) is not wiped until upstream
+// temporary core-file overlay is not wiped until upstream
 // ships them and keep is removed.
 
 import { promises as fs } from "node:fs";
