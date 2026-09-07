@@ -18,7 +18,7 @@ When the upstream repo publishes a new release, refresh the vendored tree via a 
 
 1. Bumps `pin` in [`.github/scripts/sync-skills-vendor.json`](.github/scripts/sync-skills-vendor.json) to the new tag.
 2. Re-syncs and commits the refreshed `plugins/jfrog/skills/` tree.
-3. Bumps `version` in [`plugins/jfrog/.cursor-plugin/plugin.json`](plugins/jfrog/.cursor-plugin/plugin.json) so users actually receive the update (Cursor skips installs whose resolved version hasn't changed).
+3. Bumps `version` in [`plugins/jfrog/.cursor-plugin/plugin.json`](plugins/jfrog/.cursor-plugin/plugin.json) so users actually receive the update (Cursor skips installs whose resolved version hasn't changed), and syncs `.metadata.version` in [`.cursor-plugin/marketplace.json`](.cursor-plugin/marketplace.json) to match.
 
 To regenerate the tree locally before opening the PR:
 
