@@ -1,6 +1,6 @@
 {
   "repo": "jfrog/jfrog-skills",
-  "pin": "v0.36.0",
+  "pin": "v0.37.0",
   "paths": [
     "skills"
   ]
