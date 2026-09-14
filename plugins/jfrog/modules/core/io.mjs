@@ -1,4 +1,5 @@
-// Shared stdin helpers for subprocess-style adapters (Claude, Cursor, VS Code).
+// Shared stdin helpers for subprocess-style adapters (Claude, Cursor, VS Code,
+// Codex).
 //
 // Hooks deliver their JSON payload on stdin immediately; in non-hook contexts
 // (CI, npm scripts, terminal smoke tests) nothing arrives, so we bail out after
@@ -81,10 +82,27 @@ const CLAUDE_SESSION_SOURCES = new Set([
   "compact",
 ]);
 
+// Codex SessionStart reuses Claude's source values (startup/resume/clear/
+// compact). Classify it before those sources or the Codex adapter no-ops.
+// Fingerprints are from the official hook schema: transcript under `.codex/`
+// or `rollout.jsonl`, and session ids prefixed `thr_`.
+function isCodexPayload(p) {
+  const transcript = p.transcript_path;
+  if (typeof transcript === "string" && transcript) {
+    if (
+      transcript.includes("/.codex/") ||
+      transcript.endsWith("rollout.jsonl")
+    ) {
+      return true;
+    }
+  }
+  return typeof p.session_id === "string" && p.session_id.startsWith("thr_");
+}
+
 // Positively identify the harness that invoked this hook from its stdin
-// payload. Returns "cursor", "copilot", "claude_code", or null when no harness
-// left a fingerprint (no stdin — e.g. terminal smoke tests — or a shape none of
-// them own).
+// payload. Returns "cursor", "copilot", "codex", "claude_code", or null when
+// no harness left a fingerprint (no stdin — e.g. terminal smoke tests — or a
+// shape none of them own).
 //
 // Why this matters: Cursor reads sessionStart hooks from BOTH
 // ~/.cursor/hooks.json AND ~/.claude/settings.json. Without this, a Cursor
@@ -108,8 +126,11 @@ export function detectHarness(stdinRaw) {
       // also include a transcript_path, so path presence cannot classify Claude
       // before the source is checked.
       if (p.source === "new") return "copilot";
+      // Codex shares Claude's SessionStart sources — fingerprint first.
+      if (isCodexPayload(p)) return "codex";
       if (CLAUDE_SESSION_SOURCES.has(p.source)) return "claude_code";
     }
+    if (isCodexPayload(p)) return "codex";
     // Claude writes a transcript for non-SessionStart hooks too.
     if (p.transcript_path) return "claude_code";
   } catch {
@@ -120,7 +141,7 @@ export function detectHarness(stdinRaw) {
 
 /**
  * Workspace roots for this hook invocation.
- * Cursor: workspace_roots[]. Claude and VS Code Copilot: payload cwd.
+ * Cursor: workspace_roots[]. Claude, Codex, and VS Code Copilot: payload cwd.
  * Fallback: process.cwd().
  *
  * @param {string} [stdinRaw]

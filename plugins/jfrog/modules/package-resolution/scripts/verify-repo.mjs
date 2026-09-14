@@ -10,6 +10,7 @@ import {
   safeErrorMessage,
 } from "../../core/jf-identity.mjs";
 import { createLogger } from "../../core/logger.mjs";
+import { skillsProductUserAgent } from "../../core/jf-user-agent.mjs";
 import { PACKAGE_TYPES, repoMatchesPackageType } from "./repo-types.mjs";
 
 const log = createLogger("verify-repo");
@@ -117,6 +118,7 @@ export async function verifyRepoKey({ type, repoKey }) {
       headers: {
         Authorization: authorization,
         Accept: "application/json",
+        "User-Agent": skillsProductUserAgent(),
       },
       signal: controller.signal,
     });

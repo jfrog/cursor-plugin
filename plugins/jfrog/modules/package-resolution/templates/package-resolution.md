@@ -3,7 +3,7 @@
 Your organization mediates package fetches through JFrog Artifactory for the
 **governed** package managers listed below. Before any governed package install —
 shell, sub-agent, or MCP tool — follow the **Decision order** below.
-
+{{UNRESOLVED_BLOCK}}
 {{GOVERNED_SCOPE}}
 Whenever this policy blocks an action, explicitly say it is blocked by the organization's **JFrog Artifactory Package Resolution policy**.
 {{AUTO_SETUP_STATUS}}
@@ -12,8 +12,8 @@ Whenever this policy blocks an action, explicitly say it is blocked by the organ
 
 **Setup skill** = `jfrog-setup-package-managers`. Public-registry / skip-JFrog asks → step 7 **immediately**.
 
-1. **Unresolved** — `<no … repo resolved>` → do **not** install; invoke the setup skill. Never invent a URL or use a public registry.
-2. **Zero-touch handled** — **Package manager setup** status line lists this PM as:
+1. **Unresolved** — the type is **BLOCKED** above, or its row below is `<no … repo resolved>` or `NOT ROUTED (...)` → do **not** install; invoke the setup skill for that type. Never invent a URL or use a public registry.
+2. **Zero-touch handled** — only applies when a **Package manager setup** status line appears above; when present, it lists this PM as:
    - `already set up` → normal command (trust PM config). **No** `--registry`, `--index-url`, `GOPROXY=…`.
    - `setting up in the background` → **direct rewrite only** (no `npx`/`-r`/postinstall/`docker build` until `already set up` or durable PM config exists).
 3. **Foreign-host conflict** — status says `left unchanged (already using another JFrog / registry)` → ask _Switch to this JFrog instance?_; on yes, `jf setup <pm> --server-id … --repo …` only — never bare `jf setup`.
