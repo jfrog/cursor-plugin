@@ -40,11 +40,14 @@ export const CLAUDE_ADMIN_GUIDE_URL =
   "https://github.com/jfrog/claude-plugin/blob/main/docs/package-resolution-admin-guide.md";
 export const COPILOT_ADMIN_GUIDE_URL =
   "https://github.com/jfrog/vscode-plugin/blob/main/docs/package-resolution-admin-guide.md";
+export const CODEX_ADMIN_GUIDE_URL =
+  "https://github.com/jfrog/codex-plugin/blob/main/docs/package-resolution-admin-guide.md";
 
 const ADMIN_GUIDE_URL_BY_IDE = {
   claude_code: CLAUDE_ADMIN_GUIDE_URL,
   cursor: CURSOR_ADMIN_GUIDE_URL,
   copilot: COPILOT_ADMIN_GUIDE_URL,
+  codex: CODEX_ADMIN_GUIDE_URL,
 };
 
 /** Human-readable list of APR package types (keeps nudge copy in sync with code). */

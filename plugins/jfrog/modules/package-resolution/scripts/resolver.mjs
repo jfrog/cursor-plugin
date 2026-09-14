@@ -27,6 +27,7 @@ import {
   isHttpsIdentityUrl,
   safeErrorMessage,
 } from "../../core/jf-identity.mjs";
+import { skillsProductUserAgent } from "../../core/jf-user-agent.mjs";
 import { PACKAGE_TYPES, repoMatchesPackageType } from "./repo-types.mjs";
 import {
   pickWorkspaceConfigRoot,
@@ -56,6 +57,10 @@ const SESSION = {
   byType: null,
   workspaceDeclaredTypes: [],
   overlayPreparedFor: null,
+  // Admin-configured types that failed this session's verify, with why —
+  // so the rendered instruction can say WHY a type is unrouted instead of
+  // rendering an unfilled-looking `<no … repo resolved>` placeholder.
+  unresolvedCauses: {},
 };
 
 function identityOrNull() {
@@ -177,18 +182,23 @@ function normalizeCacheRoot(data) {
   return { schemaVersion: CACHE_SCHEMA_VERSION, servers };
 }
 
+/**
+ * @returns {Promise<{ config: object|null, cause: string|null }>} cause is set
+ *   whenever config is null, so callers can report WHY verify failed instead
+ *   of silently collapsing every failure mode to the same blank miss.
+ */
 async function fetchRepoConfig(repoKey, id, deadline) {
-  if (!id) return null;
+  if (!id) return { config: null, cause: "jf-not-configured" };
   if (!isHttpsIdentityUrl(id)) {
     log.warn("refusing repo verify over a non-HTTPS platform URL", { repoKey });
-    return null;
+    return { config: null, cause: "insecure-url" };
   }
   const url = `${id.url}/artifactory/api/repositories/${encodeURIComponent(repoKey)}`;
   // Network call on session start (cache miss + verifyRepos) — log at info so a
   // fresh session's Artifactory calls are visible without enabling debug.
   log.info("verifying repo via Artifactory API", { repoKey, url });
   const authorization = authHeader(id);
-  if (!authorization) return null;
+  if (!authorization) return { config: null, cause: "jf-unsupported-auth" };
   // Bound the call so a stalled Artifactory can't hang session start.
   const controller = new AbortController();
   const remaining = Math.max(0, deadline - Date.now());
@@ -198,20 +208,22 @@ async function fetchRepoConfig(repoKey, id, deadline) {
       headers: {
         Authorization: authorization,
         Accept: "application/json",
+        "User-Agent": skillsProductUserAgent(),
       },
       signal: controller.signal,
     });
     if (!res.ok) {
-      log.debug("repo verify miss", { repoKey, status: res.status });
-      return null;
+      const cause = res.status === 404 ? "not-found" : `http-${res.status}`;
+      log.debug("repo verify miss", { repoKey, status: res.status, cause });
+      return { config: null, cause };
     }
-    return await res.json();
+    return { config: await res.json(), cause: null };
   } catch (err) {
     log.warn("repo verify threw", {
       repoKey,
       error: safeErrorMessage(err),
     });
-    return null;
+    return { config: null, cause: "unreachable" };
   } finally {
     clearTimeout(timer);
   }
@@ -241,6 +253,11 @@ function entryToByType(entry, base) {
   return byType;
 }
 
+/**
+ * Verifies each admin-configured repo against Artifactory and writes the
+ * resolved set to the on-disk cache, preserving prior good entries on
+ * partial/total verify failure and recording why each failed type failed.
+ */
 async function refreshServerCache(
   serverId,
   id = identityOrNull(),
@@ -262,23 +279,36 @@ async function refreshServerCache(
   });
   const adminConfiguredCount = configured.length;
 
+  // Reset per session-refresh — only this pass's own verify attempts should
+  // explain "unresolved" to the render; a stale cause from an earlier refresh
+  // in the same process must not outlive the config that produced it.
+  SESSION.unresolvedCauses = {};
+
   if (verifyRepos) {
     // Each repository lookup is independent. Parallel verification keeps a
     // cold session within the hook's 15-second budget instead of multiplying
     // the five-second request timeout by every configured package type.
     const verified = await Promise.all(
       configured.map(async ({ type, repoKey }) => {
-        const config = await fetchRepoConfig(repoKey, id, verifyDeadline);
+        const { config, cause: fetchCause } = await fetchRepoConfig(
+          repoKey,
+          id,
+          verifyDeadline,
+        );
+        const matchesType =
+          Boolean(config) && repoMatchesPackageType(config, type);
         return {
           type,
           repoKey,
-          verified: Boolean(config && repoMatchesPackageType(config, type)),
+          verified: matchesType,
+          cause: config && !matchesType ? "package-type-mismatch" : fetchCause,
         };
       }),
     );
-    for (const { type, repoKey, verified: isVerified } of verified) {
+    for (const { type, repoKey, verified: isVerified, cause } of verified) {
       if (!isVerified) {
-        log.warn("repo verify failed", { type, repoKey, serverId });
+        log.warn("repo verify failed", { type, repoKey, serverId, cause });
+        SESSION.unresolvedCauses[type] = { repoKey, cause };
         continue;
       }
       repositories[type] = repoKey;
@@ -296,8 +326,15 @@ async function refreshServerCache(
   const { data: cacheRoot, file } = await readCacheFile();
   const root = normalizeCacheRoot(cacheRoot);
   const priorEntry = root.servers[serverId];
+  // serverId alone does not guarantee identity: a named jf server can be
+  // repointed at a different URL without its serverId changing. Combining
+  // an old, never-verified-against-this-host repo key with the CURRENT
+  // base URL would route an install through an unverified repository.
+  const priorEntryUrlMatches = priorEntry?.url === (id?.url ?? null);
   const priorHasRepos = Boolean(
-    priorEntry?.repositories && Object.keys(priorEntry.repositories).length,
+    priorEntryUrlMatches &&
+      priorEntry?.repositories &&
+      Object.keys(priorEntry.repositories).length,
   );
 
   // A total verify failure (every admin-configured type failed the repo
@@ -313,12 +350,24 @@ async function refreshServerCache(
     if (priorHasRepos) {
       log.warn(
         "repo verify failed for every configured type — keeping prior cache " +
-          "entry instead of pinning an empty one",
+          "entries whose key still matches the current config",
         { serverId, configuredCount: adminConfiguredCount },
       );
+      // Only trust a prior key for a type if it is still the key the admin
+      // currently configures. If defaultGlobalRepos changed the key since
+      // the cache was written, restoring the old one would route installs
+      // through a repository the current config no longer authorizes — the
+      // type stays unresolved instead, keeping the cause this pass recorded.
+      const staleRepositories = {};
+      for (const [type, repoKey] of Object.entries(priorEntry.repositories)) {
+        if (!repoKey || repoKey !== adminRepos[type]) continue;
+        staleRepositories[type] = repoKey;
+        delete SESSION.unresolvedCauses[type];
+      }
+      const staleEntry = { ...priorEntry, repositories: staleRepositories };
       SESSION.serverId = serverId;
-      SESSION.byType = entryToByType(priorEntry, base);
-      SESSION.meta = buildResolveMeta(serverId, priorEntry, {
+      SESSION.byType = entryToByType(staleEntry, base);
+      SESSION.meta = buildResolveMeta(serverId, staleEntry, {
         via: "refresh-verify-failed-kept-prior",
         cacheFile: file,
       });
@@ -351,7 +400,14 @@ async function refreshServerCache(
   if (verifyRepos && priorHasRepos) {
     for (const [type, repoKey] of Object.entries(priorEntry.repositories)) {
       if (repositories[type] || !adminRepos[type]) continue;
+      // Only restore this cached key if it's still the key the admin
+      // currently configures — a changed key means the current config no
+      // longer authorizes it, so the type stays unresolved instead.
+      if (repoKey !== adminRepos[type]) continue;
       repositories[type] = repoKey;
+      // Type is governed again via the stale-but-trusted cache entry — the
+      // cause captured above no longer describes its current (resolved) state.
+      delete SESSION.unresolvedCauses[type];
       log.warn("repo verify failed — keeping prior cache value for type", {
         type,
         repoKey,
@@ -383,6 +439,10 @@ async function refreshServerCache(
   });
 }
 
+/**
+ * Returns the cached server entry if it exists and is still fresh
+ * (TTL/mtime/URL all match), populating SESSION from it with no network call.
+ */
 async function loadFreshCacheEntry(serverId, id = identityOrNull()) {
   const pr = loadAgentsConfig().packageResolution;
   const agentsConfigMtimeMs = getAgentsConfigMtimeMs();
@@ -399,6 +459,17 @@ async function loadFreshCacheEntry(serverId, id = identityOrNull()) {
   const base = id ? `${id.url}/artifactory` : "";
   SESSION.serverId = serverId;
   SESSION.byType = entryToByType(entry, base);
+  // No verify ran this pass, so there's no fresh cause to report — but a
+  // type that is still admin-configured and absent from this cached
+  // snapshot is still unresolved for the whole cache TTL. Reconstruct
+  // enough to say so, rather than silently reverting to the ambiguous
+  // `<no … repo resolved>` placeholder for the rest of the TTL.
+  SESSION.unresolvedCauses = {};
+  const adminRepos = pr.defaultGlobalRepos ?? {};
+  for (const [type, repoKey] of Object.entries(adminRepos)) {
+    if (!repoKey || SESSION.byType[type]) continue;
+    SESSION.unresolvedCauses[type] = { repoKey, cause: "unresolved-cached" };
+  }
   SESSION.meta = buildResolveMeta(serverId, entry, {
     via: "cache",
     cacheFile: file,
@@ -412,6 +483,11 @@ async function loadFreshCacheEntry(serverId, id = identityOrNull()) {
   return entry;
 }
 
+/**
+ * Guarantees SESSION holds a resolved (cache-hit or freshly-verified) repo
+ * map for the current server id, short-circuiting if already resolved this
+ * process.
+ */
 async function ensureSessionResolved(
   serverIdHint,
   verifyDeadline = Date.now() + REPO_VERIFY_BUDGET_MS,
@@ -422,6 +498,8 @@ async function ensureSessionResolved(
     SESSION.serverId = effectiveServerId(serverIdHint, rawId);
     SESSION.byType = {};
     SESSION.meta = null;
+    // A prior identity's verify failure must not be reported as this one's.
+    SESSION.unresolvedCauses = {};
     return;
   }
 
@@ -443,6 +521,11 @@ function workspaceOverlayMetaApplied(workspaceRoots, pick, overridden) {
   };
 }
 
+/**
+ * Overlays workspace-local `.jfrog/local` repo declarations onto the
+ * session's resolved types, verifying each declared repo before it
+ * overrides the global mapping.
+ */
 async function applyWorkspaceOverlay(
   workspaceRoots,
   verifyDeadline = Date.now() + REPO_VERIFY_BUDGET_MS,
@@ -493,7 +576,7 @@ async function applyWorkspaceOverlay(
   const validated = pr.verifyRepos
     ? await Promise.all(
         requested.map(async ({ type, repoKey }) => {
-          const config = await fetchRepoConfig(repoKey, id, verifyDeadline);
+          const { config } = await fetchRepoConfig(repoKey, id, verifyDeadline);
           return {
             type,
             repoKey,
@@ -578,6 +661,17 @@ export function governedPackageTypes() {
   return PACKAGE_TYPES.filter((type) => union.has(type));
 }
 
+/**
+ * Why an admin-configured governed type failed THIS session's verify, if
+ * known. Render uses this to say what actually happened (rejected repo key,
+ * unreachable Artifactory, …) instead of an ambiguous blank placeholder.
+ * @param {string} type
+ * @returns {{ repoKey: string, cause: string }|null}
+ */
+export function getUnresolvedInfo(type) {
+  return SESSION.unresolvedCauses?.[type] ?? null;
+}
+
 export async function resolve(type, { serverId: serverIdHint } = {}) {
   log.debug("resolve start", {
     type,
@@ -609,6 +703,7 @@ export async function invalidateResolveCache(serverIdHint) {
   SESSION.meta = null;
   SESSION.workspaceDeclaredTypes = [];
   SESSION.overlayPreparedFor = null;
+  SESSION.unresolvedCauses = {};
   const serverId = effectiveServerId(serverIdHint);
   const { data } = await readCacheFile();
   const root = normalizeCacheRoot(data);

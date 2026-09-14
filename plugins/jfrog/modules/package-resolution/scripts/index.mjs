@@ -4,6 +4,7 @@
 // Performs NO harness-specific I/O (no stdin/stdout).
 
 import { createLogger } from "../../core/logger.mjs";
+import { axesForSessionStart } from "../../core/jf-user-agent.mjs";
 import { isPackageResolutionEnabled } from "./feature-flag.mjs";
 import { renderInstruction } from "./render-instruction.mjs";
 import { orchestrateEagerSetup } from "./eager-setup.mjs";
@@ -16,16 +17,16 @@ import {
 const log = createLogger("package-resolution");
 
 /**
- * Adapter `ctx.ide` → UA wire `tool=` token.
- * Only hooks-specific mapping (`claude_code` → `claude`). Env-marker harness
- * detection stays in CLI (`ai-agent/`); model stamps only in skills when known.
- * @param {string | undefined} ide
- * @returns {string | undefined}
+ * Adapter `ctx.ide` → UA wire tokens. Unknown ide → omit, not `unknown`.
+ * Direct sessionStart (no ide) infers from strong env only.
+ * Clears leftover JFROG_APR_UA_* when an axis is absent (Claude omit client).
  */
-function wireToolFromIde(ide) {
-  if (ide === "claude_code") return "claude";
-  if (ide === "cursor" || ide === "copilot") return ide;
-  return undefined;
+export function stampHookUaAxes(ctx = {}) {
+  const axes = axesForSessionStart(ctx, process.env);
+  if (axes.tool) process.env.JFROG_APR_UA_TOOL = axes.tool;
+  else delete process.env.JFROG_APR_UA_TOOL;
+  if (axes.client) process.env.JFROG_APR_UA_CLIENT = axes.client;
+  else delete process.env.JFROG_APR_UA_CLIENT;
 }
 
 export const packageResolution = {
@@ -53,22 +54,23 @@ export const packageResolution = {
     const flag = await isPackageResolutionEnabled();
     this.mode = flag.mode;
 
-    // Hook UA tool= from adapter id; CLI may still append ai-agent/ from env.
-    const tool = wireToolFromIde(ctx.ide);
-    if (tool) process.env.JFROG_APR_UA_TOOL = tool;
+    // Hook UA from adapter id, or print-policy inference when ide is absent.
+    stampHookUaAxes(ctx);
 
     const killSwitch = flag.mode === "off" && flag.reason === "DISABLE";
-    let nudge = { offer: false, reason: "nudge-error", text: "" };
-    try {
-      nudge = resolveOnboardingNudge({ ide: ctx.ide, killSwitch });
-    } catch (err) {
-      log.warn("onboarding nudge failed", {
-        error: err?.message ?? String(err),
-      });
-    }
 
     // Off: only the nudge (if eligible) is injected, no routing/pending policy.
+    // No routing resolution happens in this mode, so there is no "governed
+    // type unresolved" state to check the nudge against.
     if (flag.mode === "off") {
+      let nudge = { offer: false, reason: "nudge-error", text: "" };
+      try {
+        nudge = resolveOnboardingNudge({ ide: ctx.ide, killSwitch });
+      } catch (err) {
+        log.warn("onboarding nudge failed", {
+          error: err?.message ?? String(err),
+        });
+      }
       this.meta = {
         reason: flag.reason,
         identity: flag.identity ?? "-",
@@ -98,6 +100,27 @@ export const packageResolution = {
       ...ctx,
       autoSetupStatus,
     });
+
+    // Nudge is decided AFTER routing resolves, not before: its "public
+    // registries are the default, say No to decline" framing must never sit
+    // beside a hard block on a governed-but-unresolved type — that pairing is
+    // exactly what let an agent read a blocked type as merely unconfigured.
+    const blockedByUnresolved = Boolean(
+      meta.unresolved && meta.unresolved !== "-",
+    );
+    let nudge = { offer: false, reason: "nudge-error", text: "" };
+    if (blockedByUnresolved) {
+      nudge = { offer: false, reason: "governed-type-unresolved", text: "" };
+    } else {
+      try {
+        nudge = resolveOnboardingNudge({ ide: ctx.ide, killSwitch });
+      } catch (err) {
+        log.warn("onboarding nudge failed", {
+          error: err?.message ?? String(err),
+        });
+      }
+    }
+
     const combined = [text, nudge.text]
       .filter((t) => t?.trim())
       .join("\n\n---\n\n");

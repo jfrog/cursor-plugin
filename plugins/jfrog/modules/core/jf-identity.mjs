@@ -24,6 +24,7 @@ import { spawnSync } from "node:child_process";
 import process from "node:process";
 
 import { createLogger } from "./logger.mjs";
+import { skillsProductUserAgent } from "./jf-user-agent.mjs";
 
 const log = createLogger("jf-identity");
 
@@ -306,7 +307,10 @@ export async function probePlatformIdentity(identity) {
   try {
     const res = await fetch(pingUrl, {
       method: "GET",
-      headers: { Authorization: authorization },
+      headers: {
+        Authorization: authorization,
+        "User-Agent": skillsProductUserAgent(),
+      },
       signal: controller.signal,
     });
     if (res.status === 401 || res.status === 403) {
