@@ -6,7 +6,7 @@ JFrog plugin for [Cursor](https://cursor.com): artifact management, security sca
 
 - **Skills governance.** A hook checks the skills you invoke against your JFrog governance policy and blocks the ones it disallows. See [Skills governance](#skills-governance).
 - **Agent Package Resolution (Preview).** A hook automatically routes the packages your AI agent installs through your JFrog Artifactory instead of public registries. See [Agent Package Resolution](#agent-package-resolution-preview).
-- **AI Catalog skill.** New `jfrog-ai-catalog-skills` skill to discover, install, update, and publish agent skills hosted in the JFrog AI Catalog.
+- **AI Catalog skill.** New `jfrog-ai-catalog` skill to discover, install, update, and publish agent skills hosted in the JFrog AI Catalog.
 ---
 
 ## Features
