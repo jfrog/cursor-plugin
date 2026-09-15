@@ -18,6 +18,7 @@ import {
   getResolveSessionMeta,
   prepareSessionResolve,
   governedPackageTypes,
+  getUnresolvedInfo,
 } from "./resolver.mjs";
 import { createLogger } from "../../core/logger.mjs";
 import { globalDeclaredTypes } from "../../core/agents-config.mjs";
@@ -167,17 +168,103 @@ function jfrogPlatformUrlHint() {
   );
 }
 
-const NO_REPO = (type) => `<no ${type} repo resolved>`;
+/**
+ * Human-readable category for a resolver failure cause. Every cause used to
+ * render as "was rejected by Artifactory", which is wrong for `unreachable`
+ * (Artifactory never responded), 401/403 (a credentials/permissions problem,
+ * not the repo key), and 5xx (a service failure) — telling the agent
+ * "rejected" for those steers it toward replacing a valid repo key instead
+ * of fixing connectivity/auth/service health. The raw cause token stays
+ * visible alongside this as secondary detail.
+ * @param {string} cause
+ * @returns {string}
+ */
+function causeDescription(cause) {
+  if (cause === "not-found") return "was not found in Artifactory";
+  if (cause === "package-type-mismatch")
+    return "resolved, but as a different package type";
+  if (cause === "unreachable")
+    return "did not receive a response from Artifactory";
+  if (cause === "insecure-url")
+    return "cannot be verified over a non-HTTPS platform URL";
+  if (cause === "jf-unsupported-auth")
+    return "cannot be verified — the configured jf auth method is unsupported";
+  if (cause === "jf-not-configured")
+    return "cannot be verified — no JFrog server is configured";
+  if (cause === "unresolved-cached")
+    return "did not resolve in the last verify pass (served from cache)";
+  const status = Number(/^http-(\d+)$/.exec(cause)?.[1]);
+  if (status === 401 || status === 403) {
+    return "was rejected — check jf credentials/permissions, not the repo key";
+  }
+  if (status >= 500) return "Artifactory returned a server error";
+  if (status) return "Artifactory returned an unexpected response";
+  return "could not be verified";
+}
 
-// Resolved-URLs markdown table for the governed types (one row each). Ungoverned
-// types are omitted entirely; governed-but-unresolved types keep a placeholder
-// row so hard-rule #5 can steer the agent to setup.
+/**
+ * Governed-but-unresolved table-cell text for `type`. Prefers the real verify
+ * failure cause over a blank `<no … repo resolved>` — an unfilled-looking
+ * placeholder next to an onboarding nudge framing routing as opt-in is
+ * exactly the contradiction that let an agent read "unresolved" as
+ * "unconfigured, decline if you like" instead of "blocked, do not proceed".
+ * Kept short — full detail lives once in the leading BLOCKED block, not
+ * repeated here (both types are unresolved for the same reason).
+ * Plain prose, not a code value — the table renders it without backticks
+ * (unlike a real URL) so a repo key/cause can't produce nested/broken
+ * backticks inside the markdown table cell.
+ * @param {string} type
+ * @returns {string}
+ */
+const NO_REPO = (type) => {
+  const info = getUnresolvedInfo(type);
+  if (info?.cause) {
+    return `NOT ROUTED (${info.cause}) — see BLOCKED note above`;
+  }
+  return `<no ${type} repo resolved>`;
+};
+
+/**
+ * Builds the "Resolved URLs" markdown table, one row per governed type.
+ * Ungoverned types are omitted entirely; governed-but-unresolved types keep
+ * a placeholder row so hard-rule #5 can steer the agent to setup.
+ * @param {string[]} governed
+ * @param {Record<string, { baseUrl: string }>} resolved
+ * @returns {string}
+ */
 function buildResolvedTable(governed, resolved) {
   const rows = governed.map((type) => {
-    const url = resolved[type]?.baseUrl ?? NO_REPO(type);
-    return `| ${type} | \`${url}\` |`;
+    const r = resolved[type];
+    const cell = r ? `\`${r.baseUrl}\`` : NO_REPO(type);
+    return `| ${type} | ${cell} |`;
   });
   return ["| Type | Use this URL |", "|---|---|", ...rows].join("\n");
+}
+
+/**
+ * Renders one unmissable blocking line per governed-but-unresolved type,
+ * placed ABOVE the scope paragraph and tables ("do not install" previously
+ * only appeared buried inside a 7-branch Decision table and an 8-item hard-
+ * rule list — nothing said it up front). Returns "" when every governed
+ * type resolved, so the common case adds nothing.
+ * @param {string[]} governed
+ * @param {Record<string, { baseUrl: string }>} resolved
+ * @returns {string}
+ */
+function buildUnresolvedBlock(governed, resolved) {
+  const unresolvedTypes = governed.filter((type) => !resolved[type]);
+  if (!unresolvedTypes.length) return "";
+  // "Do not install / invoke the setup skill" is stated once, generically,
+  // by Decision step 1 below — not repeated per type here, or this block
+  // (and the token budget) grows with every unresolved type.
+  const lines = unresolvedTypes.map((type) => {
+    const info = getUnresolvedInfo(type);
+    const detail = info
+      ? `the configured repo \`${info.repoKey}\` ${causeDescription(info.cause)} (${info.cause})`
+      : "no repo could be resolved for it";
+    return `**${type} is BLOCKED — not routed.** ${detail}.`;
+  });
+  return "\n" + lines.join("\n\n") + "\n";
 }
 
 // Per-type "## Rewrite templates" bullet(s). Unresolved governed types get the
@@ -185,10 +272,7 @@ function buildResolvedTable(governed, resolved) {
 function rewriteBulletFor(type, resolved) {
   const r = resolved[type];
   if (!r) {
-    return (
-      `- \`${type}\` — **unresolved**. Per hard rule #5: invoke \`jfrog-setup-package-managers\` ` +
-      `for \`${type}\` BEFORE any direct command; then route via the resolved URL.`
-    );
+    return `- \`${type}\` — unresolved, see BLOCKED note above.`;
   }
   const url = r.baseUrl;
   switch (type) {
@@ -367,6 +451,10 @@ export async function renderInstruction(flag, ctx = {}) {
     "utf8",
   );
   template = template
+    .replace(
+      /\{\{UNRESOLVED_BLOCK\}\}/g,
+      buildUnresolvedBlock(governed, resolved),
+    )
     .replace(/\{\{GOVERNED_SCOPE\}\}/g, buildGovernedScope(governed))
     .replace(/\{\{RESOLVED_TABLE\}\}/g, buildResolvedTable(governed, resolved))
     .replace(
