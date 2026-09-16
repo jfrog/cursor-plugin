@@ -1,6 +1,6 @@
 # Agent Package Resolution: User Guide (Preview)
 
-**Audience:** Users of Cursor, Claude Code, or VS Code Copilot with the JFrog plugin, whether or not you're a professional developer.
+**Audience:** Users of Cursor, Claude Code, VS Code Copilot, or Codex with the JFrog plugin, whether or not you're a professional developer.
 
 You (or your org) installed the JFrog plugin. This is what happens next, step by step, when you ask your agent to do something that needs a package: install a dependency to build an app, pull a Docker image, and so on.
 
@@ -11,6 +11,8 @@ You (or your org) installed the JFrog plugin. This is what happens next, step by
 The JFrog plugin is installed. That's it; nothing else is required of you up front.
 
 On **VS Code Copilot**, also enable both settings (`chat.plugins.enabled` and `chat.useHooks`) so the plugin and SessionStart hook load.
+
+On **Codex**, installing the plugin does not run the SessionStart hook until you trust it. After `codex plugin add jfrog@codex-plugin`, restart Codex, open `/hooks`, and trust the JFrog Package Resolution command. ChatGPT **web** does not run hook scripts.
 
 ## What will happen, by case
 
