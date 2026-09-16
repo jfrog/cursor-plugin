@@ -53,12 +53,13 @@ If `jf` is missing or has no usable configured server, the feature stays in **pe
 
 All Agent Package Resolution admin settings live in a single JSON file on the developer machine:
 
-- macOS/Linux: `~/.jfrog/agents-conf.json`
-- Windows: `%USERPROFILE%\.jfrog\agents-conf.json`
+```
+~/.jfrog/agents-conf.json
+```
 
 | Property              | Description                                                                      |
 | --------------------- | -------------------------------------------------------------------------------- |
-| **Scope**             | Per user profile (`$HOME` or `%USERPROFILE%`)                                    |
+| **Scope**             | Per user profile (`$HOME`)                                                       |
 | **Written by**        | Administrators (MDM, golden image, manual edit) or auto-created on first session |
 | **Read by**           | JFrog plugin session hooks on every agent session start                          |
 | **Never overwritten** | If the file already exists, the plugin does not replace it                       |
@@ -82,32 +83,6 @@ This lets organizations **pre-deploy** their own `agents-conf.json` (via MDM, An
 | absent             | Offer only when the file still matches a shipped scaffold fingerprint; a hand-edited file stays silent |
 
 Per-type durable declines live in `~/.jfrog/skills-cache/apr-onboarding-v1.json` (not in `agents-conf.json`).
-
-Throughout this guide, `~/.jfrog/...` means the current user-profile `.jfrog`
-directory. On Windows, substitute `%USERPROFILE%\.jfrog\...`; the JSON schema
-and filenames are identical on every platform.
-
-### Windows verification (PowerShell)
-
-Confirm that the native executables and profile config are visible to the same
-Windows user that launches the IDE:
-
-```powershell
-Get-Command node.exe
-Get-Command jf.exe
-jf.exe --version
-jf.exe config show
-Test-Path "$env:USERPROFILE\.jfrog\agents-conf.json"
-```
-
-The resolver cache is
-`%USERPROFILE%\.jfrog\skills-cache\package-resolution.json`, the eager-setup
-receipt is
-`%USERPROFILE%\.jfrog\skills-cache\package-setup-v2.json`, and hook logs are
-written to `%USERPROFILE%\.jfrog\logs\agent-hooks.log`. After installing or
-changing a hook, use `Ctrl+Shift+P` → **Developer: Reload Window** in Cursor,
-start a new Claude Code or VS Code Copilot session, or restart Codex and
-re-trust `/hooks` if the SessionStart command changed.
 
 ### Consent Enable (developer chat flow)
 
