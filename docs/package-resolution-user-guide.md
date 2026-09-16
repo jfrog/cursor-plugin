@@ -12,6 +12,8 @@ The JFrog plugin is installed. That's it; nothing else is required of you up fro
 
 On **VS Code Copilot**, also enable both settings (`chat.plugins.enabled` and `chat.useHooks`) so the plugin and SessionStart hook load.
 
+On **Codex**, installing the plugin does not run the SessionStart hook until you trust it. After `codex plugin add jfrog@codex-plugin`, restart Codex, open `/hooks`, and trust the JFrog Package Resolution command. ChatGPT **web** does not run hook scripts.
+
 ## What will happen, by case
 
 You're mostly passive in all of this: the agent drives, and it tells you when it needs something from you.
