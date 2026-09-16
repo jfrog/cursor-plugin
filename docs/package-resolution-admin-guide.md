@@ -20,7 +20,7 @@ This guide is for **platform administrators** and **developers** onboarding the 
 | 4    | **Codex:** after install, restart, then `/hooks` and trust the SessionStart command (plugin install does not skip this — see the [Codex plugin README](https://github.com/jfrog/codex-plugin#installation)) |
 | 5    | Start a **new agent session** — missing config is created, then policy and URLs are injected once per session               |
 
-The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty `defaultGlobalRepos`. Nothing is routed until Consent Enable or an administrator adds bindings. Set `enabled: false` or `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` to keep it off.
+The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty `defaultGlobalRepos`. Nothing is routed until Consent Enable or an administrator adds bindings. `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` always keeps it off; `enabled: false` alone only keeps it off if you deploy your own `agents-conf.json` — on the plugin's auto-created default file it is not durable (see below).
 
 **At a glance:**
 
