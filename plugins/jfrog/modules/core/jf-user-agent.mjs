@@ -15,12 +15,12 @@
 // Spawn env is inherited so CLI DetectExecutionContext can append
 // ai-agent/ / ai-client/ / ai-model/ when those signals exist at jf start.
 
-import { spawnSync } from "node:child_process";
+import { spawnJfSync } from "./jf-process.mjs";
 
 // Plugin sync stamps this literal with the release semver (jfrog-sync-modules.py
 // stamp). Only `modules/` is vendored, so nothing outside this tree is readable
 // at runtime. Unstamped trees (this repo, local dev) report 0.0.0.
-const PKG_VERSION = "0.12.1";
+const PKG_VERSION = "0.12.2";
 
 /** Product UA for plugin `fetch()` (no trigger, no jfrog-cli-go). */
 export function skillsProductUserAgent() {
@@ -55,7 +55,7 @@ function resolveCliVersion(env = process.env) {
   try {
     // Keep process PATH/HOME even when callers pass a sparse env object
     // (unit tests often pass only UA-related keys).
-    const res = spawnSync("jf", ["--version"], {
+    const res = spawnJfSync(["--version"], {
       encoding: "utf8",
       timeout: 3000,
       env: { ...process.env, ...env },

@@ -22,6 +22,7 @@ import path from "node:path";
 import { createLogger } from "../../core/logger.mjs";
 import { getPlatformIdentity } from "../../core/jf-identity.mjs";
 import { envWithHookUserAgent } from "../../core/jf-user-agent.mjs";
+import { jfInvocation } from "../../core/jf-process.mjs";
 
 const log = createLogger("apr-heartbeat");
 
@@ -183,12 +184,16 @@ export function tryAcquireHeartbeatLock(serverId, opts = {}) {
  * Detached `jf rt ping --server-id <id>` with hook User-Agent.
  * Waits for spawn success vs async error before unref.
  * @param {string} serverId
- * @param {{ spawn?: typeof spawn, env?: NodeJS.ProcessEnv }} [opts]
+ * @param {{ spawn?: typeof spawn, env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform }} [opts]
  * @returns {Promise<boolean>} true if the process started
  */
 export function spawnHeartbeatPing(serverId, opts = {}) {
   const spawnImpl = opts.spawn ?? spawn;
   const env = opts.env ?? process.env;
+  const invocation = jfInvocation(["rt", "ping", "--server-id", serverId], {
+    env,
+    platform: opts.platform,
+  });
   return new Promise((resolve) => {
     let settled = false;
     const finish = (ok) => {
@@ -198,8 +203,9 @@ export function spawnHeartbeatPing(serverId, opts = {}) {
     };
     let child;
     try {
-      child = spawnImpl("jf", ["rt", "ping", "--server-id", serverId], {
+      child = spawnImpl(invocation.command, invocation.args, {
         detached: true,
+        windowsHide: true,
         stdio: "ignore",
         env: envWithHookUserAgent(env),
       });

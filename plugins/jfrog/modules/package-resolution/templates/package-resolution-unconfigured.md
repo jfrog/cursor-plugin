@@ -27,9 +27,9 @@ Do not delegate governed installs to `agent -p` or another child while routing i
 ## After setup — load the routing policy
 
 Once `jf` is configured and `jfrog-setup-package-managers` has bound package
-managers, load the current routing policy:
+managers, load the current routing policy. Run this command:
 
-```bash
+```text
 {{REFRESH_COMMAND}}
 ```
 

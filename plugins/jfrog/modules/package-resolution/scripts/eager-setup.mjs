@@ -59,6 +59,8 @@ import {
   packageManagerBinaryOnPath,
 } from "./package-manager-family.mjs";
 import { detectSetupConflict } from "./setup-conflict.mjs";
+import { isMainEntry } from "../../core/entry.mjs";
+import { spawnJfSync } from "../../core/jf-process.mjs";
 import { envWithHookUserAgent } from "../../core/jf-user-agent.mjs";
 
 const log = createLogger("eager-setup");
@@ -247,6 +249,7 @@ function spawnWorker(payloadB64, jobCount = 1) {
   if (process.env.JFROG_EAGER_SETUP_SYNC === "1") {
     spawnSync(process.execPath, [workerPath(), "--run", payloadB64], {
       stdio: "ignore",
+      windowsHide: true,
       env: process.env,
       timeout: syncWorkerTimeoutMs(jobCount),
     });
@@ -255,6 +258,7 @@ function spawnWorker(payloadB64, jobCount = 1) {
   try {
     const child = spawn(process.execPath, [workerPath(), "--run", payloadB64], {
       detached: true,
+      windowsHide: true,
       stdio: "ignore",
       env: process.env,
     });
@@ -643,7 +647,7 @@ export function releaseLock() {
 function supportedPackageManagers() {
   try {
     // --help is local (no Artifactory traffic); no UA needed for telemetry.
-    const res = spawnSync("jf", ["setup", "--help"], {
+    const res = spawnJfSync(["setup", "--help"], {
       encoding: "utf8",
       timeout: 5000,
       env: process.env,
@@ -701,7 +705,7 @@ function runJfSetup(packageManager, serverId, repoKey) {
     "--repo",
     repoKey,
   ];
-  const res = spawnSync("jf", args, {
+  const res = spawnJfSync(args, {
     encoding: "utf8",
     timeout: PER_PACKAGE_MANAGER_TIMEOUT_MS,
     env: envWithHookUserAgent(process.env),
@@ -838,8 +842,7 @@ export async function runWorker(payload) {
 // CLI entry (worker mode)
 // ---------------------------------------------------------------------------
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
-if (isMain && process.argv[2] === "--run") {
+if (isMainEntry(import.meta.url) && process.argv[2] === "--run") {
   const b64 = process.argv[3];
   try {
     const payload = JSON.parse(Buffer.from(b64, "base64").toString("utf8"));

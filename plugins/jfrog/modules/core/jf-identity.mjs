@@ -20,10 +20,10 @@
 // async.
 
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import process from "node:process";
 
 import { createLogger } from "./logger.mjs";
+import { spawnJfSync } from "./jf-process.mjs";
 import { skillsProductUserAgent } from "./jf-user-agent.mjs";
 
 const log = createLogger("jf-identity");
@@ -82,7 +82,7 @@ function jfConfigIdentity(serverId) {
 
   let result;
   try {
-    result = spawnSync("jf", args, {
+    result = spawnJfSync(args, {
       encoding: "utf8",
       timeout: 2000,
       stdio: ["ignore", "pipe", "pipe"],

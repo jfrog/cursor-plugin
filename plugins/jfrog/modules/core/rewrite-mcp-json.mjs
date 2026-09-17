@@ -27,6 +27,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { EXIT_ENABLED, runAgentGuardCheck } from "./agent-guard-check.mjs";
+import { jfInvocation } from "./jf-process.mjs";
 import { createLogger } from "./logger.mjs";
 
 const log = createLogger("rewrite-mcp-json");
@@ -285,13 +286,16 @@ export function pickDefaultJfCliServer(servers) {
 export function listJfCliServers(opts = {}) {
   const env = opts.env ?? process.env;
   const spawnSyncFn = opts.spawnSyncFn ?? spawnSync;
+  const invocation = jfInvocation(["config", "show", "--format=json"], { env });
   let res;
   try {
-    res = spawnSyncFn("jf", ["config", "show", "--format=json"], {
+    res = spawnSyncFn(invocation.command, invocation.args, {
       encoding: "utf8",
       timeout: 5_000,
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+      shell: false,
     });
   } catch {
     return [];

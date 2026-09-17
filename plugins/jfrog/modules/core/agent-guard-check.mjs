@@ -17,6 +17,7 @@ import { execFileSync } from "node:child_process";
 import process from "node:process";
 
 import { isMainEntry } from "./entry.mjs";
+import { jfInvocation } from "./jf-process.mjs";
 import { skillsProductUserAgent } from "./jf-user-agent.mjs";
 
 export const SETTINGS_PATH =
@@ -88,6 +89,7 @@ export function resolveAgentGuardCredentials(opts = {}) {
   if (explicitServerId) {
     const fromCli = resolveFromCliConfig({
       serverId: explicitServerId,
+      env,
       execFileSyncFn: execFn,
       debug,
     });
@@ -114,6 +116,7 @@ export function resolveAgentGuardCredentials(opts = {}) {
   if (explicitServerId) return null;
   return resolveFromCliConfig({
     serverId: undefined,
+    env,
     execFileSyncFn: execFn,
     debug,
   });
@@ -122,22 +125,28 @@ export function resolveAgentGuardCredentials(opts = {}) {
 /**
  * @param {{
  *   serverId?: string,
+ *   env?: NodeJS.ProcessEnv,
  *   execFileSyncFn?: typeof execFileSync,
  *   debug?: (message: string) => void,
  * }} opts
  */
 function resolveFromCliConfig(opts) {
   const debug = opts.debug ?? (() => {});
+  const env = opts.env ?? process.env;
   const execFn = opts.execFileSyncFn ?? execFileSync;
   const exportArgs = opts.serverId
     ? ["config", "export", opts.serverId]
     : ["config", "export"];
+  const invocation = jfInvocation(exportArgs, { env });
   let exported;
   try {
-    exported = execFn("jf", exportArgs, {
+    exported = execFn(invocation.command, invocation.args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 2000,
+      windowsHide: true,
+      shell: false,
+      env,
     }).trim();
   } catch (error) {
     debug(
