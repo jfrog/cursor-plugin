@@ -19,7 +19,7 @@ compatibility: >-
   (CLI) and Tier 3 (jf api) operations; without it, only MCP (Tier 1) is available.
 metadata:
   role: base
-  version: "0.38.0"
+  version: "0.40.0"
 ---
 
 # JFrog Skill
@@ -36,25 +36,30 @@ Network-facing `jf` this session. Exempt until `<SID>`: `jf --version`,
 - **UA:** [Environment check](#environment-check) once → on exit 0/1, export
   its **exact stdout line** as `JFROG_CLI_USER_AGENT` atop every bash that
   runs `jf` (never invent / rebuild the UA)
-- **CLI offer:** after [Environment check](#environment-check) exit 0/1
-  (skip `jfrog-init` / MCP-only). `NEWER_AVAILABLE` → stop, Yes/No; SKIP/No → silent
+- **CLI offer:** after Environment check exit 0/1 (skip `jfrog-init` /
+  MCP-only). `NEWER_AVAILABLE` → never block: `--clear` immediately (before
+  any other command), finish the task, end the reply with the upgrade note;
+  SKIP → silent
 - **Server:** resolve default once → `--server-id <SID>` **after** subcommand
   (`jf api --server-id …`, never `jf --server-id … api`). One request → one
   server (unless user names servers, e.g. `compare <a> and <b>`)
-- **Error (401/403/404/timeout):** stop — never retry another server / never
-  infer multi-server. Override only if user names a server
+- **Error (401/403/404/timeout):** never hop servers. List a repo with AQL
+  (local or `<remote>-cache`). 401 → re-login **same** server, then **one**
+  retry (sole identical-request exception). 403/404/timeout → never re-fire
+  the same path+query (package-block 403 → `jfrog-package-curation`). Empty
+  `offset`/`page` → stop. Pager ≤20 pages. Same path 403 → stop (one hop)
 - **No prep mutations:** missing repo/artifact/build → stop + report; no
   create/copy/move/upload to fill the gap (workaround ask ≠ permission)
 - **Never guess** tools / `jf api` paths → tool list / `--help` / `references/`.
   404 → stop (no guessed retry). `jf api` needs product prefix
-  (`/artifactory`, `/xray`, …)
+  (`/artifactory`, `/xray`, …). Never `GET /api/v1/artifacts` to list a repo
 - **Hard-rule signals:** [Cautious execution](#cautious-execution),
   [Server selection rules](#server-selection-rules-mandatory),
   [Gotchas](#gotchas--hard-rules-never-skip) Tier A bullets below — not tips
 - **Gotcha floor (Tier A):** never interactive (`jf config add`, `jf login`,
   template wizards, …); if a call fails **with** `--server-id`, do **not**
-  retry without it; 401/403/404/timeout → stop, never hop servers; `--quiet`
-  is not global — check `--help` before adding it
+  retry without it; 401 → one re-login retry; 403/404/timeout → stop, never
+  hop or loop; `--quiet` is not global — check `--help` before adding it
 
 **Tier B — path-gated MUST** (before `jf api` / AQL / advanced CLI I/O /
 MCP-result-via-shell anti-patterns): full
@@ -111,8 +116,9 @@ cover the operation or fails:
    subcommand. Validate the path first — see rule 6 in
    [Cautious execution](#cautious-execution).
 
-MCP and CLI may use different token scopes. One tier returns 403 → try the
-other tier before reporting the operation blocked.
+MCP and CLI may use different token scopes. One 403 → try the **other**
+tier **once** (package-block → `jfrog-package-curation`). 401 → then
+**one** retry of that URL.
 
 ## Prerequisites
 
@@ -159,10 +165,15 @@ Then, on exit 0/1 only:
 ```bash
 bash <skill_path>/scripts/cli-newer-version-offer.sh
 # SKIP → continue the original task; do not mention the offer.
-# NEWER_AVAILABLE <cli_version> <latest> (suggest_upgrade) → stop; Yes / No. After:
+# NEWER_AVAILABLE <cli_version> <latest> (suggest_upgrade) → never block or ask
+# mid-task. Immediately run (before any other command):
 #   bash <skill_path>/scripts/cli-newer-version-offer.sh --clear
-# Yes → references/jfrog-cli-install-upgrade.md, then check-environment.sh --force
-# (Tier 2/3 only on exit 0/1). No → silent. Next offer = next new latest.
+# Then finish the original task (success or failure) and end the final reply
+# with this line verbatim as its very last line (no other upgrade mention):
+#   JFrog CLI <latest> is available (you have <cli_version>). Upgrade? Yes / No
+# Yes (later turn) → references/jfrog-cli-install-upgrade.md, then
+# check-environment.sh --force (Tier 2/3 only on exit 0/1). No → silent.
+# Next offer = next new latest. JFROG_CLI_AVOID_NEW_VERSION_WARNING=true → SKIP.
 ```
 
 Exit 2/3 produces no `<UA>`; follow the exit table below and do not proceed to
@@ -212,7 +223,8 @@ any workflow skill that builds on this base skill. Examples elsewhere in this
 skill and in `references/*.md` omit the export for readability — the rule is
 global. When launching a subagent, pass `<UA>` in its prompt (see
 [Never invent](#never-invent-jfrog_cli_user_agent)) and whether the CLI
-offer already ran. Subagents do not re-ask.
+offer already ran. Subagents never show the upgrade note: on `NEWER_AVAILABLE`
+they `--clear` and return that line; the parent ends its reply with the note.
 
 | Exit | Meaning |
 |------|---------|
@@ -286,6 +298,9 @@ forbidden. Before any JFrog CLI command, MCP tool call, or API call:
    [JFrog OpenAPI specifications](https://docs.jfrog.com/integrations/docs/openapi-specifications)
    if you have web access). On a 404, stop and report — never retry with a guessed
    alternative path.
+7. **Never retry a failed call in a loop.** AQL on `<repo>-cache` (virtuals
+   are not `-cache`). 401 → then **one** retry. Pager **20-page cap** —
+   `cli-gotchas.md`. Do not invent `GET /api/v1/artifacts`.
 
 ## Server selection rules (mandatory)
 
@@ -339,8 +354,9 @@ re-resolve. Examples elsewhere in this skill and in `references/*.md` omit
 
 ### On any error, stop — never switch
 
-If a `jf` call returns 401/403, 404, network error, timeout, or any other
-failure, **stop with no further `jf` calls** and respond:
+If a `jf` call returns 403, 404, network error, timeout, or any other
+non-401 failure, **stop with no further `jf` calls** and respond. 401 →
+re-login same server, then **one** retry; if that fails, stop:
 
 > `<server-id>` returned `<code>` for `<endpoint>`: `<short reason>`. Other
 > configured server(s): `<list>` — I won't query them without your explicit
@@ -431,8 +447,8 @@ full file on Tier B paths.
   default-server switch). See [Server selection rules](#server-selection-rules-mandatory)
 - **Non-interactive only** — avoid `jf config add`, `jf login`, `*template`
   wizards; use `references/jfrog-login-flow.md` / REST
-- **Auth errors:** 401 → re-login **same** server; 403 → permissions; 404 →
-  path/prefix/version. Never switch configured servers as a workaround
+- **Auth errors:** 401 → re-login **same** server, then retry **once**.
+  403 → stop (package-block → `jfrog-package-curation`). 404 → path, stop
 
 **Tier B reminders (load full `cli-gotchas.md` + sibling Tier B refs before
 these paths):**
@@ -464,19 +480,17 @@ re-run the same network call to fix parsing.
 [At a glance](#at-a-glance-always-read-core) **Tier A** floor; add **Tier B**
 only when the next action needs `jf api` / advanced CLI:
 
-- [ ] `export JFROG_CLI_USER_AGENT='<UA>'` in this bash — `<UA>` is the exact
-      stdout line from `check-environment.sh` exit 0/1 (never invent / rebuild)
-- [ ] CLI offer (`cli-newer-version-offer.sh`) done or N/A (`jfrog-init` / MCP-only)
+- [ ] `export JFROG_CLI_USER_AGENT='<UA>'` — exact stdout line from
+      `check-environment.sh` exit 0/1; CLI offer done or N/A (`jfrog-init`);
+      `NEWER_AVAILABLE` = end-of-reply note, never a mid-task stop
 - [ ] network `jf`: `--server-id <SID>` after subcommand (not `jf --version` /
       `jf config show` pre-SID)
 - [ ] one server; error → stop, don't switch (multi only if user names /
-      `compare`)
-- [ ] no prep create/copy/move/upload to fill a gap (workaround ask ≠ permission)
+      `compare`); no prep create/copy/move/upload to fill a gap
 - [ ] never guess tools/paths → list / `--help` / `references/`; 404 → stop;
-      `jf api` product prefix (`/artifactory`, `/xray`, …)
+      `jf api` product prefix; same path 403/404 → stop (no pager); never
+      `GET /api/v1/artifacts`
 - [ ] **Tier A** hard rules: Cautious execution + Server selection + Gotchas
-      Tier A floor (interactive / `--server-id` retry / stop-on-error /
-      `--quiet`)
-- [ ] **Tier B** (only if next action is `jf api` / AQL / advanced CLI I/O):
-      full `cli-gotchas.md`, `jf-api.md`, `preserving-command-output.md`,
-      `cli-command-discovery.md`
+      floor (interactive / `--server-id` retry / stop-on-error / `--quiet`)
+- [ ] **Tier B** (`jf api` / AQL / advanced CLI I/O): full `cli-gotchas.md`,
+      `jf-api.md`, `preserving-command-output.md`, `cli-command-discovery.md`
