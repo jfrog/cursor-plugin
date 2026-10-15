@@ -9,7 +9,8 @@ endpoints, auto-authenticated against the resolved server. **Do not use
 ## Product-prefix table
 
 `jf api` requires the **full** path including the product prefix; omitting it
-returns 404.
+returns 404. Never invent `GET /api/v1/artifacts`. Cursor is `offset=0` or
+Xray `page_num=1`. Loops / 401 / 403 → `cli-gotchas.md`.
 
 | Product | Path prefix |
 |---------|-------------|
@@ -48,7 +49,7 @@ before running `jq` on it.
 
 ```bash
 QUERY='{ evidence { searchEvidence(first: 5, where: { hasSubjectWith: { repositoryKey: "my-repo-local" } }) { totalCount } } }'
-PAYLOAD=/tmp/onemodel-payload-$$.json RESPONSE=/tmp/onemodel-$$.json
+PAYLOAD="${JF_TMP:?}/evidence-payload.json" RESPONSE="${JF_TMP:?}/evidence.json"
 jq -n --arg q "$QUERY" '{query:$q}' > "$PAYLOAD"
 jf api /onemodel/api/v1/graphql -X POST \
   -H "Content-Type: application/json" --input "$PAYLOAD" > "$RESPONSE"

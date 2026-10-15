@@ -117,7 +117,7 @@ Report all eight values as distinct categories — do not merge them.
 ```bash
 jq '[.artifacts[0].issues[] | .applicability_details[]? | .result]
     | group_by(.) | map({result: .[0], count: length})
-    | sort_by(.count) | reverse' /tmp/xray-summary.json
+    | sort_by(.count) | reverse' "${JF_TMP:?}/xray-summary.json"
 ```
 
 For Docker images, the path format is
@@ -536,14 +536,15 @@ jf api "/xray/api/v1/services/results?repo=docker-local&path=my-service/1.0/mani
 
 ### Paginating exposure results
 
+`page_num` starts at **1**. Non-zero exit or empty `.data` → stop. Cap **20 pages**.
+
 ```bash
 PAGE=1
-while true; do
-  RESP=$(jf api "/xray/api/v1/secrets/results?repo=my-repo&path=my-artifact&page_num=$PAGE&num_of_rows=100")
-  echo "$RESP" | jq '.data[]'
-  TOTAL=$(echo "$RESP" | jq '.total_count')
-  COUNT=$(echo "$RESP" | jq '.data | length')
-  [ "$COUNT" -eq 0 ] && break
+MAX_PAGES=20
+while [ "$PAGE" -le "$MAX_PAGES" ]; do
+  if ! jf api "/xray/api/v1/secrets/results?repo=my-repo&path=my-artifact&page_num=$PAGE&num_of_rows=100" \
+      > "${JF_TMP:?}/secrets-results.json"; then break; fi
+  jq '.data[]' "${JF_TMP:?}/secrets-results.json"
   PAGE=$((PAGE + 1))
 done
 ```
@@ -560,12 +561,11 @@ Unknown paths → discover with AQL, then fan out to exposures.
 **Docker repos** — find all manifests:
 
 ```bash
-OUT=/tmp/manifests-$$.json
+OUT="${JF_TMP:?}/manifests.json"
 jf api /artifactory/api/search/aql \
   -X POST -H "Content-Type: text/plain" \
   -d 'items.find({"repo":"my-docker-local","name":"manifest.json","path":{"$nmatch":"*_uploads*"}}).include("repo","path","name")' \
   > "$OUT"
-echo "$OUT"
 jq -r '.results[] | .path + "/" + .name' "$OUT"
 ```
 
@@ -662,8 +662,8 @@ policy that affected the decision (blocking, bypassed, waived).
 
 ### Pagination
 
-`offset` + `num_of_rows`. `meta.next_offset` → next page. First request:
-`include_total=true` for total event count.
+`offset` + `num_of_rows`. First page **`offset=0`** (never `offset=`).
+Advance only when `next_offset` is an integer **greater than** last offset. Cap 20 pages.
 
 ### Common use cases
 
