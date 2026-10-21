@@ -6,8 +6,13 @@ description: >-
   (`jf skills`, `jf agent plugins`) and JFrog Agent Guard. Use whenever the
   user asks what skills or plugins are available or installed, wants to
   browse/search the catalog, see versions, install/update/uninstall/delete a
-  skill or plugin, or publish/upload/release one to JFrog / Artifactory / the
-  AI Catalog.
+  skill or plugin, publish/upload/release one to JFrog / Artifactory / the
+  AI Catalog, or list the AI Catalog (skill/plugin governance) policies —
+  allow-lists, malicious-skill checks — that apply to skills in a project.
+  Do NOT use this skill for MCP servers (that's jfrog-mcp-management, even
+  when the user says "policy" or "approved"), for Xray or curation "blocked
+  by policy" package errors (that's jfrog-package-curation), or for Xray
+  policies and watches (that's the base jfrog skill).
 metadata:
   role: workflow
 ---
@@ -26,7 +31,8 @@ Pick the row matching the user's intent and read that reference file.
 | Intent | Read |
 |--------|------|
 | "What skills are available?" / browse the catalog / list versions / search by name | [references/discovering-skills.md](references/discovering-skills.md) |
-| Install or update a skill (latest or a pinned version), or a download is blocked | [references/installing-skills.md](references/installing-skills.md) |
+| List the AI Catalog governance policies that apply to skills in a project (not MCP servers, not Xray/curation — see `listing-policies.md`'s own disambiguation) | [references/listing-policies.md](references/listing-policies.md) |
+| Install a skill with an explicitly resolved version and repo, update a skill, or handle a blocked download | [references/installing-skills.md](references/installing-skills.md) |
 | "What's installed?" / remove an installed skill | [references/managing-installed-skills.md](references/managing-installed-skills.md) |
 | Publish / upload / release a skill to the catalog | [references/publishing-skills.md](references/publishing-skills.md) |
 | "What plugins are available?" / browse the plugin catalog / list plugin versions / search plugins | [references/discovering-plugins.md](references/discovering-plugins.md) |
@@ -66,7 +72,8 @@ Pick the row matching the user's intent and read that reference file.
 - **Resolve the project (`<PROJECT>`) only when needed.**
   It is required for `--list-skills`, `--list-skill-versions`,
   `--provision-skills-repository`, `--list-agent-plugins`,
-  `--list-agent-plugin-versions`, and `--provision-agent-plugins-repository`.
+  `--list-agent-plugin-versions`, `--provision-agent-plugins-repository`, and
+  listing AI Catalog policies (`references/listing-policies.md`).
   Resolve it with this priority:
   1. Parse `~/.jfrog/setup.json` (if present) and read `.servers["<SID>"].currentActiveProject`.
   2. Fall back to `$JF_PROJECT`.
@@ -97,7 +104,8 @@ flowchart TD
     B -->|No| C[Ask user to install jf CLI, then continue]
     B -->|Yes| D{Intent}
     C --> D
-    D -->|List all skills / versions| E[npx @jfrog/agent-guard --list-skills]
+    D -->|List all skills / versions| E[npx @jfrog/agent-guard --list-skills --allowed-only]
+    D -->|List policies for skills| M[Resolve project, run list-skill-policies.mjs]
     D -->|Install / update skill| F[Resolve slug + version, then jf skills install/update]
     D -->|List installed skills / remove| G[jf skills list / rm -rf install dir]
     D -->|Publish skill| H[Resolve/provision repo, validate bundle, jf skills publish]
@@ -121,7 +129,15 @@ the reference files above.
   the next agent session start, so tell the user to restart.
 - **Don't leak the plumbing**: present skills/versions/repos to the user, never
   the `npx`/Agent Guard commands, `--registry`, flags, or cursors. Run follow-ups
-  yourself.
+  yourself. Discuss catalog filtering only when the user asks about missing or
+  blocked results; follow the refusal in `discovering-skills.md`.
+- **Skill discovery is always policy-scoped**: every skill and skill-version
+  listing must follow `discovering-skills.md`. Never weaken that listing path,
+  including for audit, blocked-content, or named-repository requests. Each
+  `locations[]` entry from `--list-skill-versions` also carries its own
+  `allowStatus`, since a repo's governance status is a per-repo fact, never a
+  per-version one (MLAI-1309) — see `discovering-skills.md` and
+  `installing-skills.md`.
 - **Use the response templates verbatim**: where a reference file gives a "reply
   using this exact template" block, fill the placeholders and send exactly that,
   with the same wording every time and no extra preamble or commentary.

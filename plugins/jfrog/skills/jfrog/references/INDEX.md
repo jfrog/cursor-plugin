@@ -18,7 +18,7 @@ hard-rule violation.
 
 - **Gotchas / caveats / do-don'ts**: **MUST** `references/cli-gotchas.md` on Tier B — not replaceable by SKILL.md Tier A floor
 - **`jf api` prefixes / flags / GraphQL**: **MUST** `references/jf-api.md` before `jf api`
-- **Temp files / `$$` / no re-fetch**: **MUST** `references/preserving-command-output.md` before advanced I/O
+- **Temp files (private `mktemp -d` dir) / no re-fetch**: **MUST** `references/preserving-command-output.md` before advanced I/O
 - **Namespaces / top-level cmds / Pipelines sunset**: **MUST** `references/cli-command-discovery.md` when discovery beyond `--help`
 
 Tier C (when needed — not Tier B):
@@ -50,6 +50,7 @@ for one operation.
 
 - **Watches, policies, violations, components, or vulnerability scanning (concepts)**: read `references/xray-entities.md`
 - **Exposures scanning results (secrets, IaC, service misconfigurations, application security risks)**: read `references/xray-entities.md` § Exposures (Advanced Security)
+- **Scanning source code with SAST (`jf audit --sast`)**: read `references/xray-sast-scan.md`
 - **Package install/resolve/download failure blamed on Curation — 403 from a curated remote, `ETARGET` / "no matching version", a version missing from the index, "why was package X blocked?", or a waiver after a block**: load the `jfrog-package-curation` workflow skill and follow its "Troubleshoot a failure" section (index-time CVS audit + download-time package audit → root cause + remediation, MCP only). Its "Check & download" section instead handles proactive "is this package safe to download?".
 - **Is this package safe / allowed / curated? Downloading npm, Maven, PyPI, Go, or similar packages via JFrog**: load the `jfrog-package-curation` workflow skill and follow its "Check & download" section.
 - **Curation audit events (approved/blocked packages, dry-run policy evaluations, curation export) without a failure to triage**: read `references/xray-entities.md` § Curation audit events
@@ -82,4 +83,4 @@ for one operation.
 - **Batching, parallel Shell calls, or launching subagents**: read `references/general-parallel-execution.md`
 - **Large or parallel data gathering, list-vs-detail APIs, cache hygiene**: read `references/general-bulk-operations-and-agent-patterns.md`
 - **Standalone HTML report with JFrog-aligned styling**: read `references/jfrog-brand-html-report.md`
-- **Reusable gotchas from past tasks**: read or extend `references/general-use-case-hints.md`
+- **Reusable gotchas from past tasks**: read `references/general-use-case-hints.md`
