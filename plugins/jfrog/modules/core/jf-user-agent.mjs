@@ -20,7 +20,12 @@ import { spawnJfSync } from "./jf-process.mjs";
 // Plugin sync stamps this literal with the release semver (jfrog-sync-modules.py
 // stamp). Only `modules/` is vendored, so nothing outside this tree is readable
 // at runtime. Unstamped trees (this repo, local dev) report 0.0.0.
-const PKG_VERSION = "0.12.2";
+const PKG_VERSION = "0.13.0";
+
+/** Hooks release semver stamped at plugin sync ("0.0.0" when unstamped). */
+export function hooksPackageVersion() {
+  return PKG_VERSION;
+}
 
 /** Product UA for plugin `fetch()` (no trigger, no jfrog-cli-go). */
 export function skillsProductUserAgent() {
