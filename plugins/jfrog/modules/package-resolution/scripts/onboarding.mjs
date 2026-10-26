@@ -59,7 +59,7 @@ function adminGuideUrlForIde(ide) {
   return ADMIN_GUIDE_URL_BY_IDE[ide] ?? CLAUDE_ADMIN_GUIDE_URL;
 }
 
-function configureCommandPath() {
+export function configureCommandPath() {
   return path.join(here, "configure.mjs");
 }
 

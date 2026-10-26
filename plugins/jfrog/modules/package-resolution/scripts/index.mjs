@@ -9,6 +9,7 @@ import { isPackageResolutionEnabled } from "./feature-flag.mjs";
 import { renderInstruction } from "./render-instruction.mjs";
 import { orchestrateEagerSetup } from "./eager-setup.mjs";
 import { maybeSendAprHeartbeat } from "./apr-heartbeat.mjs";
+import { recordAprStatus } from "./apr-status.mjs";
 import {
   maybeMigrateScaffoldEnabled,
   resolveOnboardingNudge,
@@ -78,6 +79,7 @@ export const packageResolution = {
         nudgeReason: nudge.reason,
         mode: "off",
       };
+      if (!killSwitch) await recordAprStatus(ctx, flag);
       return nudge.text;
     }
 
@@ -132,6 +134,7 @@ export const packageResolution = {
       ...(autoSetupStatus ? { eagerSetup: true } : {}),
       ...meta,
     };
+    await recordAprStatus(ctx, flag);
     return combined;
   },
 };
