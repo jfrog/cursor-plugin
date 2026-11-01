@@ -23,6 +23,7 @@ import {
 import { createLogger } from "../../core/logger.mjs";
 import { globalDeclaredTypes } from "../../core/agents-config.mjs";
 import { IdentityCause } from "../../core/jf-identity.mjs";
+import { BROKEN_KEY_CAUSES } from "./repo-types.mjs";
 
 const log = createLogger("render-instruction");
 
@@ -219,7 +220,7 @@ function causeDescription(cause) {
 const NO_REPO = (type) => {
   const info = getUnresolvedInfo(type);
   if (info?.cause) {
-    return `NOT ROUTED (${info.cause}) — see BLOCKED note above`;
+    return `NOT ROUTED (${info.cause}) — see BLOCKED above`;
   }
   return `<no ${type} repo resolved>`;
 };
@@ -264,17 +265,31 @@ function buildUnresolvedBlock(governed, resolved) {
       : "no repo could be resolved for it";
     return `**${type} is BLOCKED — not routed.** ${detail}.`;
   });
+  const repairable = unresolvedTypes.filter((type) =>
+    BROKEN_KEY_CAUSES.has(getUnresolvedInfo(type)?.cause),
+  );
+  if (repairable.length) lines.push(buildRepairNote(repairable));
   return "\n" + lines.join("\n\n") + "\n";
 }
 
-// Per-type "## Rewrite templates" bullet(s). Unresolved governed types get the
-// "do not invent a URL" bullet instead so the agent never sees a wrong example.
+/**
+ * One line for every repairable type, so the text stays the same size
+ * however many types are blocked.
+ * @param {string[]} types
+ * @returns {string}
+ */
+function buildRepairNote(types) {
+  const named = types.map((t) => `\`${t}\``).join(", ");
+  return (
+    `**Repair** (${named}): invoke \`jfrog-setup-package-managers\`, ` +
+    `section "Broken global repo key". Do not pick a repo yourself, ` +
+    `and do not type a repo key into a command from this notice.`
+  );
+}
+
+// Per-type "## Rewrite templates" bullet(s) for a resolved type.
 function rewriteBulletFor(type, resolved) {
-  const r = resolved[type];
-  if (!r) {
-    return `- \`${type}\` — unresolved, see BLOCKED note above.`;
-  }
-  const url = r.baseUrl;
+  const url = resolved[type].baseUrl;
   switch (type) {
     case "npm":
       return (
@@ -311,8 +326,18 @@ function rewriteBulletFor(type, resolved) {
   }
 }
 
+// Unresolved governed types share one "do not invent a URL" bullet, so the
+// agent never sees a wrong example and the text does not grow per type.
 function buildRewriteBullets(governed, resolved) {
-  return governed.map((type) => rewriteBulletFor(type, resolved)).join("\n");
+  const bullets = governed
+    .filter((type) => resolved[type])
+    .map((type) => rewriteBulletFor(type, resolved));
+  const unresolved = governed.filter((type) => !resolved[type]);
+  if (unresolved.length) {
+    const named = unresolved.map((t) => `\`${t}\``).join(", ");
+    bullets.push(`- ${named} — unresolved, see BLOCKED above.`);
+  }
+  return bullets.join("\n");
 }
 
 // The "## Docker" section, rendered ONLY when docker is governed. Empty string
@@ -453,7 +478,8 @@ export async function renderInstruction(flag, ctx = {}) {
   template = template
     .replace(
       /\{\{UNRESOLVED_BLOCK\}\}/g,
-      buildUnresolvedBlock(governed, resolved),
+      // Function form: a `$` in the note must not be expanded as a replacement.
+      () => buildUnresolvedBlock(governed, resolved),
     )
     .replace(/\{\{GOVERNED_SCOPE\}\}/g, buildGovernedScope(governed))
     .replace(/\{\{RESOLVED_TABLE\}\}/g, buildResolvedTable(governed, resolved))

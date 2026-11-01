@@ -17,6 +17,10 @@ import process from "node:process";
 
 import { createLogger } from "../../core/logger.mjs";
 import {
+  isShippedExampleRepoKey,
+  matchPruneTarget,
+} from "../../core/scaffold-fingerprint.mjs";
+import {
   getAgentsConfigMtimeMs,
   loadAgentsConfig,
   globalDeclaredTypes,
@@ -28,7 +32,11 @@ import {
   safeErrorMessage,
 } from "../../core/jf-identity.mjs";
 import { skillsProductUserAgent } from "../../core/jf-user-agent.mjs";
-import { PACKAGE_TYPES, repoMatchesPackageType } from "./repo-types.mjs";
+import {
+  BROKEN_KEY_CAUSES,
+  PACKAGE_TYPES,
+  repoMatchesPackageType,
+} from "./repo-types.mjs";
 import {
   pickWorkspaceConfigRoot,
   loadWorkspaceConfig,
@@ -49,6 +57,10 @@ const CACHE_SCHEMA_VERSION = 2;
 // window below the shortest existing harness timeout prevents sequential
 // verification phases from consuming the entire SessionStart budget.
 const REPO_VERIFY_BUDGET_MS = 5_000;
+// An entry missing an admin-configured type is trusted for this long only:
+// a key fixed in Artifactory (or a recovered server) must not stay BLOCKED
+// for the full cacheTtlDays. Fully verified entries keep cacheTtlDays.
+const FAILED_KEY_RECHECK_MS = 60 * 60 * 1000;
 
 /** In-process snapshot after first resolve pass in this hook invocation. */
 const SESSION = {
@@ -131,6 +143,21 @@ async function writeCacheFile(root) {
   }
 }
 
+/**
+ * @param {unknown} raw cache `unresolved` map
+ * @returns {Record<string, { repoKey: string, cause: string }>}
+ */
+function normalizeUnresolved(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [type, info] of Object.entries(raw)) {
+    if (typeof info?.repoKey === "string" && typeof info?.cause === "string") {
+      out[type] = { repoKey: info.repoKey, cause: info.cause };
+    }
+  }
+  return out;
+}
+
 function normalizeServerEntry(entry) {
   if (!entry?.repositories || typeof entry.repositories !== "object")
     return null;
@@ -140,6 +167,7 @@ function normalizeServerEntry(entry) {
     source: entry.source,
     agentsConfigMtimeMs: entry.agentsConfigMtimeMs,
     url: typeof entry.url === "string" ? entry.url : null,
+    unresolved: normalizeUnresolved(entry.unresolved),
   };
 }
 
@@ -183,11 +211,16 @@ function normalizeCacheRoot(data) {
 }
 
 /**
+ * @param {string} repoKey
+ * @param {object | null | undefined} id
+ * @param {number} deadline
+ * @param {Set<string>} [scaffoldKeys] keys frozen before this lookup. Omit to
+ *   read the file at miss time.
  * @returns {Promise<{ config: object|null, cause: string|null }>} cause is set
  *   whenever config is null, so callers can report WHY verify failed instead
  *   of silently collapsing every failure mode to the same blank miss.
  */
-async function fetchRepoConfig(repoKey, id, deadline) {
+async function fetchRepoConfig(repoKey, id, deadline, scaffoldKeys) {
   if (!id) return { config: null, cause: "jf-not-configured" };
   if (!isHttpsIdentityUrl(id)) {
     log.warn("refusing repo verify over a non-HTTPS platform URL", { repoKey });
@@ -213,7 +246,18 @@ async function fetchRepoConfig(repoKey, id, deadline) {
       signal: controller.signal,
     });
     if (!res.ok) {
-      const cause = res.status === 404 ? "not-found" : `http-${res.status}`;
+      // Some servers answer 400, with the same body as a made-up key, when a
+      // repository does not exist. Treat that as missing only for a key this
+      // verification may prune. The set is taken before the lookup: another
+      // session can edit the file while this request is in flight, and a
+      // later re-read would call the same 400 a blip and restore the key.
+      const exampleKeyMissing =
+        scaffoldKeys === undefined
+          ? scaffoldExampleKey(repoKey)
+          : scaffoldKeys.has(repoKey);
+      const missing =
+        res.status === 404 || (res.status === 400 && exampleKeyMissing);
+      const cause = missing ? "not-found" : `http-${res.status}`;
       log.debug("repo verify miss", { repoKey, status: res.status, cause });
       return { config: null, cause };
     }
@@ -229,6 +273,27 @@ async function fetchRepoConfig(repoKey, id, deadline) {
   }
 }
 
+/**
+ * Placeholder keys this verification may treat as missing on HTTP 400.
+ * Read once, before any repo lookup, from the file as it is now.
+ * @returns {Set<string>}
+ */
+function scaffoldKeysForSnapshot() {
+  const repos =
+    matchPruneTarget()?.config?.packageResolution?.defaultGlobalRepos;
+  if (!repos || typeof repos !== "object") return new Set();
+  const keys = new Set();
+  for (const repoKey of Object.values(repos)) {
+    if (isShippedExampleRepoKey(repoKey)) keys.add(repoKey);
+  }
+  return keys;
+}
+
+/** @param {string} repoKey */
+function scaffoldExampleKey(repoKey) {
+  return scaffoldKeysForSnapshot().has(repoKey);
+}
+
 function buildResolveMeta(serverId, entry, { via, cacheFile }) {
   return {
     serverId,
@@ -238,6 +303,12 @@ function buildResolveMeta(serverId, entry, { via, cacheFile }) {
     cached_at: entry.cached_at,
     cacheHit: via === "cache",
   };
+}
+
+/** This pass proved the key itself is wrong (missing or wrong package type). */
+function provedBrokenKey(type) {
+  const info = SESSION.unresolvedCauses[type];
+  return Boolean(info && BROKEN_KEY_CAUSES.has(info.cause));
 }
 
 function entryToByType(entry, base) {
@@ -269,6 +340,7 @@ async function refreshServerCache(
   const verifyRepos = pr.verifyRepos;
   const adminRepos = pr.defaultGlobalRepos ?? {};
   const agentsConfigMtimeMs = getAgentsConfigMtimeMs();
+  const scaffoldKeys = scaffoldKeysForSnapshot();
   const configured = PACKAGE_TYPES.flatMap((type) => {
     const repoKey = adminRepos[type];
     if (!repoKey) {
@@ -294,6 +366,7 @@ async function refreshServerCache(
           repoKey,
           id,
           verifyDeadline,
+          scaffoldKeys,
         );
         const matchesType =
           Boolean(config) && repoMatchesPackageType(config, type);
@@ -348,55 +421,71 @@ async function refreshServerCache(
     Object.keys(repositories).length === 0
   ) {
     if (priorHasRepos) {
-      log.warn(
-        "repo verify failed for every configured type — keeping prior cache " +
-          "entries whose key still matches the current config",
-        { serverId, configuredCount: adminConfiguredCount },
-      );
       // Only trust a prior key for a type if it is still the key the admin
       // currently configures. If defaultGlobalRepos changed the key since
       // the cache was written, restoring the old one would route installs
       // through a repository the current config no longer authorizes — the
       // type stays unresolved instead, keeping the cause this pass recorded.
       const staleRepositories = {};
+      let droppedBroken = false;
       for (const [type, repoKey] of Object.entries(priorEntry.repositories)) {
         if (!repoKey || repoKey !== adminRepos[type]) continue;
+        // 404 and a wrong package type are not a blip. Restoring the prior
+        // key would keep routing to it for the whole cache lifetime, and
+        // would hide the cause from the scaffold prune.
+        if (provedBrokenKey(type)) {
+          droppedBroken = true;
+          continue;
+        }
         staleRepositories[type] = repoKey;
         delete SESSION.unresolvedCauses[type];
       }
-      const staleEntry = { ...priorEntry, repositories: staleRepositories };
+      if (!droppedBroken) {
+        log.warn(
+          "repo verify failed for every configured type — keeping prior cache " +
+            "entries whose key still matches the current config",
+          { serverId, configuredCount: adminConfiguredCount },
+        );
+        const staleEntry = { ...priorEntry, repositories: staleRepositories };
+        SESSION.serverId = serverId;
+        SESSION.byType = entryToByType(staleEntry, base);
+        SESSION.meta = buildResolveMeta(serverId, staleEntry, {
+          via: "refresh-verify-failed-kept-prior",
+          cacheFile: file,
+        });
+        return;
+      }
+      // A broken key was dropped. Fall through and rewrite the cache so the
+      // next session does not cache-hit the old verified entry.
+    } else {
+      log.warn(
+        "repo verify failed for every configured type — skipping empty cache " +
+          "write so the next session retries verification",
+        { serverId, configuredCount: adminConfiguredCount },
+      );
+      const empty = {
+        repositories: {},
+        cached_at: new Date().toISOString(),
+        source,
+        agentsConfigMtimeMs,
+        url: id?.url ?? null,
+      };
       SESSION.serverId = serverId;
-      SESSION.byType = entryToByType(staleEntry, base);
-      SESSION.meta = buildResolveMeta(serverId, staleEntry, {
-        via: "refresh-verify-failed-kept-prior",
+      SESSION.byType = {};
+      SESSION.meta = buildResolveMeta(serverId, empty, {
+        via: "refresh-verify-failed-no-cache",
         cacheFile: file,
       });
       return;
     }
-    log.warn(
-      "repo verify failed for every configured type — skipping empty cache " +
-        "write so the next session retries verification",
-      { serverId, configuredCount: adminConfiguredCount },
-    );
-    const empty = {
-      repositories: {},
-      cached_at: new Date().toISOString(),
-      source,
-      agentsConfigMtimeMs,
-      url: id?.url ?? null,
-    };
-    SESSION.serverId = serverId;
-    SESSION.byType = {};
-    SESSION.meta = buildResolveMeta(serverId, empty, {
-      via: "refresh-verify-failed-no-cache",
-      cacheFile: file,
-    });
-    return;
   }
 
   // Partial verify failure: keep prior keys for admin-configured types that
   // failed this round so a transient blip on one type does not ungover that
-  // type for the full cache TTL.
+  // type for the full cache TTL. The failure stays on the cache entry so the
+  // next session retries it after an hour; this session still routes the
+  // prior key, so the in-memory cause is cleared.
+  const retainedFailures = {};
   if (verifyRepos && priorHasRepos) {
     for (const [type, repoKey] of Object.entries(priorEntry.repositories)) {
       if (repositories[type] || !adminRepos[type]) continue;
@@ -404,9 +493,10 @@ async function refreshServerCache(
       // currently configures — a changed key means the current config no
       // longer authorizes it, so the type stays unresolved instead.
       if (repoKey !== adminRepos[type]) continue;
+      if (provedBrokenKey(type)) continue;
       repositories[type] = repoKey;
-      // Type is governed again via the stale-but-trusted cache entry — the
-      // cause captured above no longer describes its current (resolved) state.
+      const failure = SESSION.unresolvedCauses[type];
+      if (failure?.repoKey === repoKey) retainedFailures[type] = { ...failure };
       delete SESSION.unresolvedCauses[type];
       log.warn("repo verify failed — keeping prior cache value for type", {
         type,
@@ -416,12 +506,14 @@ async function refreshServerCache(
     }
   }
 
+  const unresolved = { ...retainedFailures, ...SESSION.unresolvedCauses };
   const entry = {
     repositories,
     cached_at: new Date().toISOString(),
     source,
     agentsConfigMtimeMs,
     url: id?.url ?? null,
+    ...(Object.keys(unresolved).length ? { unresolved } : {}),
   };
 
   root.servers[serverId] = entry;
@@ -456,19 +548,39 @@ async function loadFreshCacheEntry(serverId, id = identityOrNull()) {
   )
     return null;
 
+  const adminRepos = pr.defaultGlobalRepos ?? {};
+  const missing = Object.entries(adminRepos).filter(
+    ([type, repoKey]) => repoKey && !entry.repositories[type],
+  );
+  // A type restored from the prior route after a blip is in `repositories`
+  // and also in `unresolved`. It still routes, and it is retried after an hour.
+  const retryable = Object.entries(adminRepos).filter(([type, repoKey]) => {
+    if (!repoKey) return false;
+    if (!entry.repositories[type]) return true;
+    return entry.unresolved[type]?.repoKey === repoKey;
+  });
+  const ageMs = Date.now() - new Date(entry.cached_at).getTime();
+  if (retryable.length && ageMs >= FAILED_KEY_RECHECK_MS) {
+    log.debug("cache entry has failed types past the recheck window", {
+      serverId,
+      failed: retryable.map(([type]) => type).join(","),
+    });
+    return null;
+  }
+
   const base = id ? `${id.url}/artifactory` : "";
   SESSION.serverId = serverId;
   SESSION.byType = entryToByType(entry, base);
-  // No verify ran this pass, so there's no fresh cause to report — but a
-  // type that is still admin-configured and absent from this cached
-  // snapshot is still unresolved for the whole cache TTL. Reconstruct
-  // enough to say so, rather than silently reverting to the ambiguous
-  // `<no … repo resolved>` placeholder for the rest of the TTL.
+  // No verify ran this pass. Report the cause the type failed with when the
+  // entry recorded it for the same key; otherwise say it is unresolved from
+  // cache, rather than reverting to the ambiguous `<no … repo resolved>`.
   SESSION.unresolvedCauses = {};
-  const adminRepos = pr.defaultGlobalRepos ?? {};
-  for (const [type, repoKey] of Object.entries(adminRepos)) {
-    if (!repoKey || SESSION.byType[type]) continue;
-    SESSION.unresolvedCauses[type] = { repoKey, cause: "unresolved-cached" };
+  for (const [type, repoKey] of missing) {
+    const stored = entry.unresolved[type];
+    SESSION.unresolvedCauses[type] = {
+      repoKey,
+      cause: stored?.repoKey === repoKey ? stored.cause : "unresolved-cached",
+    };
   }
   SESSION.meta = buildResolveMeta(serverId, entry, {
     via: "cache",
@@ -477,7 +589,7 @@ async function loadFreshCacheEntry(serverId, id = identityOrNull()) {
   log.debug("cache hit", {
     serverId,
     source: entry.source,
-    ageMs: Date.now() - new Date(entry.cached_at).getTime(),
+    ageMs,
     cache: file,
   });
   return entry;
