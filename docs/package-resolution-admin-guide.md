@@ -20,13 +20,13 @@ This guide is for **platform administrators** and **developers** onboarding the 
 | 4    | **Codex:** after install, restart, then `/hooks` and trust the SessionStart command (plugin install does not skip this — see the [Codex plugin README](https://github.com/jfrog/codex-plugin#installation)) |
 | 5    | Start a **new agent session** — missing config is created, then policy and URLs are injected once per session               |
 
-The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty `defaultGlobalRepos`. Nothing is routed until Consent Enable or an administrator adds bindings. `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` always keeps it off; `enabled: false` alone only keeps it off if you deploy your own `agents-conf.json` — on the plugin's auto-created default file it is not durable (see below).
+The shipped template turns Agent Package Resolution **on** (`enabled: true`) with empty `defaultGlobalRepos`. Nothing is routed until Consent Enable or an administrator adds bindings. `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` always keeps it off, and so does `enabled: false` — in your own `agents-conf.json` or in the plugin's auto-created default file (one exception for very old default files: see below).
 
 **At a glance:**
 
 - **Default:** on, but routes nothing until you add repositories.
 - **To route installs:** add repository keys under `defaultGlobalRepos` (org config or Consent Enable).
-- **To turn it off org-wide:** deploy your own `agents-conf.json` with `"enabled": false` (see [Turning Agent Package Resolution off](#turning-agent-package-resolution-off-admins)). Setting `"enabled": false` on the plugin's **default file without also deploying your own** is not durable — the plugin re-enables it on the next session.
+- **To turn it off org-wide:** deploy your own `agents-conf.json` with `"enabled": false` (see [Turning Agent Package Resolution off](#turning-agent-package-resolution-off-admins)). Setting `"enabled": false` in the plugin's default file also sticks, and the plugin then adds `"onboardingPrompt": "off"` so the setup offers stop too.
 
 ---
 
@@ -69,7 +69,12 @@ All Agent Package Resolution admin settings live in a single JSON file on the de
 When a developer opens their first agent session after installing the plugin:
 
 1. If `~/.jfrog/agents-conf.json` **does not exist**, the plugin copies the **shipped default template** into that path.
-2. The template ships with Agent Package Resolution **enabled** (`packageResolution.enabled: true`), empty `defaultGlobalRepos`, and `onboardingPrompt: "auto"`. Never-configured legacy scaffolds (`enabled: false` that still match a shipped fingerprint) are migrated to `enabled: true` on SessionStart (hand-edited / MDM configs and `onboardingPrompt: "off"` are left alone).
+2. The template ships with Agent Package Resolution **enabled** (`packageResolution.enabled: true`), empty `defaultGlobalRepos`, and `onboardingPrompt: "auto"`. A default file written by an older plugin version is upgraded once on SessionStart, and only while it still matches a shipped fingerprint exactly:
+   - The older defaults that shipped **off** without `onboardingPrompt` are turned on, and `onboardingPrompt: "auto"` is added.
+   - The older default that shipped **example repository keys** (`npm-virtual`, `docker-virtual`, …) is turned on, and those keys are checked the same way as a file an older plugin already turned on. A missing key, or one of another package type, is removed. A key that exists stays. A key that cannot be checked stays until a later session can check it. A key that existed, and later proves missing or the wrong type, is removed on that later session.
+   - If an earlier plugin version already turned that file on, each example key is checked against Artifactory first, in the first session that can reach it. Keys that are missing or of another package type are removed; keys that exist keep routing; keys that cannot be checked (offline, 401/403, server error) stay and show as BLOCKED with that cause until a later session can check them. When some example keys are removed and some stay, the file records `packageResolution.scaffoldLineage` so a later session can still remove a kept example key that then proves missing. Changing anything else in that file, or replacing an example key, leaves it alone.
+   - A default file you turned off (`enabled: false`) is never turned back on, apart from the exception in [Turning Agent Package Resolution off](#turning-agent-package-resolution-off-admins). The plugin also adds `"onboardingPrompt": "off"` to it (and drops any example keys), so no plugin version, older or newer, offers setup or changes it again.
+   - Hand-edited and MDM configs are left alone, as is any file whose content does not match a shipped default.
 3. When the offer gate is open (`onboardingPrompt: "auto"` or an untouched scaffold fingerprint) **and** at least one APR package type is missing from `defaultGlobalRepos` and not durably declined, SessionStart injects a short **onboarding nudge** directly into the agent's context (`additional_context` for Cursor, `additionalContext` for Claude Code, VS Code Copilot, and Codex) — **every supported harness gets it**; nothing is written to disk for the nudge itself. SessionStart injects it on every eligible session; the injected text itself instructs the agent to hold off raising it until a real package-manager install is happening, not on every unrelated chat. It names only the still-offerable types, so it only ever shrinks as types get bound or declined; it is injected fresh on every eligible SessionStart.
 4. The offer is **per package type**, not one-time-and-done. **No** for one type runs `dismiss --type <t>`, which durably declines just that type in `~/.jfrog/skills-cache/apr-onboarding-v1.json` — other unbound, undeclined types stay offerable. **Yes** runs Consent Enable / `enable` for binding, which stops offering just the types that got bound. A bare `dismiss` (no `--type`) is the global escape hatch: it sets `onboardingPrompt: "off"` and durably silences every type until that config value changes.
 5. Routing policy is injected when `packageResolution.enabled` is `true` **and** `jf` identity is usable (`routing`); otherwise `pending` when enabled but `jf` is missing — including when `defaultGlobalRepos` is still empty.
@@ -103,7 +108,23 @@ When the nudge fires, the agent walks the developer through enabling APR **in ch
 5. Load the in-session routing table and wait for setup: `JFROG_EAGER_SETUP_SYNC=1 node …/print-policy.mjs`. That stdout is the Package Resolution table for this chat. Do not install while the note says `setting up in the background`. Types that show as already set up must use the normal package-manager command (**no** `--registry` / `--index-url` / `GOPROXY=…`). Report pending/failed/conflict types as not ready; do not claim overall success unless every bound type set up.
 6. Suggest starting a **new chat/session** so SessionStart injects the full routing table into context.
 
-Other `configure.mjs` commands: `status [--json]` (includes `offerable`/`declined` type lists), `onboarding-procedure` (prints the full Consent Enable steps — the injected nudge only carries the short ask and points here), `verify-repo --type <t> --repo <k>`, `dismiss --type <t>` (per-type decline in `apr-onboarding-v1.json`), and bare `dismiss` (global silence via `onboardingPrompt: "off"`).
+Other `configure.mjs` commands: `status [--json]` (includes `offerable`/`declined` type lists), `onboarding-procedure` (prints the full Consent Enable steps — the injected nudge only carries the short ask and points here), `verify-repo --type <t> --repo <k>`, `set-repo --type <t> --repo <k>` (see [Fixing a BLOCKED package type](#fixing-a-blocked-package-type)), `dismiss --type <t>` (per-type decline in `apr-onboarding-v1.json`), and bare `dismiss` (global silence via `onboardingPrompt: "off"`).
+
+### Fixing a BLOCKED package type
+
+When a `defaultGlobalRepos` key is missing on the server or is of another package type, the routing policy adds one **Repair** note under the BLOCKED lines. That note sends the agent to the `jfrog-setup-package-managers` skill, which lists your virtual repositories, asks you which one to use, and runs:
+
+```bash
+node <plugin>/modules/package-resolution/scripts/configure.mjs set-repo --type docker --repo corp-docker
+node <plugin>/modules/package-resolution/scripts/print-policy.mjs
+```
+
+`set-repo` changes that one entry for every project on the machine. It refuses, and leaves the file as it was, when:
+
+- the current key works in sessions (including a non-virtual repo of the right type, or a repo with no package type);
+- the current key could not be checked (401/403, server error, unreachable): fix `jf` credentials or connectivity instead;
+- the new key is not a virtual repository of that package type, or contains characters other than letters, digits, `.`, `_`, `-`;
+- Agent Package Resolution is off, including under `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1`.
 
 ### Shipped default template
 
@@ -136,14 +157,14 @@ keys Artifactory confirms as virtual repositories of the requested package type.
 
 ### Turning Agent Package Resolution off (admins)
 
-> **Why `enabled: false` alone may not stick.** Because the feature now ships **on**, the plugin re-enables its **own default file** if it finds it still turned off. "Default file" means the `agents-conf.json` the plugin auto-created and that no one has changed except (at most) the `enabled` flag. As soon as you deploy your **own** config, or add any other setting (like `onboardingPrompt`), the plugin treats it as yours and never re-enables it.
+> **Old default files are turned on once.** Plugin versions before the feature shipped on wrote a default file with `"enabled": false` and no `onboardingPrompt` (with example repository keys in v0.8, empty `defaultGlobalRepos` in later ones). The plugin turns such a file on once, because it cannot tell it apart from a file nobody touched; it also adds `"onboardingPrompt": "auto"`. For the v0.8 file, example keys that are missing or the wrong package type are removed, and a key that exists stays. Default files from v0.4–v0.7 are left as they are. If you set `enabled: false` on a newer default file (the one with `"onboardingPrompt": "auto"`), it stays off. Changing any other setting, such as adding `"onboardingPrompt": "off"`, also makes the file yours.
 
 **Pick the option that matches how you manage machines:**
 
 | Your situation | Do this | Result |
 | -------------- | ------- | ------ |
 | You push config with MDM / a golden image | Deploy your own `agents-conf.json` with `"enabled": false` | Durable off — your file is never overwritten or re-enabled |
-| You only edited the plugin's auto-created file | Set **both** `"enabled": false` **and** `"onboardingPrompt": "off"` | Durable off — `onboardingPrompt` marks the file as yours, so it is not re-enabled |
+| You only edited the plugin's auto-created file | Set `"enabled": false`; also set `"onboardingPrompt": "off"` to stop setup offers | Durable off — the plugin does not re-enable a default file you turned off. With `"onboardingPrompt": "off"` this also holds when an older JFrog plugin is installed next to it |
 | You need an immediate, per-machine kill switch (CI, break-glass) | Set env var `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` | Off for that process, even if the file says `enabled: true` |
 
 **Recommended config for a durable off (works in every case):**
@@ -262,7 +283,7 @@ All keys are optional. Unknown keys are ignored.
 | -------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `enabled`            | `true`       | Shipped scaffold default. `true` turns Agent Package Resolution on for the user (subject to a usable `jf` config and the disable env var). Empty `defaultGlobalRepos` means no **admin** governed types yet; a resolved workspace overlay can still govern types in that project. |
 | `verifyRepos`        | `true`       | When `true`, each repo key in `defaultGlobalRepos` **and** in the workspace overlay is verified against Artifactory before use                                                                                                                                                    |
-| `cacheTtlDays`       | `7`          | Days to reuse a per-server result before re-checking. Governs **both** the verified repo snapshot and eager `jf setup` receipt. `0` always re-checks; use it only when deliberately avoiding all cached state.                                                                    |
+| `cacheTtlDays`       | `7`          | Days to reuse a per-server result before re-checking. Governs **both** the verified repo snapshot and eager `jf setup` receipt. A snapshot where a configured key failed verification is re-checked after one hour instead, so a repository created on the server is picked up the same day. `0` always re-checks; use it only when deliberately avoiding all cached state.                                                                    |
 | `defaultGlobalRepos` | See template | Map of package type → Artifactory **repository key**. These keys are the **admin** governed set (workspace overlay can add resolved types; see below). `configure.mjs enable --repos` **replaces** this map (it does not merge)                                                   |
 | `autoSetup`          | `[]`         | **Admin-declared** types to auto-configure with `jf setup` at session start. Array of type names, or `true` for all admin types (not workspace-only). `configure.mjs auto-setup --types` **replaces** this list. See [Zero-touch setup](#zero-touch-setup-autosetup)              |
 
@@ -493,6 +514,8 @@ Workspace values win over `agents-conf.json` for matching types during that sess
 | No routing policy in the agent          | `packageResolution.enabled` is `true` in `~/.jfrog/agents-conf.json`, then run `node <plugin>/modules/package-resolution/scripts/print-policy.mjs` to load the policy                                                                                                                                                                                          |
 | “Routing not ready” notice              | Install and configure `jf` (`jf config add`). Env vars alone (`JFROG_ACCESS_TOKEN`, `JFROG_URL`) will **not** clear this. Optional: set `JFROG_PLATFORM_URL` so the notice shows your platform hostname. After configuring `jf`, run the notice's refresh command (`node <plugin>/modules/package-resolution/scripts/print-policy.mjs`) or start a new session |
 | Policy still off despite enabled config | `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` in the IDE environment                                                                                                                                                                                                                                                                                                 |
+| `enabled: false` keeps turning back on  | Update **every** JFrog plugin on the machine (Claude Code, Cursor, VS Code Copilot, Codex): they share this file, and an older one still turns it back on each session. Until all are updated, set both `"enabled": false` and `"onboardingPrompt": "off"` — every plugin version leaves that file off. To stop it on one machine right away, set `JF_AGENT_PACKAGE_RESOLUTION_DISABLE=1` |
+| `<type> is BLOCKED — not routed`        | An admin `defaultGlobalRepos` key failed verification; the line names the cause. Missing or wrong package type: follow the policy's **Repair** note (pick a virtual repo, the agent runs `configure.mjs set-repo`) — see [Fixing a BLOCKED package type](#fixing-a-blocked-package-type). 401/403 or unreachable: fix `jf` credentials or connectivity; the key is kept. A failed key is re-checked after about an hour. Example keys (`npm-virtual`, `docker-virtual`, …) from an old plugin default are removed once a session can confirm they are missing |
 | Wrong repository URLs                   | Verify `defaultGlobalRepos` keys exist on your Platform; check `verifyRepos` and `~/.jfrog/skills-cache/package-resolution.json`                                                                                                                                                                                                                               |
 | Invalid config ignored                  | Malformed JSON logs a **WARN** in `~/.jfrog/logs/agent-hooks.log` and falls back to the shipped template defaults (`enabled: true`, empty bindings)                                                                                                                                                                                                            |
 | A governed type isn't in the policy     | Admin types come from `defaultGlobalRepos`. Workspace-only types appear only when the overlay key is supported (and verified when `verifyRepos` is on); a failed workspace-only key is dropped                                                                                                                                                                 |
