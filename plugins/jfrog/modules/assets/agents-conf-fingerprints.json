@@ -4,27 +4,64 @@
     {
       "id": "v0-placeholders-no-onboardingPrompt",
       "sha256": "452b737ede2af5da3ea660cb0a2226d422b5624fa1684bc883279422c0728421",
-      "note": "Legacy template with example repo keys, before onboardingPrompt"
+      "note": "v0.8.x template: enabled false + example repo keys, before onboardingPrompt. Turned on; the keys stay for the routing session to check",
+      "migrate": ["enable"]
+    },
+    {
+      "id": "v0-placeholders-enabled-by-migration",
+      "sha256": "f4580cf6b09af744cae816b8f47c29105b0d6a67b0f89447cf286cc666be88c7",
+      "note": "v0.8.x template after the v0.11–v0.14 migration turned it on with the example repo keys; keys a session proves missing or wrong-type are pruned, working ones stay. A partly cleaned file records this id and can be cleaned again",
+      "exampleRepos": {
+        "npm": "npm-virtual",
+        "pypi": "pypi-virtual",
+        "maven": "maven-virtual",
+        "gradle": "gradle-virtual",
+        "go": "go-virtual",
+        "docker": "docker-virtual",
+        "helm": "helm-virtual",
+        "nuget": "nuget-virtual"
+      },
+      "migrate": ["prune-repos"]
+    },
+    {
+      "id": "v0-placeholders-enabled-prompt-off",
+      "sha256": "8dcb38e74a8a973bfec584a20221c858f8a04d0371ce9413a0a1dd01aa8cf148",
+      "note": "Same, then a global dismiss set onboardingPrompt: off. A partly cleaned file records this id and can be cleaned again",
+      "exampleRepos": {
+        "npm": "npm-virtual",
+        "pypi": "pypi-virtual",
+        "maven": "maven-virtual",
+        "gradle": "gradle-virtual",
+        "go": "go-virtual",
+        "docker": "docker-virtual",
+        "helm": "helm-virtual",
+        "nuget": "nuget-virtual"
+      },
+      "migrate": ["prune-repos"]
     },
     {
       "id": "v1-placeholders-onboardingPrompt-auto",
       "sha256": "b19251b4671db244a8050885bcbaf5f217f0e4eecfec34c0338264b08fa7c871",
-      "note": "Legacy template with example repo keys + onboardingPrompt: auto"
+      "note": "Same as v0-placeholders-enabled-by-migration, then the user set enabled: false",
+      "migrate": ["clear-repos", "silence"]
     },
     {
       "id": "v2-empty-defaultGlobalRepos",
       "sha256": "5a104c83c4cb67f2cb01d71ad0044a438f9125bab868ef76e24bd7be7828b82b",
-      "note": "Empty defaultGlobalRepos after #84 (no onboardingPrompt)"
+      "note": "v0.9.x–v0.10.x template: enabled false + empty defaultGlobalRepos, no onboardingPrompt",
+      "migrate": ["enable"]
     },
     {
       "id": "v3-empty-onboardingPrompt-auto",
       "sha256": "8b68d55af89e2dadf4ff0c3ae0784b70051c24d1fb75e3ea6df8ba3044c5cefa",
-      "note": "Legacy template: enabled false + empty defaultGlobalRepos + onboardingPrompt: auto"
+      "note": "Current template with enabled: false — the user's explicit off, never re-enabled; silence pins it for every plugin version",
+      "migrate": ["silence"]
     },
     {
       "id": "v4-enabled-onboardingPrompt-auto",
       "sha256": "f0481d915f1f7f2a1e7d88ab23ce7b9430d3e44e41aaabb4d4d13e2b40963ae2",
-      "note": "Current shipped template: enabled true + empty defaultGlobalRepos + onboardingPrompt: auto"
+      "note": "Current shipped template: enabled true + empty defaultGlobalRepos + onboardingPrompt: auto",
+      "migrate": []
     }
   ]
 }
