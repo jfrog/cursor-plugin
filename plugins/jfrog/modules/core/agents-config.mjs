@@ -320,8 +320,11 @@ function normalizeOnboardingPrompt(raw) {
  * `packageResolution.defaultGlobalRepos` and `autoSetup` are replaced when
  * present in the patch (Consent Enable replaces the map with verified keys only).
  * @param {object} patch
+ * @param {{ onlyIf?: (current: object) => boolean }} [opts] `onlyIf` sees the
+ *   on-disk config under the lock; returning false skips the patch
+ * @returns {object | null} the written config, or null when `onlyIf` declined
  */
-export function mergeAgentsConfigPatch(patch) {
+export function mergeAgentsConfigPatch(patch, { onlyIf } = {}) {
   return withAgentsConfigLock(() => {
     ensureAgentsConfigScaffoldUnlocked();
     const configPath = agentsConfigPath();
@@ -351,6 +354,7 @@ export function mergeAgentsConfigPatch(patch) {
       }
       current = {};
     }
+    if (onlyIf && !onlyIf(current)) return null;
     const next = deepMerge(current, patch);
     if (
       patch?.packageResolution &&
@@ -369,6 +373,17 @@ export function mergeAgentsConfigPatch(patch) {
     ) {
       next.packageResolution = next.packageResolution ?? {};
       next.packageResolution.autoSetup = patch.packageResolution.autoSetup;
+    }
+    // null clears the prune marker. A string value is kept by deepMerge.
+    if (
+      patch?.packageResolution &&
+      Object.prototype.hasOwnProperty.call(
+        patch.packageResolution,
+        "scaffoldLineage",
+      ) &&
+      patch.packageResolution.scaffoldLineage == null
+    ) {
+      delete next.packageResolution?.scaffoldLineage;
     }
     mkdirSync(path.dirname(configPath), { recursive: true });
     const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
@@ -453,12 +468,14 @@ export function normalizeAutoSetup(raw) {
   return out;
 }
 
-/** Trim string repo keys; drop empty values. */
+/** Trim string repo keys; drop empty, unsafe, and non-string values. */
 export function normalizeRepoMap(raw) {
   if (!raw || typeof raw !== "object") return {};
   const out = {};
   for (const [type, key] of Object.entries(raw)) {
-    if (isSafeRepoKey(key?.trim())) out[type] = key.trim();
+    if (typeof key === "string" && isSafeRepoKey(key.trim())) {
+      out[type] = key.trim();
+    }
   }
   return out;
 }

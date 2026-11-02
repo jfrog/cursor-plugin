@@ -25,6 +25,7 @@ import { createLogger, setLogContext } from "../../core/logger.mjs";
 import { isNeverConfiguredScaffold } from "../../core/scaffold-fingerprint.mjs";
 import { PACKAGE_TYPES } from "./repo-types.mjs";
 import { isPackageResolutionEnabled } from "./feature-flag.mjs";
+import { setGlobalRepo } from "./set-repo.mjs";
 import { verifyRepoKey } from "./verify-repo.mjs";
 import { listDeclinedOnboardingTypes } from "./onboarding-decline-cache.mjs";
 import {
@@ -45,6 +46,7 @@ Commands:
   status                 Print APR + onboarding status (JSON)
   verify-repo --type <t> --repo <key>  Verify one virtual repo key
   enable --repos <json>  Write enabled:true + defaultGlobalRepos
+  set-repo --type <t> --repo <key>  Replace one broken global repo key
   auto-setup --types <json|true>  Set autoSetup policy
   dismiss [--type <t>]   Per-type decline, or global onboardingPrompt off
   onboarding-procedure   Print stage-2 Consent Enable instructions
@@ -176,6 +178,14 @@ async function cmdEnable(opts) {
   );
 }
 
+async function cmdSetRepo(opts) {
+  const result = await setGlobalRepo({ type: opts.type, repoKey: opts.repo });
+  if (!result.ok) fail(result.message);
+  process.stdout.write(
+    `${JSON.stringify({ ...result, next: [`node "${path.join(here, "print-policy.mjs")}"`] })}\n`,
+  );
+}
+
 function cmdAutoSetup(opts) {
   if (opts.types === undefined)
     fail("auto-setup requires --types '<json|true>'");
@@ -269,6 +279,9 @@ async function main() {
       break;
     case "enable":
       await cmdEnable(opts);
+      break;
+    case "set-repo":
+      await cmdSetRepo(opts);
       break;
     case "auto-setup":
       cmdAutoSetup(opts);
