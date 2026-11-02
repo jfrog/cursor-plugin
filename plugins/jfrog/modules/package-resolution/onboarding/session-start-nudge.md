@@ -11,9 +11,10 @@ install, the Yes/No ask below must be the first thing in your reply — before
 any other sentence. Ask which package/version you need in the same reply if
 you must, but the ask below comes first.
 
-> Agent Package Resolution can route **T** installs through your Artifactory
-> **virtual** repositories instead of public registries. Want to set that up
-> for **T** now? Details: {{ADMIN_GUIDE_URL}}
+> JFrog Agent Package Resolution is installed on this machine. It can route
+> **T** installs through your Artifactory **virtual** repositories instead of
+> public registries. Want to set that up for **T** now? Details:
+> {{ADMIN_GUIDE_URL}}
 
 - **Yes** → run `node "{{CONFIGURE_COMMAND}}" onboarding-procedure`
 - **No** → run `node "{{CONFIGURE_COMMAND}}" dismiss --type <T>` (use the APR

@@ -11,6 +11,16 @@ export const PACKAGE_TYPES = [
   "nuget",
 ];
 
+/**
+ * Session verify causes that prove the key itself is wrong. 401/403, 5xx and
+ * unreachable are credential or service problems; replacing or dropping the
+ * key there would discard a valid choice.
+ */
+export const BROKEN_KEY_CAUSES = new Set([
+  "not-found",
+  "package-type-mismatch",
+]);
+
 const SAFE_REPO_KEY = /^[A-Za-z0-9._-]+$/;
 
 export function isSafeRepoKey(value) {
