@@ -24,12 +24,12 @@ in this order:
 
 2. **No repo given. Provision the project's plugins repository.** Use Agent
    Guard to create (or resolve, if it already exists) the project's local plugins
-   repo, then publish to the returned key. This needs `<PROJECT>` (resolve it per
-   *Prerequisites* in `../SKILL.md`, asking only if it is unknown):
+   repo, then publish to the returned key. This needs `<PROJECT>` (see
+   *Prerequisites* in `../SKILL.md`):
 
 ```bash
 npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
-  --provision-agent-plugins-repository --project "<PROJECT>" [--server "<SID>"] [--format json]
+  --provision-agent-plugins-repository --project "<PROJECT>" --server "<SID>" [--format json]
 ```
 
    It prints the bare repo key (or `{"repoKey":"<repo>"}` with `--format json`).

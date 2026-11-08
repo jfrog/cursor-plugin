@@ -13,7 +13,7 @@ Install by **slug** (the registry `slug`/`name`, never a display name). Latest
 version is used by default, and the user may pass an explicit version.
 **The `jf agent plugins install` command takes no project.** Resolving which repo hosts
 the slug uses `--list-agent-plugin-versions` (below), which does require `--project`, so
-use `<PROJECT>` resolved at session start (see SKILL.md Prerequisites).
+use the AI Governance project `<PROJECT>` (see SKILL.md Prerequisites).
 
 ```bash
 jf agent plugins install "<slug>" \
@@ -63,7 +63,7 @@ up where the slug is hosted with the Agent Guard:
 
 ```bash
 npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
-  --list-agent-plugin-versions --project "<PROJECT>" --agent-plugin "<slug>" [--server "<SID>"] --format json
+  --list-agent-plugin-versions --project "<PROJECT>" --agent-plugin "<slug>" --server "<SID>" --format json
 # read versions[].version and versions[].locations[].repoKey
 ```
 

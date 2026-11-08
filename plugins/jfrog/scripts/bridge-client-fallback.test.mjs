@@ -46,6 +46,16 @@ const fakeJfDir = join(sandbox, "bin");
 const fakeHome = join(sandbox, "home");
 mkdirSync(fakeJfDir);
 mkdirSync(fakeHome);
+// The guard takes its server from setup.json in the CLI home.
+const fakeJfHome = join(sandbox, "jfhome");
+mkdirSync(fakeJfHome);
+writeFileSync(
+  join(fakeJfHome, "setup.json"),
+  JSON.stringify({
+    version: 2,
+    servers: { test: { jpdUrl: "http://127.0.0.1", isDefault: true } },
+  }),
+);
 
 // ---- localhost JPD stub ----
 
@@ -109,6 +119,8 @@ function run(script, { args = [], env = {} } = {}) {
 
 // Writes a `jf` that answers the three subcommands lib/jf.mjs uses, wired to
 // `url`. Rewritten per test because each one points at a different port.
+// `jf api` is "not a jf command", as on a CLI older than 2.100.0, so the
+// guard falls back to a direct request against `url`.
 function writeFakeJf(url) {
   const cfg = Buffer.from(
     JSON.stringify({ serverId: "test", url, accessToken: "tok" }),
@@ -123,6 +135,7 @@ function writeFakeJf(url) {
       'if [ "$1" = "--version" ]; then echo "jf version 2.0.0"; exit 0; fi',
       `if [ "$1" = "config" ] && [ "$2" = "show" ]; then echo '${configShow}'; exit 0; fi`,
       `if [ "$1" = "config" ] && [ "$2" = "export" ]; then echo '${cfg}'; exit 0; fi`,
+      `if [ "$1" = "api" ]; then echo "'jf api' is not a jf command" >&2; exit 1; fi`,
       'echo "fake jf: unsupported: $@" >&2',
       "exit 1",
       "",
@@ -144,9 +157,10 @@ async function runCatalog(routes) {
 
 async function runGuard(routes) {
   const jpd = await startJpd(routes);
+  writeFakeJf(jpd.url);
   try {
     const result = await run(GUARD_SCRIPT, {
-      env: { JFROG_URL: jpd.url, JFROG_ACCESS_TOKEN: "tok" },
+      env: { JFROG_CLI_HOME_DIR: fakeJfHome },
     });
     return { ...result, ...jpd };
   } finally {

@@ -27,8 +27,8 @@ known, so none of it is left to be reconstructed freehand each time.
 Presentation is not: the script hands back structured data, and you build
 the response.
 
-Resolve `<PROJECT>` per **Resolve the project** in `../SKILL.md`'s
-Prerequisites (never assume `default`, never invent one), then run:
+With `<SID>` and `<PROJECT>` from *Prerequisites* in `../SKILL.md` (never
+assume `default`, never invent one), run:
 
 ```bash
 node <skill_path>/scripts/list-skill-policies.mjs --project "<PROJECT>" --server-id "<SID>"

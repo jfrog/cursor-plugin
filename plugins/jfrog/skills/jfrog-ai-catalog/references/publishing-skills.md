@@ -33,12 +33,12 @@ order:
 
 2. **No repo given. Provision the project's skills repository.** Use Agent
    Guard to create (or resolve, if it already exists) the project's local skills
-   repo, then publish to the returned key. This needs `<PROJECT>` (resolve it per
-   *Prerequisites* in `../SKILL.md`, asking only if it is unknown):
+   repo, then publish to the returned key. This needs `<PROJECT>` (see
+   *Prerequisites* in `../SKILL.md`):
 
 ```bash
 npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
-  --provision-skills-repository --project "<PROJECT>" [--server "<SID>"] [--format json]
+  --provision-skills-repository --project "<PROJECT>" --server "<SID>" [--format json]
 ```
 
    It prints the bare repo key (or `{"repoKey":"<repo>"}` with `--format json`).
@@ -50,17 +50,16 @@ npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
    retry in a loop. Publishing is mutating, so you must get an explicit repo from
    the user here. This is the one case where you do ask before publishing.
 
-   First list the existing skills repos. When `<PROJECT>` is known, scope the
-   list to that project so you offer only its repositories; fall back to the
-   server-wide list only when the project is unknown or the project-scoped list
-   comes back empty:
+   First list the existing skills repos. Scope the list to `<PROJECT>` so you
+   offer only its repositories; fall back to the server-wide list only when the
+   project-scoped list comes back empty:
 
 ```bash
-# project-scoped (preferred when <PROJECT> is known)
+# project-scoped
 jf api '/artifactory/api/repositories?packageType=skills&type=local&project=<PROJECT>' \
   --server-id "<SID>" 2>/dev/null | jq -r '.[].key'
 
-# server-wide fallback (project unknown, or the scoped list was empty)
+# server-wide fallback (the scoped list was empty)
 jf api '/artifactory/api/repositories?packageType=skills&type=local' \
   --server-id "<SID>" 2>/dev/null | jq -r '.[].key'
 ```

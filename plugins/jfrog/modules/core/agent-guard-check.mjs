@@ -18,6 +18,7 @@ import process from "node:process";
 
 import { isMainEntry } from "./entry.mjs";
 import { jfInvocation } from "./jf-process.mjs";
+import { resolveAiGovernanceConfig } from "./jfrog-ai-governance-config.mjs";
 import { skillsProductUserAgent } from "./jf-user-agent.mjs";
 
 export const SETTINGS_PATH =
@@ -61,15 +62,13 @@ function makeDebug(env, debug) {
 }
 
 /**
- * Resolve credentials from Path A (environment variables) or Path B
- * (JFrog CLI configuration).
+ * Resolve credentials from the JFrog CLI config of one server: `serverId`, or
+ * the AI Governance server from setup.json when none is given.
  *
  * Intentionally distinct from `jf-identity.mjs`:
- * - package-resolution identity is always `jf config` and may use Basic auth;
- * - Agent Guard's settings probe needs a Bearer access token, and mirrors the
- *   AG CLI by preferring JFROG_URL/JF_URL + access token when set.
- * - When `serverId` is set: that jf server first, then env, never the default
- *   CLI server. Without `serverId`: env first, then default `jf config export`.
+ * - package-resolution identity is the jf default server and may use Basic auth;
+ * - Agent Guard's settings probe needs a Bearer access token for the AI
+ *   Governance server. JFROG_URL/JF_URL credentials are not used.
  * Do not reuse getPlatformIdentity() here without preserving that contract.
  *
  * @param {{
@@ -83,48 +82,26 @@ function makeDebug(env, debug) {
 export function resolveAgentGuardCredentials(opts = {}) {
   const env = opts.env ?? process.env;
   const debug = makeDebug(env, opts.debug);
-  const explicitServerId = opts.serverId?.trim() || undefined;
-  const execFn = opts.execFileSyncFn ?? execFileSync;
-
-  if (explicitServerId) {
-    const fromCli = resolveFromCliConfig({
-      serverId: explicitServerId,
-      env,
-      execFileSyncFn: execFn,
-      debug,
-    });
-    if (fromCli) return fromCli;
-    debug(
-      "Explicit server ID did not resolve via jf config; falling back to env credentials.",
-    );
+  let serverId = opts.serverId?.trim() || undefined;
+  if (!serverId) {
+    const config = resolveAiGovernanceConfig({ env, log: { debug } });
+    if (config.status !== "ok" && config.status !== "no_project") {
+      debug(`No AI Governance server (${config.status}).`);
+      return null;
+    }
+    serverId = config.serverId;
   }
-
-  const envUrl = envLookup(env, "JFROG_URL", "JF_URL");
-  const envToken = envLookup(env, "JFROG_ACCESS_TOKEN", "JF_ACCESS_TOKEN");
-  if (envUrl && envToken) {
-    debug("Using credentials from environment variables (Path A).");
-    return {
-      baseUrl: envUrl,
-      token: envToken,
-      source: "environment variables",
-    };
-  }
-  debug(
-    "Environment credentials incomplete; trying JFrog CLI config (Path B).",
-  );
-
-  if (explicitServerId) return null;
   return resolveFromCliConfig({
-    serverId: undefined,
+    serverId,
     env,
-    execFileSyncFn: execFn,
+    execFileSyncFn: opts.execFileSyncFn ?? execFileSync,
     debug,
   });
 }
 
 /**
  * @param {{
- *   serverId?: string,
+ *   serverId: string,
  *   env?: NodeJS.ProcessEnv,
  *   execFileSyncFn?: typeof execFileSync,
  *   debug?: (message: string) => void,
@@ -134,10 +111,7 @@ function resolveFromCliConfig(opts) {
   const debug = opts.debug ?? (() => {});
   const env = opts.env ?? process.env;
   const execFn = opts.execFileSyncFn ?? execFileSync;
-  const exportArgs = opts.serverId
-    ? ["config", "export", opts.serverId]
-    : ["config", "export"];
-  const invocation = jfInvocation(exportArgs, { env });
+  const invocation = jfInvocation(["config", "export", opts.serverId], { env });
   let exported;
   try {
     exported = execFn(invocation.command, invocation.args, {
@@ -347,7 +321,7 @@ export async function runAgentGuardCheck(opts = {}) {
       return {
         code: EXIT_DISABLED,
         reason:
-          "Disabled: JFROG_URL/JF_URL + access token not set and no default JF CLI config found",
+          "Disabled: no AI Governance server with an access token in the JF CLI config",
       };
     }
 

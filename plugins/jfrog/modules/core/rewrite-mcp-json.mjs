@@ -1,9 +1,9 @@
 // Shared Agent Guard `--rewrite-mcp-json` runner for harness adapters.
 //
 // Harness plugins own path discovery; this module owns:
-//   resolve server/project → discover → skip-if-current → Step 0 gate →
+//   resolve AI Governance server/project → discover → skip-if-current → Step 0 gate →
 //   spawn/timeout, soft-fail orchestration with structured outcomes.
-// Server id is resolved once for both the gate and AG --server (always passed).
+// The AI Governance server id is resolved once for both the gate and AG --server.
 //
 // Usage (from a thin Cursor/Claude script next to synced modules/):
 //   import { runRewriteMcpJsonPipeline } from "./modules/core/rewrite-mcp-json.mjs";
@@ -19,7 +19,7 @@
 // Local binary: JFROG_AGENT_GUARD_BIN=/path/to/agent-guard (skips npx).
 // Version pin: JFROG_AGENT_GUARD_VERSION (default DEFAULT_AGENT_GUARD_VERSION).
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -27,7 +27,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { EXIT_ENABLED, runAgentGuardCheck } from "./agent-guard-check.mjs";
-import { jfInvocation } from "./jf-process.mjs";
+import { resolveAiGovernanceConfig } from "./jfrog-ai-governance-config.mjs";
 import { createLogger } from "./logger.mjs";
 
 const log = createLogger("rewrite-mcp-json");
@@ -51,9 +51,10 @@ export const DEFAULT_AGENT_GUARD_NPM_REGISTRY =
 /**
  * Pinned so a session start cannot execute whatever the registry currently
  * tags as latest. Bump deliberately; JFROG_AGENT_GUARD_VERSION overrides
- * (including "latest"). First release validated with `--rewrite-mcp-json`.
+ * (including "latest"). A bump must pass
+ * test/integration/agent-guard-rewrite-contract.test.mjs, which runs this version.
  */
-export const DEFAULT_AGENT_GUARD_VERSION = "1.6.0";
+export const DEFAULT_AGENT_GUARD_VERSION = "1.23.0";
 /**
  * Shared budget for rewriting all discovered files in one hook invocation.
  * Kept under the harness hook timeout (Cursor sessionStart is 60s); do not
@@ -62,9 +63,6 @@ export const DEFAULT_AGENT_GUARD_VERSION = "1.6.0";
 export const DEFAULT_REWRITE_TIMEOUT_MS = 35_000;
 /** SIGTERM → SIGKILL escalation window for a child that ignores the first signal. */
 export const DEFAULT_KILL_GRACE_MS = 2_000;
-
-/** Newest setup.json "version" this code understands (best-effort on mismatch). */
-export const SUPPORTED_SETUP_FILE_VERSION = 1;
 
 export const OUTCOME = Object.freeze({
   DISABLED: "disabled",
@@ -103,35 +101,6 @@ export function isRewriteForced(env = process.env) {
 }
 
 /**
- * True when JFROG_URL/JF_URL + access token are set.
- * Used by the gate (Path A); plugin rewrite always passes `--server` separately.
- * @param {NodeJS.ProcessEnv} [env]
- */
-export function hasJfrogUrlTokenEnv(env = process.env) {
-  const url = env.JFROG_URL?.trim() || env.JF_URL?.trim();
-  const token = env.JFROG_ACCESS_TOKEN?.trim() || env.JF_ACCESS_TOKEN?.trim();
-  return Boolean(url && token);
-}
-
-/**
- * @param {unknown} value
- * @returns {value is Record<string, unknown>}
- */
-function isPlainObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * @param {string} [url]
- * @returns {string}
- */
-export function normalizeJpdUrl(url) {
-  return String(url ?? "")
-    .trim()
-    .replace(/\/+$/, "");
-}
-
-/**
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  */
@@ -152,233 +121,6 @@ export function defaultRewriteMarkerPath(env = process.env) {
     "agent-hooks",
     "rewrite-mcp-json.marker",
   );
-}
-
-/**
- * Mirror of Agent Guard `ActiveProjectFromSetupFile`: read
- * `{JFROG_CLI_HOME}/setup.json` → servers[id].currentActiveProject.
- * Never throws; returns "" when missing/unreadable/no match.
- *
- * @param {string} serverId
- * @param {string} [jpdUrl]
- * @param {{
- *   env?: NodeJS.ProcessEnv,
- *   readFileSyncFn?: typeof readFileSync,
- *   setupPath?: string,
- * }} [opts]
- * @returns {string}
- */
-export function activeProjectFromSetupFile(serverId, jpdUrl = "", opts = {}) {
-  const env = opts.env ?? process.env;
-  const readFn = opts.readFileSyncFn ?? readFileSync;
-  const setupPath =
-    opts.setupPath ?? path.join(resolveJfrogHomeDir(env), "setup.json");
-  const wantUrl = normalizeJpdUrl(jpdUrl);
-  const id = String(serverId ?? "").trim();
-
-  let raw;
-  try {
-    raw = readFn(setupPath, "utf8");
-  } catch (err) {
-    if (err?.code === "ENOENT") {
-      log.debug("setup file: not found", { path: setupPath });
-    }
-    return "";
-  }
-
-  /** @type {{ version?: number, servers?: Record<string, { jpdUrl?: string, currentActiveProject?: string }> }} */
-  let sf = {};
-  try {
-    sf = JSON.parse(raw);
-  } catch {
-    return "";
-  }
-  if (!isPlainObject(sf) || !isPlainObject(sf.servers)) return "";
-  if (
-    typeof sf.version === "number" &&
-    sf.version !== SUPPORTED_SETUP_FILE_VERSION
-  ) {
-    // Best-effort parse (matches AG).
-  }
-
-  const servers = sf.servers;
-  if (id) {
-    const entry = servers[id];
-    const project = entry?.currentActiveProject?.trim?.() || "";
-    if (project) {
-      const entryUrl = normalizeJpdUrl(entry.jpdUrl);
-      if (wantUrl === "" || entryUrl === wantUrl) return project;
-    }
-  }
-
-  if (wantUrl) {
-    const ids = Object.keys(servers).sort();
-    for (const sid of ids) {
-      const entry = servers[sid];
-      const project = entry?.currentActiveProject?.trim?.() || "";
-      if (project && normalizeJpdUrl(entry.jpdUrl) === wantUrl) return project;
-    }
-  }
-  return "";
-}
-
-/**
- * Parse `jf config show --format=json` into a server list.
- * @param {string} stdout
- * @returns {{ serverId: string, jpdUrl: string, isDefault: boolean }[]}
- */
-export function parseJfConfigShowJson(stdout) {
-  if (typeof stdout !== "string" || !stdout.trim()) return [];
-  let parsed;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    return [];
-  }
-  const list = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray(parsed?.servers)
-      ? parsed.servers
-      : parsed
-        ? [parsed]
-        : [];
-  /** @type {{ serverId: string, jpdUrl: string, isDefault: boolean }[]} */
-  const out = [];
-  for (const s of list) {
-    if (!isPlainObject(s)) continue;
-    const serverId = String(s.serverId ?? "").trim();
-    if (!serverId) continue;
-    const jpdUrl = normalizeJpdUrl(
-      s.url || s.Url || s.artifactoryUrl || s.platformUrl || "",
-    );
-    out.push({
-      serverId,
-      jpdUrl,
-      isDefault: Boolean(s.isDefault),
-    });
-  }
-  return out;
-}
-
-/**
- * Exactly one server, or the isDefault entry. Otherwise { error }.
- * @param {{ serverId: string, jpdUrl: string, isDefault: boolean }[]} servers
- * @returns {{ serverId: string, jpdUrl: string } | { error: "missing" | "no_default" }}
- */
-export function pickDefaultJfCliServer(servers) {
-  const list = servers ?? [];
-  if (list.length === 0) return { error: "missing" };
-  if (list.length === 1) {
-    return { serverId: list[0].serverId, jpdUrl: list[0].jpdUrl };
-  }
-  const def = list.find((s) => s.isDefault);
-  if (def) return { serverId: def.serverId, jpdUrl: def.jpdUrl };
-  return { error: "no_default" };
-}
-
-/**
- * @param {{
- *   env?: NodeJS.ProcessEnv,
- *   spawnSyncFn?: typeof spawnSync,
- * }} [opts]
- * @returns {{ serverId: string, jpdUrl: string }[]}
- */
-export function listJfCliServers(opts = {}) {
-  const env = opts.env ?? process.env;
-  const spawnSyncFn = opts.spawnSyncFn ?? spawnSync;
-  const invocation = jfInvocation(["config", "show", "--format=json"], { env });
-  let res;
-  try {
-    res = spawnSyncFn(invocation.command, invocation.args, {
-      encoding: "utf8",
-      timeout: 5_000,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-      shell: false,
-    });
-  } catch {
-    return [];
-  }
-  if (res?.error || res.status !== 0) return [];
-  return parseJfConfigShowJson(res.stdout ?? "");
-}
-
-/**
- * Resolve server for gate + rewrite. Always expects a concrete server id
- * for plugin MCP (Shay): hint → jf config (one / isDefault) → env.
- *
- * @param {NodeJS.ProcessEnv} [env]
- * @param {{
- *   serverIdHint?: string,
- *   spawnSyncFn?: typeof spawnSync,
- * }} [opts]
- * @returns {{
- *   serverId: string,
- *   jpdUrl: string,
- * } | {
- *   error: "missing" | "no_default",
- * }}
- */
-export function resolveRewriteServer(env = process.env, opts = {}) {
-  const servers = listJfCliServers({
-    env,
-    spawnSyncFn: opts.spawnSyncFn,
-  });
-
-  const hint = opts.serverIdHint?.trim();
-  if (hint) {
-    const match = servers.find((s) => s.serverId === hint);
-    return {
-      serverId: hint,
-      jpdUrl: match?.jpdUrl ?? "",
-    };
-  }
-
-  const picked = pickDefaultJfCliServer(servers);
-  if (!("error" in picked)) return picked;
-
-  const fromEnv = env.JF_SERVER?.trim() || env.JFROG_SERVER_ID?.trim() || "";
-  if (fromEnv) {
-    const match = servers.find((s) => s.serverId === fromEnv);
-    return { serverId: fromEnv, jpdUrl: match?.jpdUrl ?? "" };
-  }
-  return picked.error === "no_default"
-    ? { error: "no_default" }
-    : { error: "missing" };
-}
-
-/**
- * Resolve JFrog project key: env → setup.json (AG-compatible) → "".
- * @param {NodeJS.ProcessEnv} [env]
- * @param {{
- *   serverId?: string,
- *   jpdUrl?: string,
- *   readFileSyncFn?: typeof readFileSync,
- *   setupPath?: string,
- * }} [opts]
- * @returns {string}
- */
-export function resolveRewriteProject(env = process.env, opts = {}) {
-  const fromEnv = env.JF_PROJECT?.trim() || env.JFROG_PROJECT?.trim() || "";
-  if (fromEnv) return fromEnv;
-  return activeProjectFromSetupFile(opts.serverId ?? "", opts.jpdUrl ?? "", {
-    env,
-    readFileSyncFn: opts.readFileSyncFn,
-    setupPath: opts.setupPath,
-  });
-}
-
-/**
- * @deprecated Use resolveRewriteServer. Kept for callers that only need the id.
- * @param {NodeJS.ProcessEnv} [env]
- * @param {{ serverIdHint?: string, spawnSyncFn?: typeof spawnSync }} [opts]
- * @returns {string}
- */
-export function resolveRewriteServerId(env = process.env, opts = {}) {
-  const resolved = resolveRewriteServer(env, opts);
-  if ("error" in resolved) return "";
-  return resolved.serverId;
 }
 
 /**
@@ -654,21 +396,14 @@ export function buildAgentGuardRewriteArgs(opts) {
   if (paths.length === 0) {
     throw new Error("rewrite-mcp-json requires at least one mcp.json path");
   }
-  const project = opts.project?.trim() || resolveRewriteProject(env, {});
-  if (!project) {
-    throw new Error("rewrite-mcp-json requires --project (or JF_PROJECT)");
-  }
+  const project = opts.project?.trim();
+  if (!project) throw new Error("rewrite-mcp-json requires --project");
   assertSafeRewriteIdentifier(project, "project");
 
   const args = ["--rewrite-mcp-json", ...paths, "--project", project];
 
-  const server =
-    opts.serverId !== undefined
-      ? opts.serverId.trim()
-      : resolveRewriteServerId(env);
-  if (!server) {
-    throw new Error("rewrite-mcp-json requires --server (or JF_SERVER)");
-  }
+  const server = opts.serverId?.trim();
+  if (!server) throw new Error("rewrite-mcp-json requires --server");
   assertSafeRewriteIdentifier(server, "server");
   args.push("--server", server);
 
@@ -931,7 +666,7 @@ export function redactUrlCredentials(text) {
 }
 
 /**
- * Orchestration: kill switch → server/project → discover → skip-if-current →
+ * Orchestration: kill switch → AI Governance server/project → discover → skip-if-current →
  * Step 0 gate → rewrite. Server id is resolved once and reused for both the
  * gate and AG `--server` (always passed). Returns a structured result; exitCode
  * is 0 unless JF_AGENT_REWRITE_MCP_JSON_STRICT=1 and outcome is failed_*.
@@ -941,7 +676,6 @@ export function redactUrlCredentials(text) {
  *   allowRoots?: string[] | ((paths: string[]) => string[]),
  *   env?: NodeJS.ProcessEnv,
  *   spawnFn?: typeof spawn,
- *   spawnSyncFn?: typeof spawnSync,
  *   timeoutMs?: number,
  *   graceMs?: number,
  *   platform?: NodeJS.Platform,
@@ -951,9 +685,7 @@ export function redactUrlCredentials(text) {
  *   writeFileSyncFn?: typeof writeFileSync,
  *   mkdirSyncFn?: typeof mkdirSync,
  *   statSyncFn?: typeof statSync,
- *   serverIdHint?: string,
  *   markerPath?: string,
- *   setupPath?: string,
  * }} opts
  * @returns {Promise<{ exitCode: number, outcome: string, reason: string }>}
  */
@@ -966,19 +698,20 @@ export async function runRewriteMcpJsonPipeline(opts) {
     return pipelineResult(OUTCOME.DISABLED, DISABLE_ENV, env);
   }
 
-  const serverResolved = resolveRewriteServer(env, {
-    serverIdHint: opts.serverIdHint,
-    spawnSyncFn: opts.spawnSyncFn,
-  });
-  if ("error" in serverResolved) {
-    const reason =
-      serverResolved.error === "no_default"
-        ? "multiple jf config servers and none isDefault"
-        : "no jf config server / JF_SERVER";
-    log.info("rewrite skipped; missing server", { reason });
-    return pipelineResult(OUTCOME.SKIPPED_NO_SERVER, reason, env);
+  const config = resolveAiGovernanceConfig({ env, log });
+  if (config.status !== "ok") {
+    log.info("rewrite skipped; no AI Governance server and project", {
+      status: config.status,
+    });
+    return pipelineResult(
+      config.status === "no_project"
+        ? OUTCOME.SKIPPED_NO_PROJECT
+        : OUTCOME.SKIPPED_NO_SERVER,
+      `AI Governance config: ${config.status}`,
+      env,
+    );
   }
-  const { serverId, jpdUrl } = serverResolved;
+  const { serverId, project } = config;
   if (!isSafeRewriteIdentifier(serverId)) {
     log.info("rewrite skipped; unsafe server id", {});
     return pipelineResult(
@@ -987,23 +720,8 @@ export async function runRewriteMcpJsonPipeline(opts) {
       env,
     );
   }
-
-  const project = resolveRewriteProject(env, {
-    serverId,
-    jpdUrl,
-    readFileSyncFn: opts.readFileSyncFn,
-    setupPath: opts.setupPath,
-  });
-  if (!project) {
-    log.info("rewrite skipped; missing project", {});
-    return pipelineResult(
-      OUTCOME.SKIPPED_NO_PROJECT,
-      "missing JF_PROJECT / setup.json currentActiveProject",
-      env,
-    );
-  }
   if (!isSafeRewriteIdentifier(project)) {
-    log.info("rewrite skipped; unsafe JF_PROJECT", {});
+    log.info("rewrite skipped; unsafe project", {});
     return pipelineResult(
       OUTCOME.SKIPPED_UNSAFE_PROJECT,
       "unsafe project",

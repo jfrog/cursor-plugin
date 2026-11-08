@@ -13,15 +13,15 @@ path — see *List a repo's skills* for when it's appropriate to use.
 
 ```bash
 npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
-  --list-skills --project "<PROJECT>" --allowed-only [--name <PATTERN>] [--server "<SID>"] [--page-size <N>] [--cursor <C>] --format json
+  --list-skills --project "<PROJECT>" --allowed-only [--name <PATTERN>] --server "<SID>" [--page-size <N>] [--cursor <C>] --format json
 ```
 
 | Flag | Required | Purpose |
 |------|----------|---------|
-| `--project <PROJECT>` | **Yes** | AI Catalog project to list. |
+| `--project <PROJECT>` | **Yes** | AI Governance project to list. |
 | `--allowed-only` | **Yes** | Limit results to skills allowed by project policy. Never omit it. |
 | `--name <PATTERN>` | No | Find skills by name: server-side, case-insensitive substring, scoped to the project. |
-| `--server <SID>` | No | jf CLI config entry to authenticate with (defaults to the resolved single server). |
+| `--server <SID>` | **Yes** | The AI Governance server (its jf CLI server ID). |
 | `--page-size <N>` | No | Results per page. Pass `50` to stay bounded. The Agent Guard defaults to 500 if omitted. |
 | `--cursor <C>` | No | Continuation cursor from a previous page's JSON, to fetch the next page. |
 | `--format json` | **Yes** | Raw page JSON used to render the result. |
@@ -104,7 +104,7 @@ same result" means the one fully-paged, merged result, not a single HTTP call.
 
 ```bash
 npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
-  --list-skill-versions --project "<PROJECT>" --skill "<slug>" --allowed-only [--server "<SID>"] [--cursor <C>] --format json
+  --list-skill-versions --project "<PROJECT>" --skill "<slug>" --allowed-only --server "<SID>" [--cursor <C>] --format json
 # JSON: versions[].version, versions[].locations[].repoKey, versions[].locations[].allowStatus, exhausted, cursor
 ```
 

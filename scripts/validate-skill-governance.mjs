@@ -3,9 +3,12 @@
 // Licensed under the Apache License, Version 2.0
 // https://www.apache.org/licenses/LICENSE-2.0
 
-// Tests the skill-governance hook wiring. hooks.json invokes agent-guard DIRECTLY via npx — no
-// plugin-side governance code at all — so this validator asserts the wiring's shape and then
-// EXECUTES the real command string out of hooks.json against a stub agent-guard.
+// Tests the skill-governance hook wiring. hooks.json runs the node launcher
+// modules/core/enforce-skill.mjs, which spawns agent-guard via npx — no plugin-side governance
+// code at all — so this validator asserts the wiring's shape and then EXECUTES the real command
+// string out of hooks.json against a stub agent-guard. The launcher owns the deadline, the npm
+// fetch bounds, the --server argument and the fail-open answer; its unit tests live with the
+// hooks modules.
 //
 // Four properties carry the whole design, and each is asserted below:
 //
@@ -41,6 +44,10 @@ const hooks = JSON.parse(readFileSync(path.join(pluginRoot, "hooks", "hooks.json
 
 const RELEASES_REGISTRY = "https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/";
 const GOVERNED_STEPS = ["beforeSubmitPrompt", "preToolUse"];
+// Relative because Cursor runs hook commands with the plugin root as the working directory.
+const LAUNCHER_COMMAND = 'node "./modules/core/enforce-skill.mjs" --client cursor';
+const expectedCommand = (step) =>
+  step === "preToolUse" ? `${LAUNCHER_COMMAND} --prefer-offline` : LAUNCHER_COMMAND;
 // An absolute sh: the PATH below is deliberately minimal, so `sh` by name would not resolve.
 const SH = "/bin/sh";
 
@@ -51,17 +58,10 @@ mkdirSync(binDir, { recursive: true });
 // unreachable. Using node's own directory would defeat the "npx is missing" check, because the
 // real npx sits right beside node — that check would then reach the network instead of exercising
 // the 127 path.
-// `date` lives here too, so the DEFAULT mode exercises the real deadline computation rather
-// than its degraded form. With `date` absent the hook passes an EMPTY deadline — measured, and
-// the point of the `${_JFAG_NOW:+…}` guard — which agent-guard ignores in favour of its own
-// budget. That is the safe direction, but it is not the path most checks mean to test, so the
-// two are separated: `noDateDir` below drops `date` for the one check that asserts the degrade.
-// Keeping it beside node (not by adding /bin to PATH) preserves the isolate mode, where npx
-// must stay unreachable.
+// The launcher reads the clock itself, so `date` is no longer needed on PATH.
 const nodeDir = path.join(sandbox, "node-only");
 mkdirSync(nodeDir, { recursive: true });
 symlinkSync(process.execPath, path.join(nodeDir, "node"));
-symlinkSync("/bin/date", path.join(nodeDir, "date"));
 // `base64` for the same reason: Cursor delivers the event as `printf %s '<b64>' | base64 -d |
 // <command>` (see runHook), so without it the harness would hand agent-guard an empty pipe and
 // every stdin assertion would fail for a reason that has nothing to do with the hook.
@@ -69,13 +69,16 @@ const base64Bin = ["/usr/bin/base64", "/bin/base64"].find((p) => existsSync(p));
 if (!base64Bin) throw new Error("base64 not found; cannot reproduce Cursor's payload delivery");
 symlinkSync(base64Bin, path.join(nodeDir, "base64"));
 
-// The same directory WITHOUT `date`, for the one check that asserts the degrade path. Built as
-// its own directory rather than by unlinking `date` between runs, so the checks stay order-
-// independent.
-const noDateDir = path.join(sandbox, "node-only-nodate");
-mkdirSync(noDateDir, { recursive: true });
-symlinkSync(process.execPath, path.join(noDateDir, "node"));
-symlinkSync(base64Bin, path.join(noDateDir, "base64"));
+// JFROG_CLI_HOME_DIR sandboxes holding (or lacking) setup.json, which the launcher reads through
+// modules/core/jfrog-ai-governance-config.mjs. Every run gets one, so the developer's real
+// ~/.jfrog never leaks into a check.
+const cliHome = (name, setup) => {
+  const dir = path.join(sandbox, `cli-home-${name}`);
+  mkdirSync(dir, { recursive: true });
+  if (setup) writeFileSync(path.join(dir, "setup.json"), JSON.stringify(setup));
+  return dir;
+};
+const emptyCliHome = cliHome("empty");
 
 const failures = [];
 const check = async (label, fn) => {
@@ -100,7 +103,7 @@ const fs = require("node:fs");
 let input = "";
 process.stdin.on("data", (d) => (input += d));
 process.stdin.on("end", () => {
-  fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: process.argv.slice(2), stdin: input, deadline: process.env.JF_AGENT_GUARD_ENFORCE_DEADLINE ?? "" }));
+  fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: process.argv.slice(2), stdin: input, deadline: process.env.JF_AGENT_GUARD_ENFORCE_DEADLINE ?? "", retries: process.env.npm_config_fetch_retries ?? "", fetchTimeout: process.env.npm_config_fetch_timeout ?? "", env: { JF_PROJECT: process.env.JF_PROJECT, JFROG_PROJECT: process.env.JFROG_PROJECT } }));
   if (${JSON.stringify(stdout)}) process.stdout.write(${JSON.stringify(stdout)});
   process.exit(${exitCode});
 });
@@ -128,7 +131,8 @@ process.stdin.on("end", () => {
 //     delivered nothing at all.
 //
 // `isolate` drops the stub from PATH, which is how "npx is not installed at all" is reproduced.
-function runHook(command, payload, { isolate = false, noDate = false, extraEnv = {}, shell = SH } = {}) {
+// The working directory is the plugin root, as Cursor sets it: the launcher path is relative.
+function runHook(command, payload, { isolate = false, extraEnv = {}, shell = SH, cwd = pluginRoot } = {}) {
   const b64 = Buffer.from(payload).toString("base64");
   const wrapped = `printf %s '${b64}' | base64 -d | ${command}`;
   const result = spawnSync(shell, ["-c", wrapped], {
@@ -136,10 +140,12 @@ function runHook(command, payload, { isolate = false, noDate = false, extraEnv =
     // harness fed it stdin does not work in Cursor.
     stdio: ["ignore", "pipe", "pipe"],
     encoding: "buffer",
+    cwd,
     timeout: 30_000,
     env: {
-      PATH: isolate ? nodeDir : `${binDir}:${noDate ? noDateDir : nodeDir}`,
+      PATH: isolate ? nodeDir : `${binDir}:${nodeDir}`,
       HOME: sandbox,
+      JFROG_CLI_HOME_DIR: emptyCliHome,
       CURSOR_PLUGIN_ROOT: pluginRoot,
       ...extraEnv,
     },
@@ -204,19 +210,19 @@ check("one governed hook refreshes the npx cache, the other reads it", () => {
 });
 
 for (const step of GOVERNED_STEPS) {
-  check(`${step} invokes agent-guard through npx only, with no plugin script in the path`, () => {
+  check(`${step} starts the node launcher, with no POSIX syntax in the hook string`, () => {
     const entries = entriesFor(step);
     assert(entries.length === 1, `expected exactly one ${step} hook, got ${entries.length}`);
     const h = entries[0];
-    assert(/(^|\s)npx\s/.test(h.command), `${step} must invoke npx directly, got: ${h.command}`);
+    assert(h.command === expectedCommand(step),
+      `${step} must be the node launcher: ${expectedCommand(step)}. A POSIX env prefix or $(...) ` +
+      `never starts under PowerShell. Got: ${h.command}`);
+    assert(!/[$`;&|]/.test(h.command),
+      `${step} command must be a plain node command, with no shell substitution or operators: ${h.command}`);
     assert(!h.command.includes("command -v"),
       `${step} must not have a PATH fast path: a hijackable agent-guard earlier on PATH would win`);
     assert(!/block-skill|governance-client|skill-path|request-waiver|--waiver-helper/.test(h.command),
       `${step} must not route through a plugin governance script; agent-guard owns the waiver flow`);
-    assert(h.command.includes("--enforce-skill") && h.command.includes("--client cursor"),
-      `${step} must pass --enforce-skill --client cursor`);
-    assert(h.command.includes(RELEASES_REGISTRY),
-      `${step} must default to the releases registry, so the artifact is the published one`);
   });
 
   check(`${step} fails OPEN: no exit-2 wrapper, and failClosed is off`, () => {
@@ -230,46 +236,19 @@ for (const step of GOVERNED_STEPS) {
       `while a real denial still blocks through the JSON payload`);
   });
 
-  check(`${step} lets npx cold-start and bounds its fetch`, () => {
+  // The deadline, the npm fetch bounds and the registry live in the launcher now, and are
+  // asserted behaviourally below against the recorded stub environment.
+  check(`${step} lets npx cold-start`, () => {
     const h = entriesFor(step)[0];
     assert((h.timeout ?? 0) >= 30, `${step} timeout ${h.timeout} is too short for an npx cold start`);
-    const retries = /npm_config_fetch_retries=(\d+)/.exec(h.command);
-    const fetchTimeout = /npm_config_fetch_timeout=(\d+)/.exec(h.command);
-    assert(retries && Number(retries[1]) === 0,
-      `${step} must set npm_config_fetch_retries=0: npm's default of 2 backs off 10s then 60s`);
-    // The VALUE, not just its presence: npm_config_fetch_timeout=300000 is npm's own default, so
-    // asserting presence alone would let an edit back to the default pass unnoticed. The bound has
-    // to stay well inside the hook timeout to be worth setting at all.
-    assert(fetchTimeout && Number(fetchTimeout[1]) <= 10_000,
-      `${step} must set npm_config_fetch_timeout <= 10000 (npm's default is 300000ms), got ${fetchTimeout?.[1]}`);
   });
 
-  check(`${step} computes the deadline fresh, with no inheritable fallback`, () => {
-    const h = entriesFor(step)[0];
-    assert(/_JFAG_NOW=\$\(date \+%s 2>\/dev\/null\);/.test(h.command),
-      `${step} must read the clock defensively, tolerating an absent date(1)`);
-    // The whole computation lives INSIDE a command substitution. That is not cosmetic: the
-    // clock read needs a ';' to separate it from the expansion, and at top level that ';' would
-    // sever the payload pipeline Cursor wraps around this command (MLAI-1310). Scoping it here
-    // keeps the hook one simple command while preserving the degrade-to-empty behaviour.
-    assert(h.command.includes(
-      'JF_AGENT_GUARD_ENFORCE_DEADLINE="$(_JFAG_NOW=$(date +%s 2>/dev/null); ' +
-      'echo ${_JFAG_NOW:+$((_JFAG_NOW + 25))})"'),
-      `${step} must compute an absolute deadline at invocation time INSIDE a command ` +
-      `substitution, and pass EMPTY when the clock could not be read: agent-guard ignores an ` +
-      `empty deadline and falls back to its own budget, whereas a garbage epoch floors the ` +
-      `budget at 500ms and blocks every skill`);
-    assert(!/JF_AGENT_GUARD_ENFORCE_DEADLINE:[-=]/.test(h.command),
-      `${step} must not fall back to an inherited value: an absolute instant inherited from an ` +
-      `earlier process pins every later invocation to the past`);
-  });
-
-  check(`${step} cannot pin the agent-guard version`, () => {
+  check(`${step} cannot pin the agent-guard version from the hook string`, () => {
     const h = entriesFor(step)[0];
     assert(!h.command.includes("JFROG_AGENT_GUARD_VERSION"),
       `${step} must resolve latest, so a shipped GA fix reaches users without a plugin release`);
-    assert(/@jfrog\/agent-guard(\s|$)/.test(h.command),
-      `${step} must name the package unpinned: ${h.command}`);
+    assert(!/@jfrog\/agent-guard@/.test(h.command),
+      `${step} hook string must not pin the package: ${h.command}`);
   });
 }
 
@@ -283,6 +262,10 @@ check("beforeSubmitPrompt has no matcher, so every submission is seen", () => {
     "a matcher here would filter out the slash invocations this hook exists to gate");
 });
 
+// The server and the project are no longer in the hook string: the launcher reads the AI
+// Governance server from setup.json and passes `--server <id>` (or `--server ""`), and strips
+// JF_PROJECT / JFROG_PROJECT from agent-guard's environment. Both are asserted behaviourally below.
+
 check("the two governed hooks differ ONLY in the cache flag", () => {
   const norm = (c) => c.replace(" --prefer-offline", "");
   assert(norm(commandFor("beforeSubmitPrompt")) === norm(commandFor("preToolUse")),
@@ -290,47 +273,10 @@ check("the two governed hooks differ ONLY in the cache flag", () => {
     `  beforeSubmitPrompt: ${commandFor("beforeSubmitPrompt")}\n  preToolUse: ${commandFor("preToolUse")}`);
 });
 
-check("every hook command is valid POSIX sh", () => {
-  for (const step of Object.keys(hooks.hooks ?? {})) {
-    for (const h of entriesFor(step)) {
-      const r = spawnSync(SH, ["-n", "-c", h.command], { encoding: "utf8" });
-      assert(r.status === 0, `${step} command is not valid sh: ${r.stderr.trim()}`);
-    }
-  }
-});
-
-// Strip every $(…) / $((…)) group, leaving only the command's TOP-LEVEL text. A ';' inside a
-// substitution is scoped and harmless; one outside it is not.
-const topLevelOf = (s) => {
-  let out = "", depth = 0;
-  for (let i = 0; i < s.length; i++) {
-    if (s.startsWith("$(", i)) { depth++; i++; continue; }
-    if (depth && s[i] === "(") { depth++; continue; }
-    if (depth && s[i] === ")") { depth--; continue; }
-    if (!depth) out += s[i];
-  }
-  return out;
-};
-
-// MLAI-1310, the regression this file failed to catch. Cursor appends our command to a pipeline
-// it builds — `printf %s '<b64>' | base64 -d | <command>` — so a governed command must be ONE
-// simple command. A top-level `;`, `&&` or `||` ends that pipeline, and agent-guard then reads
-// the shell's stdin, which Cursor set to /dev/null: 0 bytes, no classifiable event, and a
-// no-opinion ALLOW at exit 0 that is indistinguishable from "this prompt was not a skill".
-//
-// Asserted statically as well as behaviourally below, because this names the property and fails
-// with the offending text instead of a mystery allow.
-check("no governed command has a top-level ';', '&&' or '||' (it is the tail of Cursor's pipeline)", () => {
-  for (const step of GOVERNED_STEPS) {
-    const top = topLevelOf(commandFor(step));
-    for (const op of [";", "&&", "||"]) {
-      assert(!top.includes(op),
-        `${step}: a top-level "${op}" severs the payload pipeline Cursor builds, so agent-guard ` +
-        `reads /dev/null and silently allows (MLAI-1310). Keep it inside $( ).\n` +
-        `         top-level text: ${top.trim()}`);
-    }
-  }
-});
+// The POSIX-validity and top-level ';' / '&&' / '||' checks (MLAI-1310) are replaced by the
+// "plain node command" assertion above: a launcher string with none of `$ ` ; & |` cannot sever
+// the pipeline Cursor wraps around it. The behavioural pipeline check below stays, since the
+// command still runs as the tail of `printf | base64 -d | <command>`.
 
 // A payload shaped like the surface actually sends, so a check cannot pass by feeding preToolUse's
 // event to the prompt hook.
@@ -378,6 +324,45 @@ for (const step of GOVERNED_STEPS) {
     assert(!seen.argv.includes("--waiver-helper"), `--waiver-helper was removed from agent-guard: ${seen.argv}`);
     assert(seen.argv[seen.argv.indexOf("--registry") + 1] === RELEASES_REGISTRY,
       `must default to the releases registry: ${seen.argv}`);
+    if (step === "preToolUse") {
+      assert(seen.argv.includes("--prefer-offline"), `preToolUse must read the npx cache: ${seen.argv}`);
+    } else {
+      assert(!seen.argv.includes("--prefer-offline"), `beforeSubmitPrompt must refresh the registry: ${seen.argv}`);
+    }
+    // The VALUES, not just presence: npm_config_fetch_timeout=300000 is npm's own default, and
+    // npm's default of 2 retries backs off 10s then 60s.
+    assert(seen.retries === "0" && seen.fetchTimeout === "10000",
+      `fetch must be bounded: retries=${seen.retries} timeout=${seen.fetchTimeout}`);
+  });
+
+  // The launcher reads the AI Governance server from ${JFROG_CLI_HOME_DIR}/setup.json. `--server`
+  // is always the final pair: the id, or the empty string (present as an argument) when none is
+  // set, which agent-guard reads as "no server set".
+  for (const [label, setup, expectServer] of [
+    ["passes --server <id> as the final arguments when setup.json names a server",
+      { version: 2, servers: { srv1: { jpdUrl: "https://srv1.example.com", isDefault: true } } }, "srv1"],
+    ["passes --server \"\" (no server set) when there is no setup.json", undefined, ""],
+  ]) {
+    await check(`${step}: ${label}`, async () => {
+      const home = cliHome(`${step}-${expectServer || "none"}`, setup);
+      const record = stubNpx({ stdout: "" });
+      const r = runHook(commandFor(step), payloadFor(step), { extraEnv: { JFROG_CLI_HOME_DIR: home } });
+      assert(r.code === 0, `exit=${r.code} stderr=${r.stderr}`);
+      const { argv } = JSON.parse(readFileSync(record, "utf8"));
+      assert(argv.slice(-2).join("\u0000") === ["--server", expectServer].join("\u0000"),
+        `argv must end with --server ${JSON.stringify(expectServer)}: ${JSON.stringify(argv)}`);
+    });
+  }
+
+  await check(`${step}: ambient JF_PROJECT / JFROG_PROJECT do not reach agent-guard`, async () => {
+    const record = stubNpx({ stdout: "" });
+    const r = runHook(commandFor(step), payloadFor(step), {
+      extraEnv: { JF_PROJECT: "ambient-a", JFROG_PROJECT: "ambient-b" },
+    });
+    assert(r.code === 0, `exit=${r.code} stderr=${r.stderr}`);
+    const { env } = JSON.parse(readFileSync(record, "utf8"));
+    assert(!env.JF_PROJECT && !env.JFROG_PROJECT,
+      `project env must be absent or empty: ${JSON.stringify(env)}`);
   });
 
   await check(`${step}: hands agent-guard a deadline in the future, computed at invocation`, async () => {
@@ -393,25 +378,8 @@ for (const step of GOVERNED_STEPS) {
       `the deadline must be recomputed, not inherited; got ${seen.deadline}`);
   });
 
-  // The degrade branch, EXECUTED rather than asserted in text. The static check above proves the
-  // command contains the `${_JFAG_NOW:+…}` guard; only running it with no `date` on PATH proves
-  // the guard does what the guard is for. That distinction is the whole reason this PR exists:
-  // the suite asserted the payload was forwarded, textually, while the hook forwarded nothing.
-  //
-  // EMPTY is the required outcome, not merely "some value": agent-guard ignores an empty deadline
-  // and falls back to its own budget, whereas a garbage epoch (what `$(($(date +%s) + 25))` yields
-  // as `$(( + 25))` = 25, an instant in 1970) floors that budget at 500ms and blocks every skill.
-  await check(`${step}: with no date(1) on PATH, the deadline degrades to EMPTY and the payload still arrives`, async () => {
-    const record = stubNpx({ stdout: "{}" });
-    const payload = payloadFor(step);
-    const r = runHook(commandFor(step), payload, { noDate: true });
-    assert(r.code === 0, `exit=${r.code} stderr=${r.stderr}`);
-    const seen = JSON.parse(readFileSync(record, "utf8"));
-    assert(seen.deadline === "",
-      `an unreadable clock must yield an EMPTY deadline, not a stale or garbage one; got ${JSON.stringify(seen.deadline)}`);
-    assert(seen.stdin === payload,
-      `losing date(1) must not cost the payload: agent-guard received ${seen.stdin.length} bytes, expected ${payload.length}`);
-  });
+  // The no-date(1) degrade check is gone: the launcher reads the clock in node, so there is no
+  // shell clock to lose.
 
   await check(`${step}: forwards a deny verdict's stdout verbatim and exits 0 (the JSON decides)`, async () => {
     const deny = step === "preToolUse"
@@ -447,18 +415,26 @@ for (const step of GOVERNED_STEPS) {
     assert(!blocks(r), "silence is not a deny");
   });
 
-  await check(`${step}: an agent-guard failure fails OPEN, not closed`, async () => {
-    stubNpx({ stdout: "", exitCode: 1 });
+  // The launcher's cursor fail-open: `{}` on stdout, exit 0, and a stderr line naming the cause.
+  // Partial output from the failed run is dropped, never spliced into `{}`.
+  await check(`${step}: an agent-guard failure fails OPEN with exit 0, {} and a stderr line`, async () => {
+    stubNpx({ stdout: `{"permission":"de`, exitCode: 1 });
     const r = runHook(commandFor(step), payloadFor(step));
-    assert(!blocks(r),
+    assert(r.code === 0 && r.stdout === "{}",
       `an internal failure must let the skill through, got exit=${r.code} stdout=${r.stdout}`);
+    assert(!blocks(r), "a failed run must not read as a block");
+    assert(/\[jfrog-agent-guard\] skill governance did not run \(npx exited with code 1\); this skill was not governed\./.test(r.stderr),
+      `a fail-open must say why on stderr: ${r.stderr}`);
   });
 
   // With npx absent the guard never runs at all. That machine is not governed, so it must not be
-  // punished: this is the case `|| exit 2` used to convert into a block.
-  await check(`${step}: npx missing entirely fails OPEN`, async () => {
+  // punished.
+  await check(`${step}: npx missing entirely fails OPEN with exit 0, {} and a stderr line`, async () => {
     const r = runHook(commandFor(step), payloadFor(step), { isolate: true });
-    assert(!blocks(r), `a missing npx must fail open, got exit=${r.code} stdout=${r.stdout}`);
+    assert(r.code === 0 && r.stdout === "{}",
+      `a missing npx must fail open, got exit=${r.code} stdout=${r.stdout}`);
+    assert(/\[jfrog-agent-guard\] skill governance did not run \(could not start npx: .*ENOENT.*\); this skill was not governed\./.test(r.stderr),
+      `a fail-open must say why on stderr: ${r.stderr}`);
   });
 
   await check(`${step}: agent-guard's own exit 2 still blocks`, async () => {

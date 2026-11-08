@@ -29,7 +29,7 @@ none of the version/repo ambiguity this rule exists to prevent.
 
 **The `jf skills install` command takes no project.** Resolving which repo hosts
 the slug uses `--list-skill-versions` (below), which does require `--project`, so
-use `<PROJECT>` resolved at session start (see SKILL.md Prerequisites).
+use the AI Governance project `<PROJECT>` (see SKILL.md Prerequisites).
 
 ```bash
 jf skills install "<slug>" \
@@ -95,7 +95,7 @@ one Agent Guard query:
 
 ```bash
 npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard \
-  --list-skill-versions --project "<PROJECT>" --skill "<slug>" --allowed-only [--server "<SID>"] [--cursor <C>] --format json
+  --list-skill-versions --project "<PROJECT>" --skill "<slug>" --allowed-only --server "<SID>" [--cursor <C>] --format json
 # read versions[].version, versions[].locations[].repoKey, versions[].locations[].allowStatus, exhausted, cursor
 ```
 
@@ -308,7 +308,7 @@ then run the script with network access:
 ```bash
 node "<skill_path>/scripts/jfrog-update-skill.mjs" --slug '<slug>' --install-dir "<install-dir>" \
   --server-id "<SID>" --project "<PROJECT>" --harness "<harness>"
-# Preview without touching Artifactory: add --dry-run
+# Preview without changing the install (still checks the allowed repos): add --dry-run
 # Reinstall even if already at the target version: add --force
 ```
 
