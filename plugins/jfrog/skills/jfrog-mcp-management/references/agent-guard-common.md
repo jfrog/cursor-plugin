@@ -22,7 +22,9 @@ Wherever `<REGISTRY_URL>` appears, substitute the value of the
 unset). Otherwise use
 `https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/` — JFrog's
 publicly accessible Releases Artifactory instance. It allows anonymous access
-and hosts Agent Guard releases.
+and hosts Agent Guard releases. It is independent of the AI Governance server:
+the two can be the same host or different ones, and neither is derived from
+the other.
 
 Canonical invocation (every catalog / login command; never omit `--registry`):
 `npx --yes --registry "<REGISTRY_URL>" @jfrog/agent-guard`
@@ -77,11 +79,10 @@ JFrog platform than the AI Governance server. Existing MCP entries written by
 older versions may lack `--server` or name another server; never copy their
 value.
 
-When the user names another JFrog server, ask: "Your AI Governance server
-is `<SERVER_ID>`. Should I continue on it, or do you want to run
-`/jfrog-init` to change it?" If they continue, use `<SERVER_ID>`. If they
-want to change it, stop; the AI Governance server is chosen in
-`/jfrog-init`, so they run that first.
+When the user names another JFrog server or project, say: "Your AI Governance
+server is `<SERVER_ID>` with project `<JFROG_PROJECT_KEY>`. To change it, run
+`/jfrog-init`." If they want to change it, stop; the AI Governance server and
+project are chosen in `/jfrog-init`, so they run that first.
 
 - **Live execution is MANDATORY — context reuse is FORBIDDEN.** Every time the
   user asks to list / show / inspect / check the catalog or a specific MCP —

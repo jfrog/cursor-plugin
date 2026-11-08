@@ -173,8 +173,9 @@ telemetry).
 
 Read [references/agent-guard-common.md](references/agent-guard-common.md) for the
 canonical invocation (`npx --yes --registry "<REGISTRY_URL>" @jfrog/agent-guard`),
-the `<REGISTRY_URL>` substitution, and how to get `<SERVER_ID>` and
-`<JFROG_PROJECT_KEY>`. Removal and List → Currently installed read only local
+the `<REGISTRY_URL>` substitution (the npm registry the `@jfrog/agent-guard`
+package comes from), and how to get `<SERVER_ID>` and `<JFROG_PROJECT_KEY>`
+from `setup.json`. Removal and List → Currently installed read only local
 config, so they skip this.
 
 **Route the request**, then jump to the matching section:
