@@ -202,6 +202,7 @@ Use standard endpoint management to place a consistent `agents-conf.json` on eve
 | Govern only some package types                   | List only those types in `defaultGlobalRepos` — others stay out of scope ([Selective governance](#selective-governance-choose-which-package-types-to-route)) |
 | Auto-configure package managers at first session | Add types to `autoSetup` ([Zero-touch setup](#zero-touch-setup-autosetup))                                                                                   |
 | Force all cached state to refresh                | Set `"cacheTtlDays": 0` (this also re-runs eligible zero-touch `jf setup` each session), or edit `agents-conf.json`                                          |
+| Turn plugin telemetry off org-wide               | Set `"telemetry": { "enabled": false }` in the deployed file ([Plugin telemetry](plugin-telemetry.md))                                                       |
 | Support troubleshooting                          | Set `"logLevel": "debug"` temporarily; logs go to `~/.jfrog/logs/agent-hooks.log`                                                                            |
 
 ---

@@ -47,6 +47,15 @@ Agent Package Resolution is in preview. The shipped template enables it with emp
 - **Users:** see the [User Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-user-guide.md).
 - **Admins:** see the [Admin Guide](https://github.com/jfrog/cursor-plugin/blob/main/docs/package-resolution-admin-guide.md).
 
+## Telemetry
+
+At the start of each session, the plugin sends a small lifecycle event (install, update, or a daily active event) so JFrog can count installs per coding assistant and version. The event holds no prompts, code, file paths, usernames, or tokens. To turn it off, set any one of these:
+
+- `JF_AGENT_TELEMETRY_DISABLE=1` or `DO_NOT_TRACK=1` in the environment the coding assistant starts with (only `1` counts).
+- `"telemetry": { "enabled": false }` in `~/.jfrog/agents-conf.json` (administrators can deploy it across the organization).
+
+See [Plugin telemetry](https://github.com/jfrog/cursor-plugin/blob/main/docs/plugin-telemetry.md) for what is sent, where it goes, and the details.
+
 ## Plugin MCP rewrite (Agent Guard)
 
 On every Cursor agent `sessionStart`, the plugin discovers plugin `mcp.json` and `.mcp.json` files under `~/.cursor/plugins/local/*` and `~/.cursor/plugins/cache/*` (marketplace installs), plus this plugin's own configs, and runs `npx @jfrog/agent-guard --rewrite-mcp-json` against those paths. Cursor can load servers from both files when both exist. Stdio MCP entries are rewritten to launch through Agent Guard; remote `url` / `http` / `sse` / `ws` entries are left unchanged. Workspace and user-level `.cursor/mcp.json` files are **not** rewritten. If a file is rewritten, the sessionStart hook asks you to **open a new session** so Cursor reconnects those MCPs.
