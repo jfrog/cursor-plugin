@@ -201,11 +201,24 @@ export function spawnHeartbeatPing(serverId, opts = {}) {
       settled = true;
       resolve(ok);
     };
+    if (!invocation.command) {
+      log.warn(
+        invocation.refused
+          ? `heartbeat ping not run: ${invocation.refused} for cmd.exe`
+          : "heartbeat ping skipped: jf not on PATH",
+        { serverId },
+      );
+      finish(false);
+      return;
+    }
     let child;
     try {
       child = spawnImpl(invocation.command, invocation.args, {
-        detached: true,
+        // Not through cmd.exe: a detached cmd.exe has no console, so jf.exe
+        // would open a visible one (same as buildNpxSpawnOptions).
+        detached: !invocation.shell,
         windowsHide: true,
+        shell: invocation.shell,
         stdio: "ignore",
         env: envWithHookUserAgent(env),
       });

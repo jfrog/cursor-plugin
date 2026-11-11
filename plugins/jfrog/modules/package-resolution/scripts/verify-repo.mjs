@@ -11,6 +11,7 @@ import {
 } from "../../core/jf-identity.mjs";
 import { createLogger } from "../../core/logger.mjs";
 import { skillsProductUserAgent } from "../../core/jf-user-agent.mjs";
+import { proxyFetch } from "../../core/proxy-fetch.mjs";
 import { PACKAGE_TYPES, repoMatchesPackageType } from "./repo-types.mjs";
 
 const log = createLogger("verify-repo");
@@ -114,7 +115,7 @@ export async function verifyRepoKey({ type, repoKey }) {
   const timer = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
   try {
     log.info("verifying repo key", { type: aprType, repoKey: key, url });
-    const res = await fetch(url, {
+    const res = await proxyFetch(url, {
       headers: {
         Authorization: authorization,
         Accept: "application/json",

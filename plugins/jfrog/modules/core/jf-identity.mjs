@@ -23,8 +23,9 @@ import { createHash } from "node:crypto";
 import process from "node:process";
 
 import { createLogger } from "./logger.mjs";
-import { spawnJfSync } from "./jf-process.mjs";
+import { JF_REFUSED, spawnJfSync } from "./jf-process.mjs";
 import { skillsProductUserAgent } from "./jf-user-agent.mjs";
+import { proxyFetch } from "./proxy-fetch.mjs";
 
 const log = createLogger("jf-identity");
 
@@ -92,6 +93,14 @@ function jfConfigIdentity(serverId) {
     return { identity: null, cause: IdentityCause.JF_NOT_INSTALLED };
   }
 
+  if (result.error?.code === JF_REFUSED) {
+    // jf is installed, but this server ID can't go through npm's jf.cmd.
+    log.warn("jf config export not run", {
+      serverId,
+      reason: result.error.message,
+    });
+    return { identity: null, cause: IdentityCause.JF_NOT_CONFIGURED };
+  }
   if (result.error) {
     log.debug("jf spawn error", {
       code: result.error.code,
@@ -305,7 +314,7 @@ export async function probePlatformIdentity(identity) {
   /** @type {{ ok: boolean, cause: string }} */
   let result;
   try {
-    const res = await fetch(pingUrl, {
+    const res = await proxyFetch(pingUrl, {
       method: "GET",
       headers: {
         Authorization: authorization,
