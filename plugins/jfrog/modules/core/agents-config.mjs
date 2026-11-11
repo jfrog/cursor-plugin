@@ -273,7 +273,7 @@ export function getAgentsConfigSection(name) {
   return section && typeof section === "object" ? section : null;
 }
 
-/** @returns {{ logLevel: string, packageResolution: object }} merged with documented defaults */
+/** @returns {{ logLevel: string, packageResolution: object, telemetry: { enabled: boolean } }} merged with documented defaults */
 export function loadAgentsConfig() {
   const file = readAgentsConfigRaw() ?? {};
   const pr =
@@ -284,6 +284,8 @@ export function loadAgentsConfig() {
     pr.defaultGlobalRepos && typeof pr.defaultGlobalRepos === "object"
       ? normalizeRepoMap(pr.defaultGlobalRepos)
       : {};
+  const telemetry =
+    file.telemetry && typeof file.telemetry === "object" ? file.telemetry : {};
 
   return {
     logLevel: normalizeLogLevel(file.logLevel),
@@ -295,6 +297,7 @@ export function loadAgentsConfig() {
       defaultGlobalRepos,
       autoSetup: normalizeAutoSetup(pr.autoSetup),
     },
+    telemetry: { enabled: normalizeTelemetryEnabled(telemetry.enabled) },
   };
 }
 
@@ -435,6 +438,14 @@ export function isAutoSetup(type) {
   const e = loadAgentsConfig().packageResolution.autoSetup;
   if (e === true) return true;
   return Array.isArray(e) && e.includes(type);
+}
+
+/** Off only for `false` or a string that lowercases to "false"; anything else is on. */
+function normalizeTelemetryEnabled(raw) {
+  return !(
+    raw === false ||
+    (typeof raw === "string" && raw.toLowerCase() === "false")
+  );
 }
 
 function normalizeLogLevel(level) {

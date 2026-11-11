@@ -20,6 +20,7 @@ import {
   parseWorkspaceRoots,
 } from "./core/io.mjs";
 import { setLogContext, createLogger } from "./core/logger.mjs";
+import { startTelemetry } from "./core/telemetry-runner.mjs";
 
 const HARNESS_ID = "claude_code";
 const log = createLogger("session-start");
@@ -70,6 +71,10 @@ async function main() {
   for (const w of agentsConfigLoadWarnings()) {
     log.warn(w.message, { path: w.path });
   }
+  // After the harness check, so a payload identified as another harness never
+  // reports as claude_code (an unidentified one still does). Returns at once;
+  // the send runs in its own process.
+  startTelemetry(HARNESS_ID);
   const text = await runCapability(capability, {
     ide: HARNESS_ID,
     sessionId,

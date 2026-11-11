@@ -32,6 +32,7 @@ import {
   safeErrorMessage,
 } from "../../core/jf-identity.mjs";
 import { skillsProductUserAgent } from "../../core/jf-user-agent.mjs";
+import { proxyFetch } from "../../core/proxy-fetch.mjs";
 import {
   BROKEN_KEY_CAUSES,
   PACKAGE_TYPES,
@@ -44,6 +45,10 @@ import {
 
 const log = createLogger("resolver");
 
+// Always under the home folder, never JFROG_CLI_HOME_DIR: the
+// jfrog-setup-package-managers skill reads this cache at
+// $HOME/.jfrog/skills-cache/package-resolution.json. The other hooks' caches
+// sit next to it.
 function cacheDir() {
   return path.join(homedir(), ".jfrog", "skills-cache");
 }
@@ -237,7 +242,7 @@ async function fetchRepoConfig(repoKey, id, deadline, scaffoldKeys) {
   const remaining = Math.max(0, deadline - Date.now());
   const timer = setTimeout(() => controller.abort(), remaining);
   try {
-    const res = await fetch(url, {
+    const res = await proxyFetch(url, {
       headers: {
         Authorization: authorization,
         Accept: "application/json",

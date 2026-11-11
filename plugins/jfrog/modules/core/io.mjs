@@ -84,14 +84,18 @@ const CLAUDE_SESSION_SOURCES = new Set([
 
 // Codex SessionStart reuses Claude's source values (startup/resume/clear/
 // compact). Classify it before those sources or the Codex adapter no-ops.
-// Fingerprints are from the official hook schema: transcript under `.codex/`
-// or `rollout.jsonl`, and session ids prefixed `thr_`.
+// Fingerprints: a transcript under `.codex/`, or a `rollout*.jsonl` file
+// (Codex's on-disk name is rollout-<time>-<thread id>.jsonl, per codex-rs
+// rollout_file_name.rs; the hooks docs' example is rollout.jsonl), or a `thr_`
+// session id (the docs' example; real ids are UUIDs). None of these is a
+// stable contract. On Windows the path has backslashes.
 function isCodexPayload(p) {
   const transcript = p.transcript_path;
   if (typeof transcript === "string" && transcript) {
+    const slashed = transcript.replaceAll("\\", "/");
     if (
-      transcript.includes("/.codex/") ||
-      transcript.endsWith("rollout.jsonl")
+      slashed.includes("/.codex/") ||
+      /(^|\/)rollout[^/]*\.jsonl$/.test(slashed)
     ) {
       return true;
     }

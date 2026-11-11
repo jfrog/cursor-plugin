@@ -51,9 +51,10 @@ export const DEFAULT_AGENT_GUARD_NPM_REGISTRY =
 /**
  * Pinned so a session start cannot execute whatever the registry currently
  * tags as latest. Bump deliberately; JFROG_AGENT_GUARD_VERSION overrides
- * (including "latest"). First release validated with `--rewrite-mcp-json`.
+ * (including "latest"). A bump must pass
+ * test/integration/agent-guard-rewrite-contract.test.mjs, which runs this version.
  */
-export const DEFAULT_AGENT_GUARD_VERSION = "1.6.0";
+export const DEFAULT_AGENT_GUARD_VERSION = "1.23.0";
 /**
  * Shared budget for rewriting all discovered files in one hook invocation.
  * Kept under the harness hook timeout (Cursor sessionStart is 60s); do not
@@ -224,6 +225,8 @@ export function activeProjectFromSetupFile(serverId, jpdUrl = "", opts = {}) {
 
 /**
  * Parse `jf config show --format=json` into a server list.
+ * The telemetry worker also parses jfrog-cli.conf.v6 with it, which holds
+ * tokens: keep the result to these three fields, never a secret.
  * @param {string} stdout
  * @returns {{ serverId: string, jpdUrl: string, isDefault: boolean }[]}
  */
@@ -280,13 +283,18 @@ export function pickDefaultJfCliServer(servers) {
  * @param {{
  *   env?: NodeJS.ProcessEnv,
  *   spawnSyncFn?: typeof spawnSync,
+ *   platform?: NodeJS.Platform,
  * }} [opts]
  * @returns {{ serverId: string, jpdUrl: string }[]}
  */
 export function listJfCliServers(opts = {}) {
   const env = opts.env ?? process.env;
   const spawnSyncFn = opts.spawnSyncFn ?? spawnSync;
-  const invocation = jfInvocation(["config", "show", "--format=json"], { env });
+  const invocation = jfInvocation(["config", "show", "--format=json"], {
+    env,
+    platform: opts.platform,
+  });
+  if (!invocation.command) return [];
   let res;
   try {
     res = spawnSyncFn(invocation.command, invocation.args, {
@@ -295,7 +303,7 @@ export function listJfCliServers(opts = {}) {
       env,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-      shell: false,
+      shell: invocation.shell,
     });
   } catch {
     return [];
