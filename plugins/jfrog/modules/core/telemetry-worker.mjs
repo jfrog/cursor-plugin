@@ -38,6 +38,7 @@ import { getAgentsConfigSection } from "./agents-config.mjs";
 import { isMainEntry } from "./entry.mjs";
 import { parseHttpStatus, runJf } from "./jpd-get.mjs";
 import { createLogger, setLogContext } from "./logger.mjs";
+import { proxyFetch } from "./proxy-fetch.mjs";
 import {
   hooksPackageVersion,
   skillsProductUserAgent,
@@ -912,7 +913,7 @@ export async function runWorker(opts) {
     env = process.env,
     dir = telemetryDir(),
     timeoutMs = SEND_TIMEOUT_MS,
-    fetchFn = fetch,
+    fetchFn = proxyFetch,
     now = Date.now,
     pluginDir,
     jitterMs = 0,

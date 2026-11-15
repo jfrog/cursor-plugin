@@ -7,14 +7,16 @@
 // (no socks, PAC or NTLM); anything else goes direct, as plain fetch did. Like
 // jf, loopback hosts always go direct, and NO_PROXY takes names, IPs and CIDR.
 //
-// When the proxy fails before the JPD answers (refused, unreachable, slow to
-// open the tunnel, TLS rejected), the call goes direct, as it did before proxy
-// support: a JPD that was reachable directly keeps working.
+// When the proxy fails before the JPD answers (refused, unreachable, CONNECT
+// answered with an error such as 407, slow to open the tunnel, TLS rejected),
+// the call goes direct, as it did before proxy support: a JPD that was
+// reachable directly keeps working. Once a body was sent, it isn't sent again.
 
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import process from "node:process";
+import { Readable } from "node:stream";
 
 const unbracket = (host) => host.replace(/^\[|\]$/g, "");
 
@@ -89,12 +91,13 @@ export function proxyFor(target, env = process.env) {
 }
 
 /**
- * GET `url` like fetch(url, init), through the proxy the environment names.
- * Only `headers` and `signal` are used, and through a proxy the Response has
- * just a status and a body (no redirects, headers or url): the hooks' callers
- * read only `ok`, `status` and `json()`.
+ * fetch(url, init) through the proxy the environment names. Only `method`,
+ * `headers`, a string `body` and `signal` are used, and through a proxy the
+ * Response has just a status, headers and a streamed body (no redirects or url): the
+ * hooks' callers read only `ok`, `status`, `json()` and, for telemetry, the
+ * Retry-After header.
  * @param {string} url
- * @param {{ headers?: Record<string, string>, signal?: AbortSignal }} [init]
+ * @param {{ method?: string, headers?: Record<string, string>, body?: string, signal?: AbortSignal }} [init]
  * @returns {Promise<Response>}
  */
 export async function proxyFetch(url, init = {}) {
@@ -102,14 +105,14 @@ export async function proxyFetch(url, init = {}) {
   const proxy = proxyFor(target);
   if (!proxy) return fetch(url, init);
   try {
-    return await getViaProxy(target, proxy, init);
+    return await sendViaProxy(target, proxy, init);
   } catch (err) {
     if (!err?.beforeAnswer) throw err; // after an answer, or the caller's time is up
     return fetch(url, init);
   }
 }
 
-function getViaProxy(target, proxy, { headers = {}, signal }) {
+function sendViaProxy(target, proxy, { method, headers = {}, body, signal }) {
   return new Promise((resolve, reject) => {
     let answered = false;
     let connectTimer;
@@ -154,6 +157,7 @@ function getViaProxy(target, proxy, { headers = {}, signal }) {
         req = httpsRequest({
           host: unbracket(target.hostname),
           port: target.port || 443,
+          method,
           path: `${target.pathname}${target.search}`,
           // Unlike fetch, nothing here decompresses: ask for the plain body.
           headers: { ...headers, "Accept-Encoding": "identity" },
@@ -169,23 +173,41 @@ function getViaProxy(target, proxy, { headers = {}, signal }) {
       req.on("error", fail);
       req.on("response", (answer) => {
         answered = true;
-        const chunks = [];
-        answer.on("data", (chunk) => chunks.push(chunk));
         answer.on("error", fail);
-        answer.on("end", () => {
-          const empty = [204, 205, 304].includes(answer.statusCode);
-          try {
-            resolve(
-              new Response(empty ? null : Buffer.concat(chunks), {
-                status: answer.statusCode,
-              }),
-            );
-          } catch (err) {
-            fail(err); // a status Response rejects, e.g. 999
-          }
-        });
+        // Like fetch: answer once the status and headers are in and stream the
+        // body, so a 429's Retry-After counts even if its body stalls.
+        const empty = [204, 205, 304].includes(answer.statusCode);
+        let res;
+        try {
+          // From the raw pairs, so repeated headers stay separate.
+          const headers = new Headers();
+          for (let i = 0; i < answer.rawHeaders.length; i += 2)
+            headers.append(answer.rawHeaders[i], answer.rawHeaders[i + 1]);
+          res = new Response(empty ? null : Readable.toWeb(answer), {
+            status: answer.statusCode,
+            headers,
+          });
+        } catch (err) {
+          answer.destroy();
+          fail(err); // a status Response rejects, e.g. 999
+          return;
+        }
+        if (empty) answer.resume();
+        // Time up while the body streams: reading it rejects with the
+        // signal's reason, as in fetch.
+        const onAbort = () => answer.destroy(signal.reason);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        answer.once("close", () =>
+          signal?.removeEventListener("abort", onAbort),
+        );
+        resolve(res);
       });
-      req.end();
+      // With a body, Node sends its Content-Length. Once the body is written
+      // the target may already have it, so a later failure is not resent
+      // direct: a POST, unlike a GET, isn't safe to send twice.
+      req.end(body, () => {
+        if (body != null) answered = true;
+      });
     });
     tunnel.end();
   });
