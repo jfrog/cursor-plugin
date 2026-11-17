@@ -197,7 +197,7 @@ On a blocked `Read` the agent is given the command and can run it once you say w
 > A user who is entitled to nothing is unaffected either way: the Agent Guard answers "allow" for an
 > unconfigured or unentitled user, so no setup is needed to opt out of the feature.
 
-- Run `/jfrog-init` to set the AI Governance server and project; the hook passes that server to the Agent Guard. For an entitled account with credentials but no project, skills are **blocked** with a message telling you what to set; with no credentials at all they are **allowed**, per the table above.
+- Run `/jfrog-init` to set the AI Governance server and project; the hook passes that server to the Agent Guard. For an entitled account with a server set but no project, skills are **blocked** with a message telling you what to set; with no server set they are **allowed**, per the table above.
 - **Node.js (≥ 18) with `npx` on your `PATH`** — the hook resolves the Agent Guard through `npx`. Without it, governed actions are allowed unchecked.
 - **Cost per call.** The hook spawns a Node launcher, `npx` and the Agent Guard on *every* prompt submission (`beforeSubmitPrompt` is unmatched, so it sees all of them) and on *every* `Read`. There is no throttle and no cache of a recent verdict, so a read-heavy session pays it repeatedly. Measured warm on macOS: **~1.1s** per prompt, where the Agent Guard is revalidated against the registry so a released fix reaches you, and **~0.3s** per `Read`, which reads the copy that revalidation left in the cache.
 - The Agent Guard logs its decisions to stderr; run Cursor with hook output visible to see them.
