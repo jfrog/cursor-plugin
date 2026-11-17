@@ -2,11 +2,13 @@
 // Agent Guard launcher for the skill-governance hooks.
 //   node enforce-skill.mjs --client <claude-code|cursor|vscode> [--prefer-offline]
 //
-// Starts `npx @jfrog/agent-guard --enforce-skill --client <name> [--server <id>]`.
-// The server is the jf CLI one Agent Guard would pick on its own. The hook
-// string is only `node` plus this file: VS Code (and Claude Code without Git
-// Bash) runs hook strings with PowerShell on Windows, which cannot parse a POSIX
-// env prefix or $(date). This process computes the deadline, bounds the npm
+// Starts `npx @jfrog/agent-guard --enforce-skill --client <name> --server
+// <id> [--project <key>]`. The server and project are the AI Governance ones
+// from setup.json: the server is "" when none is set, and --project is left
+// out when no project is saved or no server is sent. The hook string is only
+// `node` plus this file: VS Code (and Claude Code without Git Bash) runs
+// hook strings with PowerShell on Windows, which cannot parse a POSIX env
+// prefix or $(date). This process computes the deadline, bounds the npm
 // fetch, then spawns npx. It does not read the verdict: Agent Guard's exit 0
 // or 2 passes through with its stdout.
 //
@@ -14,7 +16,7 @@
 // arrive intact. Only when npm is not beside node.exe does it fall back to
 // npx.cmd under cmd.exe, and then it refuses an argument cmd.exe cannot carry
 // (%, ", CR/LF) rather than mangle it, except the optional server id, which it
-// leaves out.
+// empties, and the project, which it leaves out.
 //
 // Every other outcome (bad argv, spawn failure, signal, any other exit code)
 // fails open in the shape the client reads as "allow", see FAIL_OPEN. Agent
@@ -34,11 +36,10 @@ import path from "node:path";
 import process from "node:process";
 
 import { isMainEntry } from "./entry.mjs";
+import { resolveAiGovernanceConfig } from "./jfrog-ai-governance-config.mjs";
 import { createLogger } from "./logger.mjs";
 import {
   AGENT_GUARD_PACKAGE,
-  listJfCliServers,
-  pickDefaultJfCliServer,
   resolveAgentGuardNpmRegistry,
 } from "./rewrite-mcp-json.mjs";
 
@@ -163,30 +164,40 @@ export function quoteCmdArg(arg) {
 }
 
 /**
- * The jf CLI server Agent Guard picks when run without `--server`: the only
- * one configured, or the default. With JFROG_URL set it uses env credentials
- * instead, so there is nothing to pass.
+ * The AI Governance server and project saved in setup.json by /jfrog-init.
+ * When no server is set the launcher passes `--server ""`, which Agent Guard
+ * reads as no server set, so it allows the skill and contacts nothing.
  *
  * @param {NodeJS.ProcessEnv} [env]
- * @returns {string} the server id, or "" when Agent Guard should choose
+ * @returns {{ serverId: string, project: string }} "" for each one not set
  */
-export function defaultServerId(env = process.env) {
-  if (env.JFROG_URL) return "";
-  const picked = pickDefaultJfCliServer(listJfCliServers({ env }));
-  return "serverId" in picked ? picked.serverId : "";
+export function aiGovernanceTarget(env = process.env) {
+  const config = resolveAiGovernanceConfig({ env, log });
+  if (config.status === "ok") {
+    return { serverId: config.serverId, project: config.project };
+  }
+  return {
+    serverId: config.status === "no_project" ? config.serverId : "",
+    project: "",
+  };
 }
 
 /**
  * Spawn plan for `npx --enforce-skill`. POSIX runs npx with no shell. Windows
  * runs npx-cli.js with node, falling back to npx.cmd under cmd.exe (not
  * ComSpec, which may be PowerShell) only when npm is not beside node.exe.
- * The optional `serverId` follows `--client`; the cmd.exe fallback omits it when
- * cmd.exe cannot carry it, since the id is never worth failing open over.
+ * `--server` and the id always follow `--client`, the id empty when none is
+ * set. `--project` and the project follow them, and are left out when there is
+ * no project or the server id is sent empty. The cmd.exe fallback sends an
+ * empty id when cmd.exe cannot carry the real one, so the flag is never absent
+ * and the id is never worth failing open over. It leaves out a project it
+ * cannot carry.
  *
  * @param {{
  *   client: string,
  *   preferOffline?: boolean,
  *   serverId?: string,
+ *   project?: string,
  *   env?: NodeJS.ProcessEnv,
  *   nowSec?: number,
  *   platform?: NodeJS.Platform,
@@ -205,6 +216,11 @@ export function resolveEnforceSpawn(opts) {
     npm_config_fetch_retries: NPM_FETCH_RETRIES,
     npm_config_fetch_timeout: NPM_FETCH_TIMEOUT_MS,
   };
+  // Without --project, Agent Guard takes the project from setup.json. It still
+  // reads these env vars when set, so drop them (AX-2405 removes that fallback
+  // in Agent Guard).
+  delete childEnv.JF_PROJECT;
+  delete childEnv.JFROG_PROJECT;
   // An inherited absolute deadline would pin this run to an earlier instant.
   if (Number.isFinite(opts.nowSec)) {
     childEnv.JF_AGENT_GUARD_ENFORCE_DEADLINE = String(
@@ -225,14 +241,19 @@ export function resolveEnforceSpawn(opts) {
     opts.client,
   );
 
-  const server =
-    opts.serverId && !opts.serverId.startsWith("--")
-      ? ["--server", opts.serverId]
+  // An id starting with `--` is sent empty, and a project starting with `--`
+  // or without its server is not sent.
+  const serverId =
+    opts.serverId && !opts.serverId.startsWith("--") ? opts.serverId : "";
+  const server = ["--server", serverId];
+  const project =
+    serverId && opts.project && !opts.project.startsWith("--")
+      ? ["--project", opts.project]
       : [];
   if (platform !== "win32") {
     return {
       command: "npx",
-      args: [...args, ...server],
+      args: [...args, ...server, ...project],
       shell: false,
       env: childEnv,
     };
@@ -241,16 +262,26 @@ export function resolveEnforceSpawn(opts) {
   if (cli) {
     return {
       command: execPath,
-      args: [cli, ...args, ...server],
+      args: [cli, ...args, ...server, ...project],
       shell: false,
       env: childEnv,
     };
   }
   const quoted = args.map(quoteCmdArg);
+  let carriesServer = true;
   try {
     quoted.push(...server.map(quoteCmdArg));
   } catch {
-    // cmd.exe cannot carry this id; Agent Guard resolves the server itself.
+    // cmd.exe cannot carry this id; send no server rather than fail open.
+    carriesServer = false;
+    quoted.push(...["--server", ""].map(quoteCmdArg));
+  }
+  if (carriesServer) {
+    try {
+      quoted.push(...project.map(quoteCmdArg));
+    } catch {
+      // cmd.exe cannot carry this project; Agent Guard reads it from setup.json.
+    }
   }
   return {
     command: "npx.cmd",
@@ -314,7 +345,7 @@ export function runEnforceSkill(opts = {}) {
     try {
       plan = resolveEnforceSpawn({
         ...parseEnforceArgs(argv),
-        serverId: defaultServerId(env),
+        ...aiGovernanceTarget(env),
         env,
         nowSec,
         platform: opts.platform,
