@@ -56,6 +56,14 @@ export const DEFAULT_AGENT_GUARD_NPM_REGISTRY =
  */
 export const DEFAULT_AGENT_GUARD_VERSION = "1.23.0";
 /**
+ * The exact Agent Guard the skill-governance, Local Shadow and pre-warm hooks
+ * run. The Claude plugin directory blocks a package launcher without an exact
+ * version. Not overridable from the environment: the governed machine must not
+ * pick which build governs it. Bump deliberately, like the rewrite pin above.
+ */
+export const GOVERNANCE_AGENT_GUARD_VERSION = "1.26.0";
+export const GOVERNANCE_AGENT_GUARD_SPEC = `${AGENT_GUARD_PACKAGE}@${GOVERNANCE_AGENT_GUARD_VERSION}`;
+/**
  * Shared budget for rewriting all discovered files in one hook invocation.
  * Kept under the harness hook timeout (Cursor sessionStart is 60s); do not
  * raise this to match the hook timeout.
