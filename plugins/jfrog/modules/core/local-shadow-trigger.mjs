@@ -6,8 +6,11 @@
 //   1. the default jf CLI server has an access token
 //   2. the backend says scanning is enabled (asked through `jf api`, see jpd-get.mjs)
 //   3. read the plugin version from plugin.json ("UNKNOWN" when unreadable)
-//   4. start `agent-guard --local-shadow-scan --server <id> [--session-id <id>] [--workspace <dir>]
-//      --plugin-version <v> --harness <h>` in the background
+//   4. build the session's launch (claude-launch.mjs)
+//   5. start `agent-guard --local-shadow-scan --server <id> [--session-id <id>] [--workspace <dir>]
+//      --plugin-version <v> --harness <h> [--launch-json -]` in the background, with the
+//      launch JSON on its stdin. The launch can hold secrets, so it never goes in argv
+//      and only its key names are logged.
 // The first step that fails ends the run. Each run appends its result to
 // ~/.jfrog/shadow/local-shadow-hook.log. Claude Code only; see README
 // "Local Shadow AI scan".
@@ -25,6 +28,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { buildLaunch } from "./claude-launch.mjs";
 import { isMainEntry } from "./entry.mjs";
 import { detectHarness, readStdin } from "./io.mjs";
 import {
@@ -55,6 +59,9 @@ export const RESULT = Object.freeze({
 export const SCANNING_ENABLED_PATH =
   "/aisec/api/v1/local-shadow/scanning-enabled";
 const REQUEST_TIMEOUT_MS = 30_000;
+// How long the launch write to the scanner's stdin may take. agent-guard reads
+// it at startup; through npx with a cold cache that can wait for a download.
+const LAUNCH_WRITE_TIMEOUT_MS = 60_000;
 export const HOOK_LOG_FILE = "local-shadow-hook.log";
 export const HOOK_LOG_MAX_BYTES = 5 * 1024 * 1024;
 const DIR_MODE = 0o700;
@@ -117,8 +124,28 @@ async function checkScanningEnabled(identity, { env, timeoutMs, getFn }) {
   return failed("response has no boolean 'enabled'");
 }
 
+// Writes the launch to the scanner's stdin and closes it. Resolves once the OS
+// has it, or with the error; it never rejects.
+function writeLaunch(stdin, launch, timeoutMs) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(
+      () => resolve("timed out writing the launch"),
+      timeoutMs,
+    );
+    stdin.once("error", (err) => {
+      clearTimeout(timer);
+      resolve(safeErrorMessage(err));
+    });
+    stdin.end(JSON.stringify(launch), (err) => {
+      clearTimeout(timer);
+      resolve(err ? safeErrorMessage(err) : undefined);
+    });
+  });
+}
+
 // Starts `agent-guard --local-shadow-scan` in the background. Resolves as soon as
-// the OS has started the process; it never waits for the scan to finish.
+// the OS has started the process and has the launch; it never waits for the scan
+// to finish. Returns the launch write error, if any.
 async function startScanner(
   env,
   platform,
@@ -126,6 +153,7 @@ async function startScanner(
   serverId,
   session,
   pluginVersion,
+  launch,
 ) {
   const scanArgs = [
     "--local-shadow-scan",
@@ -136,6 +164,7 @@ async function startScanner(
     pluginVersion,
     "--harness",
     HARNESS_ID,
+    ...(launch ? ["--launch-json", "-"] : []),
   ];
   const bin = resolveAgentGuardBin(env);
   const command = bin ?? resolveNpxCommand(platform);
@@ -154,14 +183,18 @@ async function startScanner(
       );
   const child = spawnFn(command, args, {
     ...buildNpxSpawnOptions(env, platform, { local: Boolean(bin) }),
-    stdio: "ignore",
+    stdio: launch ? ["pipe", "ignore", "ignore"] : "ignore",
     windowsHide: true,
   });
   await new Promise((resolve, reject) => {
     child.once("spawn", resolve);
     child.once("error", reject);
   });
+  const launchError = launch
+    ? await writeLaunch(child.stdin, launch, LAUNCH_WRITE_TIMEOUT_MS)
+    : undefined;
   child.unref();
+  return launchError;
 }
 
 // Appends one JSON line to the trigger log. When the log reaches HOOK_LOG_MAX_BYTES
@@ -178,17 +211,32 @@ export function appendHookLog(logPath, entry) {
   }
 }
 
-// Steps 1-4 of the flow at the top. Returns the { result, error? } to log;
-// an unreadable plugin version adds pluginVersionError.
+// The launch to send, and what to log about it: its key names, or why there is
+// none.
+function launchFor(payload, buildLaunchFn) {
+  if (!payload) return { launch: undefined, note: {} };
+  try {
+    const launch = buildLaunchFn(payload);
+    return { launch, note: { launchFields: Object.keys(launch).sort() } };
+  } catch (err) {
+    return { launch: undefined, note: { launchError: safeErrorMessage(err) } };
+  }
+}
+
+// Steps 1-5 of the flow at the top. Returns the { result, error? } to log;
+// an unreadable plugin version adds pluginVersionError, the launch adds
+// launchFields or launchError.
 async function runChecksAndStartScanner({
   env,
   session,
+  payload,
   getIdentityFn,
   getFn,
   timeoutMs,
   spawnFn,
   platform,
   pluginDir,
+  buildLaunchFn,
 }) {
   const { identity, cause } = getIdentityFn();
   if (
@@ -225,15 +273,18 @@ async function runChecksAndStartScanner({
     pluginVersionError = safeErrorMessage(err);
   }
   const versionNote = pluginVersionError ? { pluginVersionError } : {};
+  const { launch, note } = launchFor(payload, buildLaunchFn);
 
+  let launchError;
   try {
-    await startScanner(
+    launchError = await startScanner(
       env,
       platform,
       spawnFn,
       identity.serverId,
       session,
       pluginVersion,
+      launch,
     );
   } catch (err) {
     return {
@@ -242,7 +293,12 @@ async function runChecksAndStartScanner({
       ...versionNote,
     };
   }
-  return { result: RESULT.SCANNER_STARTED, ...versionNote };
+  return {
+    result: RESULT.SCANNER_STARTED,
+    ...versionNote,
+    ...note,
+    ...(launchError && { launchError }),
+  };
 }
 
 // The stdin payload, or null when it isn't a JSON object.
@@ -280,6 +336,8 @@ export async function runLocalShadowTrigger(trigger, overrides = {}) {
   const deps = {
     env: process.env,
     session: {},
+    payload: undefined,
+    buildLaunchFn: buildLaunch,
     getIdentityFn: getPlatformIdentity,
     getFn: jpdGet,
     timeoutMs: REQUEST_TIMEOUT_MS,
@@ -306,6 +364,7 @@ if (isMainEntry(import.meta.url)) {
         isNewSession(payload) &&
         runLocalShadowTrigger(trigger, {
           session: parseSession(payload, process.env),
+          payload,
         })
       );
     })
