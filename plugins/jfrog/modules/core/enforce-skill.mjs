@@ -25,9 +25,8 @@
 // Each fail-open is also logged to agent-hooks.log; an allow or block is not,
 // since PreToolUse fires on every Read.
 //
-// Unlike rewrite-mcp-json, the Agent Guard version is never pinned, so a
-// governance fix reaches users without a plugin release:
-// JFROG_AGENT_GUARD_VERSION and JFROG_AGENT_GUARD_BIN are ignored.
+// The Agent Guard version is GOVERNANCE_AGENT_GUARD_VERSION, fixed in the
+// plugin: JFROG_AGENT_GUARD_VERSION and JFROG_AGENT_GUARD_BIN are ignored.
 // JFROG_AGENT_GUARD_REPO still redirects the registry.
 
 import { spawn } from "node:child_process";
@@ -39,7 +38,7 @@ import { isMainEntry } from "./entry.mjs";
 import { resolveAiGovernanceConfig } from "./jfrog-ai-governance-config.mjs";
 import { createLogger } from "./logger.mjs";
 import {
-  AGENT_GUARD_PACKAGE,
+  GOVERNANCE_AGENT_GUARD_SPEC,
   resolveAgentGuardNpmRegistry,
 } from "./rewrite-mcp-json.mjs";
 
@@ -235,7 +234,7 @@ export function resolveEnforceSpawn(opts) {
   args.push(
     "--registry",
     resolveAgentGuardNpmRegistry(env),
-    AGENT_GUARD_PACKAGE,
+    GOVERNANCE_AGENT_GUARD_SPEC,
     "--enforce-skill",
     "--client",
     opts.client,
