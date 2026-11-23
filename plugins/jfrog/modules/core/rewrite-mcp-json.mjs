@@ -61,7 +61,7 @@ export const DEFAULT_AGENT_GUARD_VERSION = "1.23.0";
  * version. Not overridable from the environment: the governed machine must not
  * pick which build governs it. Bump deliberately, like the rewrite pin above.
  */
-export const GOVERNANCE_AGENT_GUARD_VERSION = "1.27.0";
+export const GOVERNANCE_AGENT_GUARD_VERSION = "1.28.0";
 export const GOVERNANCE_AGENT_GUARD_SPEC = `${AGENT_GUARD_PACKAGE}@${GOVERNANCE_AGENT_GUARD_VERSION}`;
 /**
  * Shared budget for rewriting all discovered files in one hook invocation.

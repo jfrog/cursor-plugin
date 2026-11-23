@@ -3,7 +3,7 @@
 // can't learn is left out, and the scanner uses its default for it.
 //
 // Sources:
-//   1. the SessionStart payload: cwd, permission_mode, agent_type
+//   1. the hook payload (SessionStart or UserPromptSubmit): cwd, permission_mode, agent_type
 //   2. Claude's environment, which the hook inherits
 //   3. Claude's command line, found by walking up the hook's parent processes
 //   4. ~/.claude.json (trust) and the running Claude's version
@@ -86,7 +86,7 @@ export function scannerOS(platform, env = {}, readFileFn = readFileSync) {
   return platform;
 }
 
-// Fields from the SessionStart payload.
+// Fields from the hook payload (SessionStart or UserPromptSubmit).
 export function launchFromPayload(payload) {
   const out = {};
   if (text(payload?.cwd)) out.cwd = payload.cwd;
