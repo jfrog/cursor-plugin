@@ -350,10 +350,11 @@ export async function probePlatformIdentity(identity) {
 
 /**
  * Config-only identity (sync). Does not probe reachability.
+ * @param {string} [serverId] the jf CLI server to export; omitted, the jf default
  * @returns {{ identity: object | null, cause: string }}
  */
-export function getPlatformIdentity() {
-  const hint = undefined;
+export function getPlatformIdentity(serverId) {
+  const hint = serverId || undefined;
   if (CACHE.has(hint)) return CACHE.get(hint);
 
   const status = jfConfigIdentity(hint);

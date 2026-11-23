@@ -24,7 +24,6 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -36,6 +35,7 @@ import { fileURLToPath } from "node:url";
 
 import { getAgentsConfigSection } from "./agents-config.mjs";
 import { isMainEntry } from "./entry.mjs";
+import { writeJsonAtomic } from "./json-file.mjs";
 import { parseHttpStatus, runJf } from "./jpd-get.mjs";
 import { createLogger, setLogContext } from "./logger.mjs";
 import { proxyFetch } from "./proxy-fetch.mjs";
@@ -113,31 +113,6 @@ export function backoffPath(dir, harness) {
 /** @param {string} dir @param {string} harness */
 function receiptLockPath(dir, harness) {
   return path.join(dir, `receipt-${harness}.lock`);
-}
-
-/**
- * Write JSON through a temp file and a rename, so a reader never sees half a
- * file.
- * @param {string} file
- * @param {unknown} data
- */
-export function writeJsonAtomic(file, data) {
-  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    renameSync(tmp, file);
-  } catch (err) {
-    try {
-      unlinkSync(tmp);
-    } catch {
-      /* ignore */
-    }
-    throw err;
-  }
 }
 
 /**
